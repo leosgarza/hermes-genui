@@ -76,6 +76,16 @@ describe("tiles", () => {
       expect(screen.getByText("Kyoto")).toBeTruthy();                   // the card itself stays, title-only
     });
 
+    it("paints a fitting word whole where the helper cut after its comma", () => {
+      // The comma itself is the helper's to drop; the word before it is content the cover must keep.
+      const { container } = draw([{
+        type: "tiles",
+        items: [{ title: "Flights", subtitle: "Airport ".repeat(10) + "express, " + "b".repeat(60), run: "Compare flights" }],
+      }]);
+      const shown = container.querySelector(".hb-tile-subtitle")!.textContent!;
+      expect(shown.endsWith("express…")).toBe(true);   // not trimmed back before a fitting whole word
+    });
+
     it("keeps the cover shape: the card sizes from its aspect-ratio, not from the text", () => {
       const { container } = draw(board);
       const unstyle = withStyles(tilesCss);

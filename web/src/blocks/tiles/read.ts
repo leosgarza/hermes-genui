@@ -22,17 +22,20 @@ const MORE_FIELDS = ["subtitle", "value", "text", "caption", "note", "descriptio
  * The tiles subtitle cut, built on the shared cutAtWord: at most SUBTITLE_MAX characters, always cut between whole
  * words, "…" marking what was left out. cutAtWord already does this while a space falls in the back half of the
  * room; when one unbroken run takes the room it falls back to slicing the run, and here that partial word is
- * dropped instead — the whole words that fit stay. When not even the first word fits the answer is "": the tile
- * goes without a subtitle rather than paint half a word.
- *   ("short " + "b".repeat(200)) → "short…";  ("u".repeat(200)) → ""
+ * dropped instead — the whole words that fit stay. Which branch the helper took is read from its own condition on
+ * the text, never from its answer: the answer has already dropped the comma or dash left at a good boundary, and
+ * mistaking that strip for a slice would throw away a fitting word. When not even the first word fits the answer
+ * is "": the tile goes without a subtitle rather than paint half a word.
+ *   ("short " + "b".repeat(200)) → "short…";  ("…express, " + "b"×60) → "…express…";  ("u".repeat(200)) → ""
  */
 function cutSubtitle(text: string): string {
   const cut = cutAtWord(text, SUBTITLE_MAX);
-  const kept = cut.slice(0, -1);          // what the helper stopped on — always a prefix of the text
-  const sliced = cut !== text && /\S$/.test(kept) && /\S/.test(text[kept.length]);
-  if (!sliced) return cut;                // a whole-word cut (or a fit): the helper's own answer stands
-  const whole = kept.replace(/\S+$/, "").replace(/[\s,;:.–—-]+$/, "");  // drop the partial word it sliced
-  return whole ? `${whole}…` : "";        // unless it was the first word: then no subtitle at all
+  if (cut === text) return cut;                       // fits whole: nothing to cut
+  const room = text.slice(0, SUBTITLE_MAX - 1);       // the same room the helper cut inside
+  const lastSpace = room.search(/\s\S*$/);
+  if (lastSpace > SUBTITLE_MAX / 2) return cut;       // the helper's real word boundary — even with its comma dropped
+  const whole = room.slice(0, Math.max(lastSpace, 0)).replace(/[\s,;:.–—-]+$/, "");
+  return whole ? `${whole}…` : "";                    // sliced run: partial word goes; unless it was the first word
 }
 
 /**

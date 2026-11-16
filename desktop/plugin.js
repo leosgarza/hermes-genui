@@ -4583,10 +4583,11 @@ var TITLE_FIELDS = ["title", "label", "name", "caption", "text"];
 var MORE_FIELDS = ["subtitle", "value", "text", "caption", "note", "description"];
 function cutSubtitle(text) {
   const cut = cutAtWord(text, SUBTITLE_MAX);
-  const kept = cut.slice(0, -1);
-  const sliced = cut !== text && /\S$/.test(kept) && /\S/.test(text[kept.length]);
-  if (!sliced) return cut;
-  const whole2 = kept.replace(/\S+$/, "").replace(/[\s,;:.–—-]+$/, "");
+  if (cut === text) return cut;
+  const room = text.slice(0, SUBTITLE_MAX - 1);
+  const lastSpace = room.search(/\s\S*$/);
+  if (lastSpace > SUBTITLE_MAX / 2) return cut;
+  const whole2 = room.slice(0, Math.max(lastSpace, 0)).replace(/[\s,;:.–—-]+$/, "");
   return whole2 ? `${whole2}\u2026` : "";
 }
 function readTiles(raw, here) {

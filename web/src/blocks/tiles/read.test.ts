@@ -2,6 +2,7 @@
 // note saying why.
 import { describe, expect, it } from "vitest";
 import { readBlocksNoted } from "../../core/readBlocks";
+import { cutAtWord } from "../../core/fields";
 
 const one = (block: unknown) => readBlocksNoted([block]);
 
@@ -61,6 +62,31 @@ describe("tiles", () => {
     expect(sub).toBe("short…");   // the word that fits, whole; no partial b's; "…" marks what was dropped
     expect(sub.length).toBeLessThanOrEqual(120);
   });
+
+  // A comma or dash left at the cut is dropped by cutAtWord itself, so the character just past a kept whole word
+  // can be punctuation even when nothing was sliced. The tiles cut must read the helper's own boundary condition,
+  // not its stripped output: where the helper stopped at a real word boundary its answer stands untouched — a
+  // fitting word followed by its comma is content, not a slice to repair.
+  it("keeps the helper's boundary cut when it drops a comma after the last whole word", () => {
+    const text = "Airport ".repeat(10) + "express, " + "b".repeat(60);
+    const r = one({ type: "tiles", items: [{ title: "Flights", subtitle: text, run: "Compare flights" }] });
+    const sub = (r.blocks[0] as any).items[0].subtitle;
+    expect(sub).toBe("Airport ".repeat(10) + "express…");  // "express" fits whole: it stays
+    expect(sub).toBe(cutAtWord(text, 120));                // exactly the helper's own boundary-safe answer
+  });
+  it("keeps the helper's boundary cut after a dash too", () => {
+    const text = "Note ".repeat(16) + "draft— " + "c".repeat(60);
+    const r = one({ type: "tiles", items: [{ title: "Hotels", subtitle: text, run: "Compare hotels" }] });
+    const sub = (r.blocks[0] as any).items[0].subtitle;
+    expect(sub).toBe("Note ".repeat(16) + "draft…");
+    expect(sub).toBe(cutAtWord(text, 120));
+  });
+  it("keeps a first word that fits before its comma instead of dropping the subtitle", () => {
+    const text = "x".repeat(80) + ", " + "b".repeat(60);   // the 80-char word ends on a real boundary; the run past it does not fit
+    const r = one({ type: "tiles", items: [{ title: "Flights", subtitle: text, run: "Compare flights" }] });
+    const sub = (r.blocks[0] as any).items[0].subtitle;
+    expect(sub).toBe("x".repeat(80) + "…");                 // kept whole, not dropped with the run
+  });
   it("leaves the subtitle off when not even its first word fits", () => {
     const r = one({ type: "tiles", items: [{ title: "Trains", subtitle: "u".repeat(200), run: "Compare trains" }] });
     const item = (r.blocks[0] as any).items[0];
@@ -73,6 +99,8 @@ describe("tiles", () => {
       "short " + "b".repeat(200),                                 // long unbroken run after a short word
       "u".repeat(200),                                            // long unbroken run from the first word
       "Pick the local —" + "x".repeat(150),                       // long unbroken run after punctuation
+      "Airport ".repeat(10) + "express, " + "b".repeat(60),       // boundary where the helper drops its comma
+      "x".repeat(80) + ", " + "b".repeat(60),                     // first word ends on a comma before a long run
       Array.from({ length: 40 }, () => "stationary").join(" "),   // uniform prose the cap must land mid-word on
       "one two three four".repeat(20),                            // ordinary short words
       shortReason,                                                // a reason that fits whole
@@ -83,8 +111,11 @@ describe("tiles", () => {
       const kept = sub === undefined ? "" : sub.endsWith("…") ? sub.slice(0, -1) : sub;
       expect(kept.length).toBeLessThanOrEqual(120);
       expect(text.startsWith(kept)).toBe(true);                   // the author's own words, in order
-      const betweenWords = kept.length === 0 || kept.length === text.length
-        || /\s/.test(text[kept.length - 1]) || /\s/.test(text[kept.length]);
+      const word = (ch: string | undefined) => ch !== undefined && /[\p{L}\p{N}]/u.test(ch);
+      // Inside a word means word characters on BOTH sides of the cut. A comma, dash or space the helper left
+      // (or dropped) at the stop is what separates words — a cut ending "…express" with its comma next is on
+      // a boundary, not mid-word; a cut inside "bbb…" has b's on both sides.
+      const betweenWords = !(word(text[kept.length - 1]) && word(text[kept.length]));
       expect(betweenWords, `the cut landed inside a word: ${text.slice(0, 24)}…`).toBe(true);
     }
   });
