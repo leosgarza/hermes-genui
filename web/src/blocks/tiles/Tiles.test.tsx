@@ -50,58 +50,78 @@ describe("tiles", () => {
     expect(container.querySelector(".hb-tile img")).toBeNull();
   });
 
-  // Regression: a decision card's reason (its subtitle) had to be read by HOVERING — the reader cut it at 80
-  // characters, the CSS clamped it to two low-contrast lines, and the wording was complete only in the native
-  // `title` tooltip. The whole reason must be visible and legible without any hover.
-  describe("reads in full without hovering", () => {
-    // A 1–2 sentence decision reason: longer than the old 80-char cap, inside the new one.
-    const reason =
-      "Take the 08:12 local to Omiya and the Keihin-Tohoku line direct to Tokyo Station — about 85 minutes, and it skips the shinkansen fare.";
-
-    it("shows the whole reason, not a cut-off teaser", () => {
-      expect(reason.length).toBeGreaterThan(80);
-      draw([{ type: "tiles", items: [{ title: "Local train", subtitle: reason, run: "Book the 08:12 local" }] }]);
-      expect(screen.getByText(reason)).toBeTruthy();
-    });
-
-    // Review regression: an 180-character cap still cut real reasons — a single 206-character sentence and a
-    // 244-character two-sentence reason each lost their ending on the card itself. Neither may be shortened here:
-    // whatever the reader hands the renderer must paint whole, with no ellipsis and nothing held for the hover.
-    const longOneSentence =
-      "Compare all four hotels side by side before booking: the riverside one is 12k a night but a twenty-minute walk to the office, the Grand is loudest but cheapest, and only the corner suites get morning light.";
-    const twoSentences =
+  // The design the cover asks for (PR #12 review): every card keeps its cover shape — its height comes from its
+  // aspect-ratio, never from the text — the reason reads in up to three lines cut between words, and the photo
+  // stays bright because only the caption darkens behind the text. Behaviour checks only: exact pixel sizes and
+  // rgba values went stale at every design tweak, so nothing here pins one.
+  describe("reads at a glance without growing the cover", () => {
+    const longReason =
       "Take the 08:12 local to Omiya and the Keihin-Tohoku line direct to Tokyo Station — about 85 minutes, and it skips the shinkansen fare. Arriving before nine leaves the whole morning free for the east side, which the later trains cannot give you.";
+    const board = [{ type: "tiles", items: [{ title: "Local train", subtitle: longReason, run: "Book the 08:12 local" }] }];
 
-    for (const [name, text] of [["a 206-character single sentence", longOneSentence], ["a longer two-sentence reason", twoSentences]] as const) {
-      it(`renders ${name} in full, uncut`, () => {
-        const { container } = draw([{ type: "tiles", items: [{ title: "Hotels", subtitle: text, run: "Compare hotels" }] }]);
-        const sub = container.querySelector(".hb-tile-subtitle")!;
-        expect(sub.textContent).toBe(text);              // every word of it is on the card
-        expect(sub.textContent!.endsWith("…")).toBe(false);  // nothing cut away
-      });
-    }
-
-    it("keeps hover a supplement: the tap message still rides in the native title", () => {
-      draw([{ type: "tiles", items: [{ title: "Local train", subtitle: reason, run: "Book the 08:12 local" }] }]);
-      expect(screen.getByRole("button", { name: /Local train/ }).getAttribute("title")).toBe("Book the 08:12 local");
+    it("paints the reason cut between words with an ellipsis, never mid-word", () => {
+      const { container } = draw(board);
+      const text = container.querySelector(".hb-tile-subtitle")!.textContent!;
+      expect(longReason.length).toBeGreaterThan(120);
+      expect(text.length).toBeLessThanOrEqual(120);
+      expect(text.endsWith("…")).toBe(true);
+      const kept = text.slice(0, -1);
+      expect(longReason.startsWith(kept)).toBe(true);
+      expect(longReason[kept.length]).toMatch(/[\s\p{P}]/u);  // the cut fell on a word boundary, not inside a word
     });
 
-    it("draws the subtitle in full white, with a shadow, never line-clamped, and lets the card grow to fit it", () => {
-      const { container } = draw([{ type: "tiles", items: [{ title: "Local train", subtitle: reason, run: "Book the 08:12 local" }] }]);
+    it("keeps the cover shape: the card sizes from its aspect-ratio, not from the text", () => {
+      const { container } = draw(board);
       const unstyle = withStyles(tilesCss);
       try {
-        const sub = getComputedStyle(container.querySelector(".hb-tile-subtitle")!);
-        expect(sub.color).toBe("rgb(255, 255, 255)");
-        expect(sub.textShadow).toMatch(/rgba\(12, ?8, ?24/);
-        expect(sub.webkitLineClamp, "the reason must not be clamped away").toBeFalsy();
-        const card = getComputedStyle(container.querySelector(".hb-tile")!);
-        const text = getComputedStyle(container.querySelector(".hb-tile-text")!);
-        expect(text.position, "in flow but positioned: the reason must paint above the scrim").toBe("relative");
-        expect(card.minHeight, "short cards keep the old cover height").toBe("158px");
-        expect(getComputedStyle(container.querySelector(".hb-tile-shade")!).background).toMatch(/rgba\(12, ?8, ?24, ?0\.8/);
+        const style = getComputedStyle(container.querySelector(".hb-tile")!);
+        expect(style.aspectRatio, "every card keeps a cover shape").not.toBe("auto");
+        expect(style.aspectRatio).toMatch(/\//);              // a ratio, whatever it is
+        expect(style.minHeight, "no pixel floor: the ratio, not the text, sizes the card").not.toMatch(/\d/);
       } finally {
         unstyle();
       }
+    });
+
+    it("shows up to three lines of the reason", () => {
+      const { container } = draw(board);
+      const unstyle = withStyles(tilesCss);
+      try {
+        const style = getComputedStyle(container.querySelector(".hb-tile-subtitle")!);
+        expect(style.webkitLineClamp, "the reason reads in up to three lines").toBe("3");
+        expect(style.overflow, "anything past the third line is clipped away").toBe("hidden");
+      } finally {
+        unstyle();
+      }
+    });
+
+    it("keeps the text full white with a shadow", () => {
+      const { container } = draw(board);
+      const unstyle = withStyles(tilesCss);
+      try {
+        const style = getComputedStyle(container.querySelector(".hb-tile-subtitle")!);
+        expect(style.color, "full white, never translucent").toMatch(/^(rgb\(255, 255, 255\)|#(?:fff|ffffff))$/i);
+        expect(style.textShadow, "a shadow keeps it legible on a bright photo").not.toMatch(/^(none|rgba\(0, 0, 0, 0\))$/);
+      } finally {
+        unstyle();
+      }
+    });
+
+    it("darkens only behind the text, so the photo stays bright", () => {
+      const { container } = draw(board);
+      const unstyle = withStyles(tilesCss);
+      try {
+        expect(container.querySelector(".hb-tile-shade"), "no overlay dims the whole photo").toBeNull();
+        const style = getComputedStyle(container.querySelector(".hb-tile-text")!);
+        expect(style.backgroundImage, "the scrim sits behind the caption block alone").toMatch(/gradient/i);
+      } finally {
+        unstyle();
+      }
+    });
+
+    it("keeps hover a supplement: the tap message still rides in the native title", () => {
+      draw(board);
+      expect(screen.getByRole("button", { name: /Local train/ }).getAttribute("title")).toBe("Book the 08:12 local");
     });
   });
 });

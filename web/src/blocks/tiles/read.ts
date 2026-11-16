@@ -6,12 +6,11 @@ export type TileItem = { title: string; subtitle?: string; image?: string; icon?
 export type TilesBlock = { type: "tiles"; items: TileItem[] };
 
 const MAX_TILES = 8;
-// The subtitle is the tile's readable decision reason and must be legible without hovering (the tap message stays a
-// hover supplement), so it gets the protocol's general string maximum — 300, the same cap as the tile's own ask/run,
-// every other reader's long text, and the Python text fallback (blocks/common.MAX_STRING) — cut at a word boundary.
-// A normal 1–2 sentence reason (hundreds of characters are ordinary for two sentences) therefore passes whole;
-// only a runaway paragraph is shortened. There is no sentence-length limit: a single long sentence is as valid as two.
-const SUBTITLE_MAX = 300;
+// The subtitle is the tile's readable decision reason, shown in up to three lines on a card that keeps its cover
+// shape (the height comes from the aspect-ratio, never from the text). So the reader cuts the reason to what three
+// lines hold — about 120 characters — and only ever between words (cutAtWord), never mid-word; the rest ends in "…".
+// The catalog asks the model to keep subtitles short: a two-sentence reason belongs in a list, not on a cover.
+const SUBTITLE_MAX = 120;
 // The fields a tile's title may come in, best first: models often write a `label` (or only a `text`) for a card.
 const TITLE_FIELDS = ["title", "label", "name", "caption", "text"];
 // The fields that say more about the tile, in the order they're joined under the title.
