@@ -3016,34 +3016,85 @@ function scaleOf(asked, values) {
 }
 
 // src/blocks/images/Images.tsx
-import { useEffect as useEffect3, useState as useState14 } from "react";
+import { useEffect as useEffect3, useRef as useRef8, useState as useState14 } from "react";
+
+// src/blocks/images/localImage.ts
+var MAX_PATH = 500;
+function isGeneratedImagePath(v) {
+  if (typeof v !== "string" || !v || v.length > MAX_PATH || /[\u0000-\u001f\u007f]/.test(v)) return false;
+  if (/^[A-Za-z]:[\\/]/.test(v)) return true;
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(v)) return false;
+  return v.startsWith("/") || v.startsWith("\\\\");
+}
+var reads = /* @__PURE__ */ new Map();
+async function readFromHost(path) {
+  const bridge = typeof window === "undefined" ? void 0 : window.hermesDesktop;
+  if (!bridge?.readFileDataUrl) throw new Error(`no desktop file reader for ${path}`);
+  const r = await bridge.readFileDataUrl(path);
+  if (typeof r === "string" && r.startsWith("data:")) return r;
+  throw new Error(`the desktop file reader gave no data url for ${path}`);
+}
+function readGeneratedImageDataUrl(path) {
+  let read = reads.get(path);
+  if (!read) {
+    read = readFromHost(path).catch((e) => {
+      reads.delete(path);
+      throw e;
+    });
+    reads.set(path, read);
+    if (reads.size > 32) {
+      const oldest = reads.keys().next().value;
+      if (oldest !== void 0 && oldest !== path) reads.delete(oldest);
+    }
+  }
+  return read;
+}
+
+// src/blocks/images/Images.tsx
 import { jsx as jsx21, jsxs as jsxs18 } from "react/jsx-runtime";
 function Images({ block }) {
   const [failed, setFailed] = useState14(/* @__PURE__ */ new Set());
+  const [dataUrls, setDataUrls] = useState14({});
   const [open, setOpen] = useState14(null);
-  const shown = block.images.filter((p) => !failed.has(p.url));
-  if (!shown.length) return null;
   const fail = (url) => setFailed((before) => new Set(before).add(url));
+  const srcOf = (p) => isGeneratedImagePath(p.url) ? dataUrls[p.url] : p.url;
+  const asked = useRef8(/* @__PURE__ */ new Set());
+  useEffect3(() => {
+    for (const p of block.images) {
+      if (!isGeneratedImagePath(p.url) || asked.current.has(p.url)) continue;
+      asked.current.add(p.url);
+      readGeneratedImageDataUrl(p.url).then(
+        (url) => setDataUrls((before) => before[p.url] ? before : { ...before, [p.url]: url }),
+        () => fail(p.url)
+      );
+    }
+  }, [block]);
+  const shown = block.images.map((photo) => {
+    const src = failed.has(photo.url) ? void 0 : srcOf(photo);
+    return src === void 0 ? null : { photo, src };
+  }).filter((s) => s !== null);
+  if (!shown.length) return null;
   return /* @__PURE__ */ jsxs18("figure", { className: "hb-photos", children: [
     block.title && /* @__PURE__ */ jsx21("figcaption", { className: "hb-chart-title", children: block.title }),
-    /* @__PURE__ */ jsx21("div", { className: "hb-photo-strip", children: shown.map((p) => /* @__PURE__ */ jsxs18("button", { type: "button", className: "hb-photo", onClick: () => setOpen(p), "aria-label": p.caption ?? "Open photo", children: [
-      /* @__PURE__ */ jsx21("img", { src: p.url, alt: p.caption ?? "", loading: "lazy", referrerPolicy: "no-referrer", onError: () => fail(p.url) }),
-      (p.caption || p.source) && /* @__PURE__ */ jsxs18("span", { className: "hb-photo-text", children: [
-        p.caption && /* @__PURE__ */ jsx21("span", { className: "hb-photo-caption", children: p.caption }),
-        p.source && /* @__PURE__ */ jsx21("span", { className: "hb-photo-source", children: p.source })
+    /* @__PURE__ */ jsx21("div", { className: "hb-photo-strip", children: shown.map(({ photo, src }) => /* @__PURE__ */ jsxs18("button", { type: "button", className: "hb-photo", onClick: () => setOpen({ photo, src }), "aria-label": photo.caption ?? "Open photo", children: [
+      /* @__PURE__ */ jsx21("img", { src, alt: photo.caption ?? "", loading: "lazy", referrerPolicy: "no-referrer", onError: () => fail(photo.url) }),
+      (photo.caption || photo.source) && /* @__PURE__ */ jsxs18("span", { className: "hb-photo-text", children: [
+        photo.caption && /* @__PURE__ */ jsx21("span", { className: "hb-photo-caption", children: photo.caption }),
+        photo.source && /* @__PURE__ */ jsx21("span", { className: "hb-photo-source", children: photo.source })
       ] })
-    ] }, p.url)) }),
-    open && /* @__PURE__ */ jsx21(Overlay, { photo: open, onClose: () => setOpen(null) })
+    ] }, photo.url)) }),
+    open && /* @__PURE__ */ jsx21(Overlay, { shown: open, onClose: () => setOpen(null) })
   ] });
 }
-function Overlay({ photo, onClose }) {
+function Overlay({ shown, onClose }) {
   useEffect3(() => {
     const onKey = (e) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+  const { photo, src } = shown;
   return /* @__PURE__ */ jsxs18("div", { className: "hb-photo-overlay", role: "dialog", "aria-label": photo.caption ?? "Photo", onClick: onClose, children: [
-    /* @__PURE__ */ jsx21("img", { src: photo.url, alt: photo.caption ?? "", referrerPolicy: "no-referrer" }),
+    /* @__PURE__ */ jsx21("img", { src, alt: photo.caption ?? "", referrerPolicy: "no-referrer" }),
     (photo.caption || photo.source) && /* @__PURE__ */ jsxs18("div", { className: "hb-photo-overlay-text", children: [
       photo.caption,
       photo.source && /* @__PURE__ */ jsxs18("span", { children: [
@@ -3059,14 +3110,15 @@ function readImages(raw, here) {
   const list = Array.isArray(raw.images) ? raw.images : Array.isArray(raw.photos) ? raw.photos : [];
   const photos = [];
   list.forEach((p, i) => {
-    const url = https(p?.url) ?? https(p?.src);
+    const local = isGeneratedImagePath(p?.url) ? p.url : void 0;
+    const url = https(p?.url) ?? https(p?.src) ?? local;
     if (!url) {
-      here.at("images").at(i).drop("photo needs an https url");
+      here.at("images").at(i).drop("photo needs an https url or a generated image path");
       return;
     }
     photos.push(clean({ url, caption: firstText([p.caption, p.alt, p.title], 120), source: firstText([p.source, p.credit], 60) }));
   });
-  if (!photos.length) return here.drop("images has no https photo");
+  if (!photos.length) return here.drop("images has no drawable photo");
   return clean({ type: "images", title: str(raw.title, 60), images: keepFirst(photos, 12, here, "photos") });
 }
 
@@ -3321,7 +3373,7 @@ function readTabChildren(list, here, depth, readChild) {
 }
 
 // src/blocks/layout/Tabs.tsx
-import { useId as useId3, useRef as useRef8, useState as useState16 } from "react";
+import { useId as useId3, useRef as useRef9, useState as useState16 } from "react";
 import { jsx as jsx24, jsxs as jsxs21 } from "react/jsx-runtime";
 function tabAfterKey(current, count, key) {
   if (key === "ArrowRight") return (current + 1) % count;
@@ -3330,7 +3382,7 @@ function tabAfterKey(current, count, key) {
 }
 function Tabs({ labels: labels2, panel }) {
   const [picked, setPicked] = useState16(0);
-  const buttons = useRef8([]);
+  const buttons = useRef9([]);
   const base = useId3().replace(/[^a-zA-Z0-9]/g, "");
   const onKey = (e) => {
     const next = tabAfterKey(picked, labels2.length, e.key);
@@ -3441,7 +3493,7 @@ function Chevron() {
 }
 
 // src/blocks/layers/Layers.tsx
-import { useEffect as useEffect5, useRef as useRef9, useState as useState19 } from "react";
+import { useEffect as useEffect5, useRef as useRef10, useState as useState19 } from "react";
 
 // src/lib/canvas.ts
 import { useEffect as useEffect4, useState as useState18 } from "react";
@@ -3548,9 +3600,9 @@ var TONE_TOKEN = {
 };
 var rad = (deg) => deg * Math.PI / 180;
 function Layers({ title, caption, layers }) {
-  const canvas = useRef9(null);
-  const shapes = useRef9([]);
-  const drag = useRef9(null);
+  const canvas = useRef10(null);
+  const shapes = useRef10([]);
+  const drag = useRef10(null);
   const [at2, setAt] = useState19(0);
   const [yaw, setYaw] = useState19(START_YAW);
   const open = useOpening(at2, layers.length);
@@ -3643,7 +3695,7 @@ function Layers({ title, caption, layers }) {
 }
 function useOpening(at2, n) {
   const [open, setOpen] = useState19(() => Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0));
-  const now = useRef9(open);
+  const now = useRef10(open);
   now.current = open;
   useEffect5(() => {
     const target = Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0);
@@ -3907,7 +3959,7 @@ function readPile(p, names, here) {
 }
 
 // src/blocks/simulate/Simulate.tsx
-import { useEffect as useEffect7, useMemo as useMemo5, useRef as useRef12, useState as useState20 } from "react";
+import { useEffect as useEffect7, useMemo as useMemo5, useRef as useRef13, useState as useState20 } from "react";
 
 // src/blocks/source/Source.tsx
 import { jsx as jsx28 } from "react/jsx-runtime";
@@ -3917,7 +3969,7 @@ function Source({ text, url }) {
 }
 
 // src/blocks/simulate/Piles.tsx
-import { useEffect as useEffect6, useRef as useRef10 } from "react";
+import { useEffect as useEffect6, useRef as useRef11 } from "react";
 
 // src/blocks/simulate/sim.ts
 var MAX_DOTS = 600;
@@ -3982,8 +4034,8 @@ function Piles({ piles, amounts, start, per, most, playing, unit, label }) {
   ] });
 }
 function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }) {
-  const canvas = useRef10(null);
-  const born = useRef10([]);
+  const canvas = useRef11(null);
+  const born = useRef11([]);
   const width = useWidth(canvas);
   const theme = useTheme();
   const count = counts[k];
@@ -4026,12 +4078,12 @@ function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }) {
 }
 
 // src/blocks/simulate/SimChart.tsx
-import { useRef as useRef11 } from "react";
+import { useRef as useRef12 } from "react";
 import { jsx as jsx30, jsxs as jsxs26 } from "react/jsx-runtime";
 var HEIGHT = 220;
 var PAD = { left: 52, right: 12, top: 10, bottom: 22 };
 function SimChart({ piles, lines, times, index, unit }) {
-  const box = useRef11(null);
+  const box = useRef12(null);
   const width = useWidth(box);
   const to = times[times.length - 1];
   const top = Math.max(1e-9, ...lines.flat().map((v) => v ?? 0));
@@ -4075,8 +4127,8 @@ function valueText(v, unit) {
 import { jsx as jsx31, jsxs as jsxs27 } from "react/jsx-runtime";
 function Simulate(block) {
   const { title, t: time, inputs, values: fixed, piles, unit, source } = block;
-  const root = useRef12(null);
-  const clock = useRef12(time.to);
+  const root = useRef13(null);
+  const clock = useRef13(time.to);
   const [sliders, setSliders] = useState20(() => new Map(inputs.map((x) => [x.id, x.value])));
   const [view, setView] = useState20(block.view);
   const [at2, setAt] = useState20(time.to);
@@ -4237,13 +4289,13 @@ function readHolds(raw, here) {
 }
 
 // src/blocks/steps/Steps.tsx
-import { useEffect as useEffect8, useRef as useRef13, useState as useState21 } from "react";
+import { useEffect as useEffect8, useRef as useRef14, useState as useState21 } from "react";
 import { jsx as jsx32, jsxs as jsxs28 } from "react/jsx-runtime";
 function Steps({ title, for: flow, items }) {
   const [at2, setAt] = useState21(0);
   const [failed, setFailed] = useState21(() => /* @__PURE__ */ new Set());
   const setWalk = useSetWalk();
-  const before = useRef13(null);
+  const before = useRef14(null);
   const step = items[at2];
   const go = (to) => setAt(Math.max(0, Math.min(items.length - 1, to)));
   useEffect8(() => {
@@ -4578,7 +4630,7 @@ function ariaSort(sort, column) {
 
 // src/blocks/tiles/read.ts
 var MAX_TILES = 8;
-var SUBTITLE_MAX = 80;
+var SUBTITLE_MAX = 300;
 var TITLE_FIELDS = ["title", "label", "name", "caption", "text"];
 var MORE_FIELDS = ["subtitle", "value", "text", "caption", "note", "description"];
 function readTiles(raw, here) {
@@ -4606,10 +4658,10 @@ function readTile(item) {
   if (!titleField) return null;
   const more = [];
   for (const f of MORE_FIELDS) {
-    const text = textOrNumber(item[f], SUBTITLE_MAX);
+    const text = textOrNumber(item[f], Infinity);
     if (f !== titleField && text !== void 0) more.push(text);
   }
-  const subtitle = more.length ? more.join(" \xB7 ").slice(0, SUBTITLE_MAX) : void 0;
+  const subtitle = more.length ? cutAtWord(more.join(" \xB7 "), SUBTITLE_MAX) : void 0;
   return clean({
     title: str(item[titleField], 40),
     subtitle,
@@ -4842,9 +4894,9 @@ function BlockTag({ id, streaming, load }) {
       live = false;
     };
   }, [id, streaming, validId]);
-  if (!validId && !streaming) return /* @__PURE__ */ jsx39(Note, { text: "Couldn't load this block" });
+  if (!validId && !streaming) return null;
   if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx39(Note, { text: "drawing\u2026", pulse: true });
-  if (state.kind === "failed") return /* @__PURE__ */ jsx39(Note, { text: "Couldn't load this block" });
+  if (state.kind === "failed") return null;
   return /* @__PURE__ */ jsx39(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsx39(Blocks, { blocks: state.blocks }) });
 }
 function Note({ text, pulse = false }) {
@@ -5051,7 +5103,7 @@ var streak_default = "/* Streak */\n.hb-streak { padding: 0; overflow: hidden; }
 var actions_default = "/* A row of pill buttons (the pills themselves are in styles/shared.css). */\n.hb-actions { display: flex; flex-wrap: wrap; gap: 8px; }\n";
 
 // src/blocks/tiles/tiles.css
-var tiles_default = "/* Tiles: cover cards */\n.hb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }\n.hb-tile {\n  position: relative;\n  display: block;\n  aspect-ratio: 1 / 1.05;\n  margin: 0;\n  padding: 0;\n  overflow: hidden;\n  border: 0;\n  border-radius: 20px;\n  color: #fff;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.hb-tile:hover { transform: translateY(-1px); }\n.hb-tile:active { transform: scale(0.98); }\n.hb-tile:disabled { cursor: default; transform: none; }\n.hb-tile-static { cursor: default; }\n.hb-tile-static:hover,\n.hb-tile-static:active { transform: none; }\n.hb-tile:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }\n.hb-tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 35%, rgba(12, 8, 24, 0.66) 100%); }\n.hb-tile-icon {\n  position: absolute;\n  top: 12px;\n  left: 12px;\n  display: grid;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  border: 1px solid rgba(255, 255, 255, 0.35);\n  border-radius: 12px;\n  background: rgba(255, 255, 255, 0.22);\n  backdrop-filter: blur(8px);\n}\n.hb-tile-text { position: absolute; left: 14px; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 3px; }\n.hb-tile-title { font-size: 15.5px; line-height: 20px; font-weight: 700; letter-spacing: -0.01em; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3); }\n.hb-tile-subtitle {\n  display: -webkit-box;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  overflow: hidden;\n  font-size: 12.5px;\n  line-height: 16px;\n  color: rgba(255, 255, 255, 0.88);\n}\n@media (prefers-reduced-motion: reduce) {\n  .hb-tile { transition: none; }\n}\n";
+var tiles_default = "/* Tiles: cover cards. A card's reason (its subtitle) reads at a glance, never by hovering: the text is in flow, so\n   a card grows to fit a long reason (its height is never fixed by an aspect, which would clip it), rows keep equal\n   heights, and the text keeps strong contrast on every wash with full white, a shadow and a firm scrim under it. */\n.hb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }\n.hb-tile {\n  position: relative;\n  display: flex;\n  flex-direction: column;\n  justify-content: flex-end;\n  min-height: 158px;\n  margin: 0;\n  padding: 12px 12px 12px 14px;\n  overflow: hidden;\n  border: 0;\n  border-radius: 20px;\n  color: #fff;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);\n}\n.hb-tile:hover { transform: translateY(-1px); }\n.hb-tile:active { transform: scale(0.98); }\n.hb-tile:disabled { cursor: default; transform: none; }\n.hb-tile-static { cursor: default; }\n.hb-tile-static:hover,\n.hb-tile-static:active { transform: none; }\n.hb-tile:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }\n.hb-tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(12, 8, 24, 0.5) 65%, rgba(12, 8, 24, 0.88) 100%); }\n.hb-tile-icon {\n  position: absolute;\n  top: 12px;\n  left: 12px;\n  display: grid;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  border: 1px solid rgba(255, 255, 255, 0.35);\n  border-radius: 12px;\n  background: rgba(255, 255, 255, 0.22);\n  backdrop-filter: blur(8px);\n}\n/* A card that grows to the very top keeps its title clear of the icon chip (an engine without :has only loses\n   this clearance in the rare tall+icon case, never the text itself). */\n.hb-tile:has(.hb-tile-icon) { padding-top: 52px; }\n.hb-tile-text { position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; }\n.hb-tile-title { font-size: 15.5px; line-height: 20px; font-weight: 700; letter-spacing: -0.01em; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3); }\n.hb-tile-subtitle {\n  font-size: 12.5px;\n  line-height: 16px;\n  color: #fff;\n  text-shadow: 0 1px 2px rgba(12, 8, 24, 0.55);\n}\n@media (prefers-reduced-motion: reduce) {\n  .hb-tile { transition: none; }\n}\n";
 
 // src/blocks/checklist/checklist.css
 var checklist_default = "/* Checklist */\n.hb-checklist { display: flex; flex-direction: column; }\n.hb-checklist-head { display: flex; align-items: baseline; gap: 8px; }\n.hb-checklist-head .hb-card-title { flex: 1; min-width: 0; }\n.hb-checklist-count {\n  margin-left: auto;\n  font-size: 12.5px;\n  font-weight: 600;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-checklist-count-done { color: var(--hb-good); }\n.hb-checklist-track { display: block; height: 6px; margin: 8px 0 4px; overflow: hidden; border-radius: 999px; background: var(--hb-well); }\n.hb-checklist-fill { display: block; height: 100%; border-radius: 999px; background: var(--hb-good); transition: width 0.3s ease; }\n.hb-checklist-group { padding: 10px 0 2px; font-size: 12px; font-weight: 700; color: var(--hb-muted); }\n.hb-check {\n  display: flex;\n  align-items: flex-start;\n  gap: 12px;\n  width: 100%;\n  margin: 0;\n  padding: 7px 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-check:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; border-radius: 8px; }\n.hb-check-mark {\n  flex: none;\n  display: grid;\n  place-items: center;\n  width: 22px;\n  height: 22px;\n  margin-top: 0.5px;\n  border: 2px solid var(--hb-line-strong);\n  border-radius: 999px;\n  color: var(--hb-muted);\n  font-size: 11px;\n  font-weight: 700;\n  font-variant-numeric: tabular-nums;\n  transition: background 0.15s, border-color 0.15s;\n}\n.hb-check-on .hb-check-mark { border-color: var(--hb-good); background: var(--hb-good); color: #fff; }\n.hb-check-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 21px; transition: color 0.15s; }\n.hb-check-on .hb-check-text { color: var(--hb-muted); text-decoration: line-through; text-decoration-thickness: 1px; }\n@media (prefers-reduced-motion: reduce) {\n  .hb-checklist-fill, .hb-check-mark, .hb-check-text { transition: none; }\n}\n";
