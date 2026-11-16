@@ -51,6 +51,44 @@ describe("tiles", () => {
     expect(sub.slice(0, -1).split(" ").every((w: string) => w === "stationary")).toBe(true);  // only whole words survive
   });
 
+  // cutAtWord cuts between words only when a space sits in the back half of the room; when one unbroken run fills
+  // it, the helper falls back to slicing the run. A cover must never show half a word, so the tiles cut drops the
+  // partial run instead: the whole words that fit stay, and a reason whose very first word cannot fit is left off
+  // entirely rather than painted as a slice.
+  it("keeps the fitting words whole instead of slicing a too-long unbroken run", () => {
+    const r = one({ type: "tiles", items: [{ title: "Trains", subtitle: "short " + "b".repeat(200), run: "Compare trains" }] });
+    const sub = (r.blocks[0] as any).items[0].subtitle;
+    expect(sub).toBe("short…");   // the word that fits, whole; no partial b's; "…" marks what was dropped
+    expect(sub.length).toBeLessThanOrEqual(120);
+  });
+  it("leaves the subtitle off when not even its first word fits", () => {
+    const r = one({ type: "tiles", items: [{ title: "Trains", subtitle: "u".repeat(200), run: "Compare trains" }] });
+    const item = (r.blocks[0] as any).items[0];
+    expect("subtitle" in item).toBe(false);   // graceful: a title-only card, never half a word
+    expect(item.title).toBe("Trains");
+    expect(item.run).toBe("Compare trains");
+  });
+  it("never ends a cut reason inside a word, however oddly the text is spaced", () => {
+    const shapes = [
+      "short " + "b".repeat(200),                                 // long unbroken run after a short word
+      "u".repeat(200),                                            // long unbroken run from the first word
+      "Pick the local —" + "x".repeat(150),                       // long unbroken run after punctuation
+      Array.from({ length: 40 }, () => "stationary").join(" "),   // uniform prose the cap must land mid-word on
+      "one two three four".repeat(20),                            // ordinary short words
+      shortReason,                                                // a reason that fits whole
+    ];
+    for (const text of shapes) {
+      const r = one({ type: "tiles", items: [{ title: "Trains", subtitle: text, run: "Compare trains" }] });
+      const sub: string | undefined = (r.blocks[0] as any).items[0].subtitle;
+      const kept = sub === undefined ? "" : sub.endsWith("…") ? sub.slice(0, -1) : sub;
+      expect(kept.length).toBeLessThanOrEqual(120);
+      expect(text.startsWith(kept)).toBe(true);                   // the author's own words, in order
+      const betweenWords = kept.length === 0 || kept.length === text.length
+        || /\s/.test(text[kept.length - 1]) || /\s/.test(text[kept.length]);
+      expect(betweenWords, `the cut landed inside a word: ${text.slice(0, 24)}…`).toBe(true);
+    }
+  });
+
   it("drops tiles without a title, and keeps at most 8", () => {
     const r = one({ type: "tiles", items: [{ subtitle: "no title" }] });
     expect(r.blocks).toEqual([]);

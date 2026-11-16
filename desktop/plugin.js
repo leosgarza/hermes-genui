@@ -4581,6 +4581,14 @@ var MAX_TILES = 8;
 var SUBTITLE_MAX = 120;
 var TITLE_FIELDS = ["title", "label", "name", "caption", "text"];
 var MORE_FIELDS = ["subtitle", "value", "text", "caption", "note", "description"];
+function cutSubtitle(text) {
+  const cut = cutAtWord(text, SUBTITLE_MAX);
+  const kept = cut.slice(0, -1);
+  const sliced = cut !== text && /\S$/.test(kept) && /\S/.test(text[kept.length]);
+  if (!sliced) return cut;
+  const whole2 = kept.replace(/\S+$/, "").replace(/[\s,;:.–—-]+$/, "");
+  return whole2 ? `${whole2}\u2026` : "";
+}
 function readTiles(raw, here) {
   const list = firstList([raw.items, raw.tiles]);
   if (!list) return here.drop("tiles needs items");
@@ -4609,7 +4617,7 @@ function readTile(item) {
     const text = textOrNumber(item[f], Infinity);
     if (f !== titleField && text !== void 0) more.push(text);
   }
-  const subtitle = more.length ? cutAtWord(more.join(" \xB7 "), SUBTITLE_MAX) : void 0;
+  const subtitle = more.length ? cutSubtitle(more.join(" \xB7 ")) || void 0 : void 0;
   return clean({
     title: str(item[titleField], 40),
     subtitle,

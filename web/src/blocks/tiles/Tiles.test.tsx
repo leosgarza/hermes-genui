@@ -70,6 +70,12 @@ describe("tiles", () => {
       expect(longReason[kept.length]).toMatch(/[\s\p{P}]/u);  // the cut fell on a word boundary, not inside a word
     });
 
+    it("paints no subtitle rather than a sliced word when one unbroken word cannot fit", () => {
+      const { container } = draw([{ type: "tiles", items: [{ title: "Kyoto", subtitle: "u".repeat(200), ask: "Plan Kyoto" }] }]);
+      expect(container.querySelector(".hb-tile-subtitle")).toBeNull();  // never half a word on the cover
+      expect(screen.getByText("Kyoto")).toBeTruthy();                   // the card itself stays, title-only
+    });
+
     it("keeps the cover shape: the card sizes from its aspect-ratio, not from the text", () => {
       const { container } = draw(board);
       const unstyle = withStyles(tilesCss);
