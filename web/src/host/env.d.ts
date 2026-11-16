@@ -15,3 +15,16 @@ declare module "*.css" {
   const text: string;
   export default text;
 }
+
+// The app's preload bridge (electron-preload), present when plugin code runs in Hermes Desktop. Blocks read local
+// generated files through the one call below — the same one the chat makes for a local MEDIA image. Refusals
+// (sensitive file, size cap) and the missing-file sentinel are final there: the photo hides, never a second route.
+interface HermesDesktopBridge {
+  /** A local file as a `data:` URL; a missing file resolves to an `{ ok: false; error: string }` sentinel, a
+   *  refused or over-cap file throws. */
+  readFileDataUrl?: (filePath: string) => Promise<unknown>;
+}
+
+interface Window {
+  hermesDesktop?: HermesDesktopBridge;
+}

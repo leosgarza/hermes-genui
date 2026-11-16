@@ -15,7 +15,7 @@ homepage: https://github.com/sagarmainkar/hermes-genui
 tags: [desktop, generative-ui, charts, dashboards, visualization, photos, markets, recipes]
 requires_hermes: ">=0.22.5"
 provides_tools: [show_blocks, market_history, find_photos, save_recipe]
-provides_hooks: [pre_llm_call, transform_llm_output]
+provides_hooks: [pre_llm_call, transform_llm_output, post_tool_call]
 config_schema:
   unsplash_access_key:
     type: secret

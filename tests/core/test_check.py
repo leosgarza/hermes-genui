@@ -47,6 +47,15 @@ def test_images_need_an_https_url():
     assert problems[0].startswith("0:")
 
 
+def test_images_take_a_generated_local_path_too():
+    # check_images is shape-only; show_blocks' provenance gate is what proves the tool returned the path.
+    for ok in ("/Users/me/.hermes/cache/generated/images/a.png", "C:\\Users\\me\\a.png", "\\\\server\\share\\a.png"):
+        assert check_blocks([{"type": "images", "images": [{"url": ok}]}]) == []
+    # A relative name, a file:// spelling or a data: URI is not a drawable local path.
+    for bad in ("a.png", "~/a.png", "file:///Users/me/a.png", "data:image/png;base64,AAAA", ""):
+        assert check_blocks([{"type": "images", "images": [{"url": bad}]}]) != []
+
+
 def test_section_inside_section():
     inner = {"type": "section", "title": "b", "children": [{"type": "text", "text": "x"}]}
     outer = {"type": "section", "title": "a", "children": [inner]}

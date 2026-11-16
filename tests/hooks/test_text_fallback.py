@@ -223,6 +223,15 @@ def test_images_with_source_in_brackets():
     assert render(images) == "**Kyoto**\n![Fushimi Inari](https://a.org/1.jpg) [Wikimedia]\nGion"
 
 
+def test_images_generated_local_paths_keep_no_path_in_the_text():
+    # A text-only app can't read the file: the line says what it is, never the path.
+    images = {"type": "images", "title": "Kyoto", "images": [
+        {"url": "/Users/me/.hermes/cache/generated/images/a.png", "caption": "A fox gate"},
+        {"url": "/Users/me/.hermes/cache/generated/images/b.png"},
+    ]}
+    assert render(images) == "**Kyoto**\nA fox gate (generated image)\nGenerated image"
+
+
 def test_list_ranked_and_bulleted():
     assert render(EXAMPLES["list"]) == (
         "**Cafés nearby**\n1. Third Wave — 80 Feet Road · 4.5★\n2. Dyu Art Café — Garden seats · 4.4★"

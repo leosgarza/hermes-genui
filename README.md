@@ -203,6 +203,9 @@ flowchart LR
 
 **What stays local:**
 - Boards are saved as JSON in your profile, under `plugin-data/hermes-genui/`, with checklist ticks next to them.
+- A short list (the last 500) of image references tools returned — photo URLs and the paths of images
+  `image_generate` saved — is kept as `photo-urls.txt` beside them, so `show_blocks` can refuse pictures the model
+  made up.
 - Desktop lists sessions from every profile, so a board that isn't in the active profile is looked up in your other
   profiles' folders on the same machine. Any profile can then load another profile's board by its id.
 - There's no telemetry and no account.
@@ -220,6 +223,10 @@ flowchart LR
   - Each redirect is checked again, up to 3.
   - Size and time limits apply.
 - **Buttons can't send** slash commands, shell lines or `@file` references.
+- **A generated image drawn from disk is one a Hermes tool made.** `show_blocks` only accepts a local path its
+  provenance list saw a tool return, and Desktop reads that path through the app's own file reader — which also
+  refuses sensitive files and files over its size cap. The plugin never reads or fetches the file itself, and a photo
+  whose read fails simply hides.
 - **Calculator formulas** are read by a small parser with no `eval` and with operation budgets.
 - **Board size, depth, text length and counts are all capped.**
 

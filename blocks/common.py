@@ -38,6 +38,19 @@ def is_https(v: object) -> bool:
     return isinstance(v, str) and v.startswith("https://")
 
 
+# An absolute local file path (POSIX "/…", a Windows drive "C:\…", or a UNC share "\\server\share"). A tool that
+# saves what it made (image_generate) returns one; show_blocks only lets through paths its provenance store saw the
+# tool return, and Hermes Desktop reads those from disk. A scheme (https:, file:, data:) is a URL, not a path.
+LOCAL_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\)")
+
+
+def is_local_path(v: object) -> bool:
+    """"/Users/me/a.png" → True;  "C:\\Users\\me\\a.png" → True;  "file:///a.png" → False;  "a.png" → False"""
+    if not isinstance(v, str) or not (0 < len(v) <= MAX_URL) or CONTROL.search(v) is not None:
+        return False
+    return LOCAL_PATH.match(v) is not None
+
+
 # A button's message is sent as the user's own, and Hermes acts on some messages before the model reads them: "/reset"
 # runs a command, "!…" a shell line, and "@file:path", "@url:…" (any "@word:"), "@diff" or "@staged" pull a file, a
 # page or the working tree into the message. A button may not send any of these.
