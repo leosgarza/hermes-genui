@@ -59,6 +59,17 @@ export function icon(v: unknown): IconName | undefined {
   return undefined;
 }
 
+/** Where a block sits in the board's column, and where the board puts the blocks that don't say. */
+export type Align = "left" | "center" | "right";
+
+/** One of the alignment words, trimmed and caseless the way models write; anything else gives undefined, which
+ *  leaves the block to the board's default (left). " Center " → "center"; "middle" → undefined. */
+export function align(v: unknown): Align | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "left" || word === "center" || word === "right" ? word : undefined;
+}
+
 /** A short lowercase name one block uses to point at another (a flow's id, its nodes' ids, a steps block's `for`),
  *  or undefined. The same rule as the Python side's SLUG. "tf" → "tf";  "next-word" → "next-word";  "Big Flow" → undefined */
 export function slug(v: unknown): string | undefined {

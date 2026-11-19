@@ -12,6 +12,26 @@
   font-size: 13px;
 }
 .hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }
+/* The reader's own alignment line, above a drawn board: four quiet chips, the current one tinted. */
+.hb-align { display: flex; gap: 4px; margin: 8px 0 0; }
+.hb-align-btn {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-text-tertiary, color-mix(in srgb, var(--foreground, #1f2328) 55%, transparent));
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.hb-align-btn:hover { background: color-mix(in srgb, var(--foreground, #1f2328) 4%, transparent); }
+.hb-align-btn[aria-pressed="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--theme-primary, #2f6fed) 14%, transparent);
+  color: color-mix(in srgb, var(--theme-primary, #2f6fed) 85%, var(--foreground, #1f2328));
+}
+.hb-align-btn:focus-visible { outline: 2px solid var(--theme-primary, #2f6fed); outline-offset: 2px; }
 @keyframes hb-pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) {
   .hb-pulse { animation: none; }

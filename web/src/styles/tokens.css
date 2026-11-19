@@ -52,3 +52,13 @@
 .hb-blocks { overflow-wrap: break-word; }
 /* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */
 .hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }
+/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column
+   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block
+   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and
+   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a
+   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch
+   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
+   .hb-place at all. */
+.hb-place { display: flow-root; }
+.hb-place-center > * { margin-inline: auto; }
+.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }

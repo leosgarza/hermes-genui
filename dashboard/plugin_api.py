@@ -29,10 +29,13 @@ router = APIRouter()
 
 @router.get("/blocks/{block_id}")
 async def get_block(block_id: str):
-    blocks = store.load(block_id, store.find_root(block_id))
-    if blocks is None:
+    board = store.load(block_id, store.find_root(block_id))
+    if board is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    return {"blocks": blocks}
+    answer = {"blocks": store.blocks_of(board)}
+    if (word := store.align_of(board)) is not None:  # the board's own alignment default, when it has one
+        answer["align"] = word
+    return answer
 
 
 NOT_FOUND = {"error": "not found"}

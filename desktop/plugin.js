@@ -75,6 +75,11 @@ function icon(v) {
   if (ICON_NAMES.includes(v)) return v;
   return void 0;
 }
+function align(v) {
+  if (typeof v !== "string") return void 0;
+  const word = v.trim().toLowerCase();
+  return word === "left" || word === "center" || word === "right" ? word : void 0;
+}
 function slug(v) {
   if (typeof v === "string" && /^[a-z][a-z0-9_-]{0,23}$/.test(v)) return v;
   return void 0;
@@ -159,7 +164,10 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext7, useEffect as useEffect9, useState as useState24 } from "react";
+import { useContext as useContext8, useEffect as useEffect9, useState as useState24 } from "react";
+
+// src/core/Blocks.tsx
+import { createContext as createContext3, useContext as useContext7 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -4822,26 +4830,15 @@ var REGISTRY = {
   tabs: { read: readTabs, Component: ({ block, draw }) => /* @__PURE__ */ jsx37(Tabs, { labels: block.tabs.map((t) => t.label), panel: (i) => draw(block.tabs[i].children) }) }
 };
 
-// src/core/Blocks.tsx
-import { jsx as jsx38 } from "react/jsx-runtime";
-function BlockView({ block }) {
-  const entry = REGISTRY[block.type];
-  if (!entry) return null;
-  const { Component } = entry;
-  return /* @__PURE__ */ jsx38(Component, { block, draw: drawAll });
-}
-function drawAll(blocks) {
-  return blocks.map((b, i) => /* @__PURE__ */ jsx38(BlockView, { block: b }, i));
-}
-function Blocks({ blocks }) {
-  return /* @__PURE__ */ jsx38("div", { className: "hb-blocks", children: /* @__PURE__ */ jsx38(FlowLightBoard, { children: drawAll(blocks) }) });
-}
-
 // src/core/readBlocks.ts
 var BLOCK_TYPES = Object.keys(REGISTRY);
 function readBlocksNoted(data) {
   let list = data;
-  if (isObject(list) && Array.isArray(list.blocks)) list = list.blocks;
+  let board;
+  if (isObject(list) && Array.isArray(list.blocks)) {
+    if (typeof list.type !== "string") board = align(list.align);
+    list = list.blocks;
+  }
   if (isObject(list) && typeof list.type === "string") list = [list];
   const top = new Trail();
   const blocks = [];
@@ -4850,10 +4847,10 @@ function readBlocksNoted(data) {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped };
+  return { blocks, dropped: top.dropped, align: board };
 }
-function readBlocks(data) {
-  return readBlocksNoted(data).blocks;
+function alignOf(block) {
+  return block.align;
 }
 function isObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -4871,22 +4868,52 @@ function readOne(raw, here, depth) {
   }
   const read = entry.read(raw, here, depth, readOne);
   if (!read) return [];
-  return Array.isArray(read) ? read : [read];
+  const blocks = Array.isArray(read) ? read : [read];
+  const asked = align(raw.align);
+  if (asked) {
+    for (const block of blocks) if (alignOf(block) === void 0) Object.assign(block, { align: asked });
+  }
+  return blocks;
+}
+
+// src/core/Blocks.tsx
+import { jsx as jsx38 } from "react/jsx-runtime";
+var AlignScope = createContext3({ board: void 0, user: void 0 });
+function BlockView({ block }) {
+  const entry = REGISTRY[block.type];
+  if (!entry) return null;
+  const { Component } = entry;
+  return /* @__PURE__ */ jsx38(Component, { block, draw: drawAll });
+}
+function Placed({ block }) {
+  const { board, user } = useContext7(AlignScope);
+  const at2 = user ?? alignOf(block) ?? board ?? "left";
+  const view = /* @__PURE__ */ jsx38(BlockView, { block });
+  if (at2 === "left") return view;
+  return /* @__PURE__ */ jsx38("div", { className: `hb-place hb-place-${at2}`, "data-align": at2, children: view });
+}
+function drawAll(blocks) {
+  return blocks.map((b, i) => /* @__PURE__ */ jsx38(Placed, { block: b }, i));
+}
+function Blocks({ blocks, boardAlign, userAlign }) {
+  return /* @__PURE__ */ jsx38(AlignScope.Provider, { value: { board: boardAlign, user: userAlign }, children: /* @__PURE__ */ jsx38("div", { className: "hb-blocks", children: /* @__PURE__ */ jsx38(FlowLightBoard, { children: drawAll(blocks) }) }) });
 }
 
 // src/host/BlockTag.tsx
-import { jsx as jsx39 } from "react/jsx-runtime";
+import { jsx as jsx39, jsxs as jsxs33 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext7(BlockActions);
+  const actions = useContext8(BlockActions);
   const [state, setState] = useState24({ kind: "loading" });
+  const [userAlign, setUserAlign] = useState24(() => validId ? readUserAlign(id) : void 0);
   useEffect9(() => {
+    setUserAlign(validId && !streaming ? readUserAlign(id) : void 0);
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
-      const blocks = readBlocks(data);
-      if (live) setState(blocks.length ? { kind: "drawn", blocks } : { kind: "failed" });
+      const { blocks, align: boardAlign } = readBlocksNoted(data);
+      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -4897,7 +4924,37 @@ function BlockTag({ id, streaming, load }) {
   if (!validId && !streaming) return null;
   if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx39(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
-  return /* @__PURE__ */ jsx39(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsx39(Blocks, { blocks: state.blocks }) });
+  const choose = (a) => {
+    const value = a === "auto" ? void 0 : a;
+    setUserAlign(value);
+    saveUserAlign(id, value);
+  };
+  return /* @__PURE__ */ jsxs33(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
+    /* @__PURE__ */ jsx39(AlignControl, { value: userAlign ?? "auto", onChoose: choose }),
+    /* @__PURE__ */ jsx39(Blocks, { blocks: state.blocks, boardAlign: state.boardAlign, userAlign })
+  ] });
+}
+var CHOICES = ["auto", "left", "center", "right"];
+var LABEL2 = { auto: "Auto", left: "Left", center: "Center", right: "Right" };
+function userAlignKey(id) {
+  return `hermes-genui-align-${id}`;
+}
+function readUserAlign(id) {
+  try {
+    return align(localStorage.getItem(userAlignKey(id)) ?? "");
+  } catch {
+    return void 0;
+  }
+}
+function saveUserAlign(id, value) {
+  try {
+    if (value === void 0) localStorage.removeItem(userAlignKey(id));
+    else localStorage.setItem(userAlignKey(id), value);
+  } catch {
+  }
+}
+function AlignControl({ value, onChoose }) {
+  return /* @__PURE__ */ jsx39("div", { className: "hb-align", role: "group", "aria-label": "Alignment", children: CHOICES.map((a) => /* @__PURE__ */ jsx39("button", { type: "button", className: "hb-align-btn", "aria-pressed": a === value, onClick: () => onChoose(a), children: LABEL2[a] }, a)) });
 }
 function Note({ text, pulse = false }) {
   return /* @__PURE__ */ jsx39("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
@@ -4958,13 +5015,61 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 .hb-blocks { overflow-wrap: break-word; }
 /* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */
 .hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }
+/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column
+   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block
+   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and
+   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a
+   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch
+   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
+   .hb-place at all. */
+.hb-place { display: flow-root; }
+.hb-place-center > * { margin-inline: auto; }
+.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
 `;
 
 // src/styles/shared.css
 var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s, transform 0.1s;\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
 
 // src/host/blockTag.css
-var blockTag_default = "/* The block tag's own states */\n.hb-state {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  margin: 8px 0;\n  padding: 10px 14px;\n  max-width: 100%;\n  border-radius: 14px;\n  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);\n  color: var(--ui-text-tertiary, #6b7280);\n  font-size: 13px;\n}\n.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }\n@keyframes hb-pulse { 50% { opacity: 0.45; } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pulse { animation: none; }\n}\n";
+var blockTag_default = `/* The block tag's own states */
+.hb-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  max-width: 100%;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+}
+.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }
+/* The reader's own alignment line, above a drawn board: four quiet chips, the current one tinted. */
+.hb-align { display: flex; gap: 4px; margin: 8px 0 0; }
+.hb-align-btn {
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ui-text-tertiary, color-mix(in srgb, var(--foreground, #1f2328) 55%, transparent));
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.hb-align-btn:hover { background: color-mix(in srgb, var(--foreground, #1f2328) 4%, transparent); }
+.hb-align-btn[aria-pressed="true"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--theme-primary, #2f6fed) 14%, transparent);
+  color: color-mix(in srgb, var(--theme-primary, #2f6fed) 85%, var(--foreground, #1f2328));
+}
+.hb-align-btn:focus-visible { outline: 2px solid var(--theme-primary, #2f6fed); outline-offset: 2px; }
+@keyframes hb-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .hb-pulse { animation: none; }
+}
+`;
 
 // src/blocks/atoms/atoms.css
 var atoms_default = "/* Small pieces: heading, text, divider, badge, link, image, bar */\n.hb-heading { font-size: 16px; line-height: 22px; font-weight: 700; letter-spacing: -0.01em; margin-top: 4px; }\n.hb-text { color: var(--hb-ink-2); }\n.hb-text strong { color: var(--hb-ink); font-weight: 650; }\n.hb-divider { height: 1px; background: var(--hb-line); margin: 2px 0; }\n\n.hb-badge { display: flex; align-items: center; }\n.hb-link a {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 14px;\n  font-weight: 600;\n  color: var(--hb-accent-ink);\n  text-decoration: underline;\n  text-underline-offset: 2px;\n}\n.hb-image { margin: 0; display: flex; flex-direction: column; gap: 6px; }\n.hb-image img {\n  display: block;\n  width: 100%;\n  max-height: 300px;\n  object-fit: cover;\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  background: var(--hb-well);\n}\n.hb-image figcaption { padding: 0 4px; font-size: 12px; line-height: 16px; color: var(--hb-muted); }\n.hb-bar { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 11px 14px; }\n.hb-bar-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }\n.hb-bar-label { flex: 1 0 auto; font-weight: 600; color: var(--hb-ink-2); }\n.hb-bar-amount { color: var(--hb-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-bar-track { height: 8px; border-radius: 999px; background: var(--hb-accent-soft); overflow: hidden; }\n.hb-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--hb-accent); }\n.hb-bar-fill { transform-origin: left; animation: hb-grow 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@media (prefers-reduced-motion: reduce) {\n  .hb-bar-fill { animation: none; }\n}\n";
@@ -4982,10 +5087,10 @@ var kpis_default = "/* Headline numbers */\n/* Cards keep a readable width (130-
 var timeline_default = "/* Timeline */\n.hb-timeline { display: flex; flex-direction: column; gap: 14px; }\n.hb-timeline-group { display: flex; flex-direction: column; }\n.hb-timeline-group > .hb-chip { margin-bottom: 10px; }\n.hb-stop { display: grid; grid-template-columns: 46px 22px 1fr; column-gap: 8px; }\n.hb-stop-time {\n  padding-top: 2px;\n  text-align: right;\n  font-size: 12.5px;\n  font-weight: 600;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n}\n.hb-stop-rail { display: flex; flex-direction: column; align-items: center; }\n.hb-stop-dot {\n  display: grid;\n  place-items: center;\n  flex: none;\n  width: 22px;\n  height: 22px;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n}\n.hb-stop-pip { width: 6px; height: 6px; border-radius: 999px; background: var(--hb-accent); }\n.hb-stop-line { flex: 1; width: 1px; margin: 4px 0; background: var(--hb-line); }\n.hb-stop-body { min-width: 0; }\n.hb-stop-body-gap { padding-bottom: 14px; }\n.hb-stop-title { font-size: 14.5px; line-height: 21px; font-weight: 600; }\n.hb-stop-place {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  margin-top: 1px;\n  font-size: 12.5px;\n  color: var(--hb-muted);\n}\n.hb-stop-note { margin-top: 3px; font-size: 13px; line-height: 18px; color: var(--hb-ink-2); }\n";
 
 // src/blocks/layout/layout.css
-var layout_default = "/* Containers. A row's small cards (stats, badges) end at the same height; a tall block never sits in a row\n   (layout/read.ts draws that row as a stack). */\n.hb-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }\n.hb-row-cell { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell > * { flex: 1; }\n/* Grid: each cell keeps its block's own height, top-aligned in its row. */\n.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: start; }\n.hb-grid-cell { min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell-own { flex: none; align-self: center; }\n.hb-section { display: flex; flex-direction: column; gap: 8px; }\n.hb-section-body { display: flex; flex-direction: column; gap: 10px; }\n.hb-section .hb-card { background: var(--hb-well); border-color: transparent; }\n.hb-section-toggle {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  width: 100%;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-section-toggle .hb-card-title { flex: 1; min-width: 0; }\n.hb-chevron { flex: none; color: var(--hb-muted); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }\n.hb-chevron-open { transform: rotate(90deg); }\n/* Tabs: underlined tab buttons in a bar that scrolls sideways when they don't fit, above one panel of blocks. */\n.hb-tabs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n.hb-tab-bar {\n  display: flex;\n  gap: 2px;\n  overflow-x: auto;\n  scrollbar-width: none;\n  border-bottom: 1px solid var(--hb-line);\n}\n.hb-tab-bar::-webkit-scrollbar { display: none; }\n.hb-tab {\n  flex: none;\n  margin-bottom: -1px;\n  padding: 7px 12px 8px;\n  border: 0;\n  border-bottom: 2px solid transparent;\n  border-radius: 8px 8px 0 0;\n  background: none;\n  color: var(--hb-muted);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: color 0.15s, border-color 0.15s, background 0.15s;\n}\n.hb-tab:hover { color: var(--hb-ink-2); background: var(--hb-well); }\n.hb-tab-on, .hb-tab-on:hover { color: var(--hb-accent-ink); border-bottom-color: var(--hb-accent); background: none; }\n.hb-tab:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: -2px; }\n.hb-tab-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n\n/* Columns: dashboards side by side, each block at its own height (a short card beside a tall one stays short). */\n.hb-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 10px; align-items: start; }\n.hb-column { min-width: 0; display: flex; flex-direction: column; gap: 10px; }\n/* Beside other blocks a table's card fills its column or cell (on its own it hugs its columns). */\n:is(.hb-column, .hb-grid-cell) > .hb-table-card { width: auto; }\n";
+var layout_default = "/* Containers. A row's small cards (stats, badges) end at the same height; a tall block never sits in a row\n   (layout/read.ts draws that row as a stack). */\n.hb-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }\n.hb-row-cell { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell > * { flex: 1; }\n/* A block placed inside a row cell: the wrapper takes the flex:1 above and the block fills it, ending at the same\n   height it would have sitting there directly. */\n.hb-row-cell > .hb-place > * { height: 100%; }\n/* Grid: each cell keeps its block's own height, top-aligned in its row. */\n.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: start; }\n.hb-grid-cell { min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell-own { flex: none; align-self: center; }\n.hb-section { display: flex; flex-direction: column; gap: 8px; }\n.hb-section-body { display: flex; flex-direction: column; gap: 10px; }\n.hb-section .hb-card { background: var(--hb-well); border-color: transparent; }\n.hb-section-toggle {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  width: 100%;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-section-toggle .hb-card-title { flex: 1; min-width: 0; }\n.hb-chevron { flex: none; color: var(--hb-muted); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }\n.hb-chevron-open { transform: rotate(90deg); }\n/* Tabs: underlined tab buttons in a bar that scrolls sideways when they don't fit, above one panel of blocks. */\n.hb-tabs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n.hb-tab-bar {\n  display: flex;\n  gap: 2px;\n  overflow-x: auto;\n  scrollbar-width: none;\n  border-bottom: 1px solid var(--hb-line);\n}\n.hb-tab-bar::-webkit-scrollbar { display: none; }\n.hb-tab {\n  flex: none;\n  margin-bottom: -1px;\n  padding: 7px 12px 8px;\n  border: 0;\n  border-bottom: 2px solid transparent;\n  border-radius: 8px 8px 0 0;\n  background: none;\n  color: var(--hb-muted);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: color 0.15s, border-color 0.15s, background 0.15s;\n}\n.hb-tab:hover { color: var(--hb-ink-2); background: var(--hb-well); }\n.hb-tab-on, .hb-tab-on:hover { color: var(--hb-accent-ink); border-bottom-color: var(--hb-accent); background: none; }\n.hb-tab:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: -2px; }\n.hb-tab-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n\n/* Columns: dashboards side by side, each block at its own height (a short card beside a tall one stays short). */\n.hb-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 10px; align-items: start; }\n.hb-column { min-width: 0; display: flex; flex-direction: column; gap: 10px; }\n/* Beside other blocks a table's card fills its column or cell (on its own it hugs its columns); a place around it\n   changes nothing about that. */\n:is(.hb-column, .hb-grid-cell) > .hb-table-card,\n:is(.hb-column, .hb-grid-cell) > .hb-place > .hb-table-card { width: auto; }\n";
 
 // src/blocks/chart/chart.css
-var chart_default = "/* Charts are drawn at their real width and fill their place inside a layout block (a column, a cell, a tab). At the\n   top of a reply they stop at 720px; a long line (60+ points) takes the board's full width. */\n.hb-chart { margin: 0; padding: 14px 16px 10px; }\n.hb-blocks > .hb-chart:not(.hb-chart-wide) { max-width: 720px; }\n.hb-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }\n.hb-chart-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--hb-muted);\n}\n.hb-chart-figure { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; min-width: 0; }\n.hb-chart-big {\n  font-size: 28px;\n  line-height: 1.15;\n  font-weight: 800;\n  letter-spacing: -0.03em;\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-at {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-other { margin-left: 8px; }\n.hb-chart-plot { position: relative; margin-top: 8px; }\n.hb-chart-svg { display: block; width: 100%; overflow: visible; touch-action: none; user-select: none; }\n.hb-chart-svg:focus-visible, .hb-pie-svg:focus-visible, .hb-hbar-grid:focus-visible {\n  outline: 2px solid var(--hb-accent);\n  outline-offset: 4px;\n  border-radius: 4px;\n}\n.hb-chart-source { margin-top: 2px; text-align: right; font-size: 11px; color: var(--hb-muted); }\n\n/* Marks and text inside the drawings */\n.hb-chart-axis, .hb-chart-tick { font-size: 11px; fill: var(--hb-muted); font-variant-numeric: tabular-nums; }\n.hb-chart-value { font-size: 11.5px; font-weight: 500; fill: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n.hb-chart-end { font-size: 11.5px; font-weight: 600; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n/* Text drawn over lines (a change line's Start label): a rim of the page's colour behind the letters. */\n.hb-chart-halo { paint-order: stroke; stroke: var(--hb-surface); stroke-width: 3px; stroke-linejoin: round; }\n.hb-chart-rule { stroke: var(--hb-line); }\n.hb-chart-rule-strong { stroke: var(--hb-line-strong); }\n.hb-chart-dot { stroke: var(--hb-surface); stroke-width: 2; }\n.hb-chart-svg g, .hb-hbar-bar { transition: opacity 0.15s; }\n.hb-chart-draw { animation: hb-chart-draw 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }\n@keyframes hb-chart-draw { to { stroke-dashoffset: 0; } }\n\n/* The hover card (ChartTip) */\n.hb-tip {\n  position: absolute;\n  top: 0;\n  left: 0;\n  z-index: 5;\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  min-width: 120px;\n  padding: 8px 10px;\n  border: 1px solid var(--hb-line);\n  border-radius: 8px;\n  background: var(--hb-surface);\n  box-shadow: var(--hb-shadow);\n  color: var(--hb-ink);\n  font-size: 12.5px;\n  line-height: 1.35;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transition: opacity 120ms ease;\n}\n.hb-tip-on { opacity: 1; }\n.hb-tip-title, .hb-tip-note { font-size: 11.5px; color: var(--hb-muted); }\n.hb-tip-row { display: flex; align-items: center; gap: 8px; }\n.hb-tip-row i { flex: none; width: 8px; height: 8px; border-radius: 2px; }\n.hb-tip-name { flex: 1; color: var(--hb-ink-2); }\n.hb-tip-value { margin-left: 12px; font-weight: 600; }\n\n@media (prefers-reduced-motion: reduce) {\n  .hb-chart-draw { animation: none; stroke-dashoffset: 0; }\n  .hb-tip, .hb-chart-svg g, .hb-hbar-bar, .hb-slice, .hb-pie-legend tr { transition: none; }\n}\n\n.hb-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin-top: 6px;\n  font-size: 12px;\n  line-height: 16px;\n  color: var(--hb-muted);\n}\n.hb-legend-item { display: inline-flex; align-items: center; gap: 6px; }\n.hb-legend-dot { flex: none; width: 10px; height: 10px; border-radius: 999px; }\n.hb-legend-value { color: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n\n/* Pie and donut: the legend sits beside the drawing from 440px wide, below it when narrower. It stops at 420px so\n   amounts stay near their names when the donut fills a wide section. */\n.hb-pie { container-type: inline-size; }\n.hb-pie-body { position: relative; display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }\n@container (min-width: 440px) {\n  .hb-pie-body { flex-direction: row; align-items: center; gap: 20px; }\n  .hb-pie-body .hb-pie-svg { margin: 0; }\n}\n.hb-pie-svg { display: block; flex: none; margin: 0 auto; user-select: none; }\n.hb-pie-total { font-size: 17px; font-weight: 650; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n.hb-slice { cursor: pointer; stroke: var(--hb-surface); stroke-width: 2; stroke-linejoin: round; transition: opacity 0.15s; }\n.hb-pie-legend { flex: 1; min-width: 0; max-width: 420px; border-collapse: collapse; font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }\n.hb-pie-legend tr { cursor: pointer; transition: opacity 0.15s; }\n.hb-pie-legend td { padding: 3px 12px 3px 0; vertical-align: top; }\n.hb-pie-legend td:last-child { padding-right: 0; }\n.hb-pie-swatch { width: 10px; }\n.hb-pie-swatch i { display: block; width: 10px; height: 10px; margin-top: 4px; border-radius: 3px; }\n.hb-pie-name { width: 100%; color: var(--hb-ink-2); overflow-wrap: anywhere; }\n.hb-pie-value { text-align: right; font-weight: 600; white-space: nowrap; }\n.hb-pie-share { text-align: right; color: var(--hb-muted); white-space: nowrap; }\n\n/* Horizontal bars: label | bar | value on each row. */\n.hb-hbar-box { position: relative; margin: 10px 0 4px; }\n.hb-hbar-grid {\n  display: grid;\n  grid-template-columns: fit-content(40%) minmax(0, 1fr) max-content;\n  gap: 8px 12px;\n  align-items: center;\n  font-size: 13px;\n}\n.hb-hbar-label { min-width: 64px; line-height: 17px; color: var(--hb-ink-2); }\n.hb-hbar-tracks, .hb-hbar-values { display: flex; flex-direction: column; gap: 4px; }\n.hb-hbar-track { position: relative; height: 14px; }\n.hb-hbar-zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--hb-line-strong); }\n.hb-hbar-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; }\n.hb-hbar-value { line-height: 14px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-hbar-many .hb-hbar-track { height: 12px; }\n.hb-hbar-many .hb-hbar-value { font-size: 12px; line-height: 12px; }\n.hb-hbar-up { color: var(--hb-good); }\n.hb-hbar-down { color: var(--hb-warn); }\n";
+var chart_default = "/* Charts are drawn at their real width and fill their place inside a layout block (a column, a cell, a tab). At the\n   top of a reply, placed or not, they stop at 720px; a long line (60+ points) takes the board's full width. */\n.hb-chart { margin: 0; padding: 14px 16px 10px; }\n.hb-blocks > .hb-chart:not(.hb-chart-wide),\n.hb-blocks > .hb-place > .hb-chart:not(.hb-chart-wide) { max-width: 720px; }\n.hb-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }\n.hb-chart-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--hb-muted);\n}\n.hb-chart-figure { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; min-width: 0; }\n.hb-chart-big {\n  font-size: 28px;\n  line-height: 1.15;\n  font-weight: 800;\n  letter-spacing: -0.03em;\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-at {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-other { margin-left: 8px; }\n.hb-chart-plot { position: relative; margin-top: 8px; }\n.hb-chart-svg { display: block; width: 100%; overflow: visible; touch-action: none; user-select: none; }\n.hb-chart-svg:focus-visible, .hb-pie-svg:focus-visible, .hb-hbar-grid:focus-visible {\n  outline: 2px solid var(--hb-accent);\n  outline-offset: 4px;\n  border-radius: 4px;\n}\n.hb-chart-source { margin-top: 2px; text-align: right; font-size: 11px; color: var(--hb-muted); }\n\n/* Marks and text inside the drawings */\n.hb-chart-axis, .hb-chart-tick { font-size: 11px; fill: var(--hb-muted); font-variant-numeric: tabular-nums; }\n.hb-chart-value { font-size: 11.5px; font-weight: 500; fill: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n.hb-chart-end { font-size: 11.5px; font-weight: 600; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n/* Text drawn over lines (a change line's Start label): a rim of the page's colour behind the letters. */\n.hb-chart-halo { paint-order: stroke; stroke: var(--hb-surface); stroke-width: 3px; stroke-linejoin: round; }\n.hb-chart-rule { stroke: var(--hb-line); }\n.hb-chart-rule-strong { stroke: var(--hb-line-strong); }\n.hb-chart-dot { stroke: var(--hb-surface); stroke-width: 2; }\n.hb-chart-svg g, .hb-hbar-bar { transition: opacity 0.15s; }\n.hb-chart-draw { animation: hb-chart-draw 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }\n@keyframes hb-chart-draw { to { stroke-dashoffset: 0; } }\n\n/* The hover card (ChartTip) */\n.hb-tip {\n  position: absolute;\n  top: 0;\n  left: 0;\n  z-index: 5;\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  min-width: 120px;\n  padding: 8px 10px;\n  border: 1px solid var(--hb-line);\n  border-radius: 8px;\n  background: var(--hb-surface);\n  box-shadow: var(--hb-shadow);\n  color: var(--hb-ink);\n  font-size: 12.5px;\n  line-height: 1.35;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transition: opacity 120ms ease;\n}\n.hb-tip-on { opacity: 1; }\n.hb-tip-title, .hb-tip-note { font-size: 11.5px; color: var(--hb-muted); }\n.hb-tip-row { display: flex; align-items: center; gap: 8px; }\n.hb-tip-row i { flex: none; width: 8px; height: 8px; border-radius: 2px; }\n.hb-tip-name { flex: 1; color: var(--hb-ink-2); }\n.hb-tip-value { margin-left: 12px; font-weight: 600; }\n\n@media (prefers-reduced-motion: reduce) {\n  .hb-chart-draw { animation: none; stroke-dashoffset: 0; }\n  .hb-tip, .hb-chart-svg g, .hb-hbar-bar, .hb-slice, .hb-pie-legend tr { transition: none; }\n}\n\n.hb-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin-top: 6px;\n  font-size: 12px;\n  line-height: 16px;\n  color: var(--hb-muted);\n}\n.hb-legend-item { display: inline-flex; align-items: center; gap: 6px; }\n.hb-legend-dot { flex: none; width: 10px; height: 10px; border-radius: 999px; }\n.hb-legend-value { color: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n\n/* Pie and donut: the legend sits beside the drawing from 440px wide, below it when narrower. It stops at 420px so\n   amounts stay near their names when the donut fills a wide section. */\n.hb-pie { container-type: inline-size; }\n.hb-pie-body { position: relative; display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }\n@container (min-width: 440px) {\n  .hb-pie-body { flex-direction: row; align-items: center; gap: 20px; }\n  .hb-pie-body .hb-pie-svg { margin: 0; }\n}\n.hb-pie-svg { display: block; flex: none; margin: 0 auto; user-select: none; }\n.hb-pie-total { font-size: 17px; font-weight: 650; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n.hb-slice { cursor: pointer; stroke: var(--hb-surface); stroke-width: 2; stroke-linejoin: round; transition: opacity 0.15s; }\n.hb-pie-legend { flex: 1; min-width: 0; max-width: 420px; border-collapse: collapse; font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }\n.hb-pie-legend tr { cursor: pointer; transition: opacity 0.15s; }\n.hb-pie-legend td { padding: 3px 12px 3px 0; vertical-align: top; }\n.hb-pie-legend td:last-child { padding-right: 0; }\n.hb-pie-swatch { width: 10px; }\n.hb-pie-swatch i { display: block; width: 10px; height: 10px; margin-top: 4px; border-radius: 3px; }\n.hb-pie-name { width: 100%; color: var(--hb-ink-2); overflow-wrap: anywhere; }\n.hb-pie-value { text-align: right; font-weight: 600; white-space: nowrap; }\n.hb-pie-share { text-align: right; color: var(--hb-muted); white-space: nowrap; }\n\n/* Horizontal bars: label | bar | value on each row. */\n.hb-hbar-box { position: relative; margin: 10px 0 4px; }\n.hb-hbar-grid {\n  display: grid;\n  grid-template-columns: fit-content(40%) minmax(0, 1fr) max-content;\n  gap: 8px 12px;\n  align-items: center;\n  font-size: 13px;\n}\n.hb-hbar-label { min-width: 64px; line-height: 17px; color: var(--hb-ink-2); }\n.hb-hbar-tracks, .hb-hbar-values { display: flex; flex-direction: column; gap: 4px; }\n.hb-hbar-track { position: relative; height: 14px; }\n.hb-hbar-zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--hb-line-strong); }\n.hb-hbar-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; }\n.hb-hbar-value { line-height: 14px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-hbar-many .hb-hbar-track { height: 12px; }\n.hb-hbar-many .hb-hbar-value { font-size: 12px; line-height: 12px; }\n.hb-hbar-up { color: var(--hb-good); }\n.hb-hbar-down { color: var(--hb-warn); }\n";
 
 // src/blocks/images/images.css
 var images_default = "/* Photos */\n.hb-photos { margin: 0; display: flex; flex-direction: column; gap: 8px; }\n.hb-photo-strip {\n  display: flex;\n  gap: 10px;\n  overflow-x: auto;\n  padding-bottom: 6px;\n  scroll-snap-type: x mandatory;\n  scrollbar-width: thin;\n}\n.hb-photo {\n  flex: 0 0 220px;\n  display: flex;\n  flex-direction: column;\n  justify-content: flex-start;\n  align-items: stretch;\n  height: auto;\n  margin: 0;\n  padding: 0;\n  overflow: hidden;\n  border: 1px solid var(--hb-line);\n  border-radius: 14px;\n  background: var(--hb-card);\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: zoom-in;\n  scroll-snap-align: start;\n}\n.hb-photo img { display: block; width: 100%; height: 150px; object-fit: cover; background: var(--hb-well); }\n.hb-photo-text { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; }\n.hb-photo-caption {\n  display: -webkit-box;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  overflow: hidden;\n  font-size: 13px;\n  line-height: 17px;\n  font-weight: 600;\n}\n.hb-photo-source { font-size: 11.5px; color: var(--hb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.hb-photo-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 2147483000;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: 12px;\n  padding: 32px;\n  background: rgba(0, 0, 0, 0.82);\n  cursor: zoom-out;\n  animation: hb-appear 0.18s ease-out;\n}\n.hb-photo-overlay img { margin: 0; max-width: 100%; max-height: calc(100% - 48px); border-radius: 10px; object-fit: contain; }\n.hb-photo-overlay-text { max-width: 720px; text-align: center; font-size: 14px; color: rgba(255, 255, 255, 0.92); }\n.hb-photo-overlay-text span { color: rgba(255, 255, 255, 0.6); }\n";
@@ -5109,13 +5214,13 @@ var tiles_default = "/* Tiles: cover cards. A card's reason (its subtitle) reads
 var checklist_default = "/* Checklist */\n.hb-checklist { display: flex; flex-direction: column; }\n.hb-checklist-head { display: flex; align-items: baseline; gap: 8px; }\n.hb-checklist-head .hb-card-title { flex: 1; min-width: 0; }\n.hb-checklist-count {\n  margin-left: auto;\n  font-size: 12.5px;\n  font-weight: 600;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-checklist-count-done { color: var(--hb-good); }\n.hb-checklist-track { display: block; height: 6px; margin: 8px 0 4px; overflow: hidden; border-radius: 999px; background: var(--hb-well); }\n.hb-checklist-fill { display: block; height: 100%; border-radius: 999px; background: var(--hb-good); transition: width 0.3s ease; }\n.hb-checklist-group { padding: 10px 0 2px; font-size: 12px; font-weight: 700; color: var(--hb-muted); }\n.hb-check {\n  display: flex;\n  align-items: flex-start;\n  gap: 12px;\n  width: 100%;\n  margin: 0;\n  padding: 7px 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-check:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; border-radius: 8px; }\n.hb-check-mark {\n  flex: none;\n  display: grid;\n  place-items: center;\n  width: 22px;\n  height: 22px;\n  margin-top: 0.5px;\n  border: 2px solid var(--hb-line-strong);\n  border-radius: 999px;\n  color: var(--hb-muted);\n  font-size: 11px;\n  font-weight: 700;\n  font-variant-numeric: tabular-nums;\n  transition: background 0.15s, border-color 0.15s;\n}\n.hb-check-on .hb-check-mark { border-color: var(--hb-good); background: var(--hb-good); color: #fff; }\n.hb-check-text { flex: 1; min-width: 0; font-size: 14.5px; line-height: 21px; transition: color 0.15s; }\n.hb-check-on .hb-check-text { color: var(--hb-muted); text-decoration: line-through; text-decoration-thickness: 1px; }\n@media (prefers-reduced-motion: reduce) {\n  .hb-checklist-fill, .hb-check-mark, .hb-check-text { transition: none; }\n}\n";
 
 // src/blocks/calculator/calculator.css
-var calculator_default = "/* Calculator; a form's slider uses the same .hb-calc-head, .hb-calc-label, .hb-calc-value and .hb-range. */\n.hb-calc { display: flex; flex-direction: column; }\n/* At the top of a reply sliders stop at 720px rather than stretching across a wide board; in a layout block they fill\n   their place. */\n.hb-blocks > .hb-calc { max-width: 720px; }\n.hb-calc-slider { display: block; padding: 8px 0; }\n.hb-calc-head { display: flex; align-items: baseline; gap: 8px; }\n.hb-calc-label { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--hb-ink-2); }\n.hb-calc-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-range { display: block; width: 100%; margin: 8px 0 0; accent-color: var(--hb-accent); cursor: pointer; }\n.hb-calc-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--hb-muted); font-variant-numeric: tabular-nums; }\n.hb-calc-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }\n/* A calculator's live chart sits in the calculator's card, so it drops its own card look. */\n.hb-calc > .hb-chart { margin-top: 10px; padding: 10px 0 0; border: 0; border-top: 1px solid var(--hb-line); border-radius: 0; background: none; }\n.hb-calc-result { min-width: 0; padding: 10px 14px; border-radius: 14px; background: var(--hb-accent-soft); }\n.hb-calc-result-label { font-size: 12px; font-weight: 600; color: var(--hb-accent-ink); }\n.hb-calc-result-value {\n  margin-top: 2px;\n  font-size: 20px;\n  line-height: 1.2;\n  font-weight: 800;\n  letter-spacing: -0.02em;\n  font-variant-numeric: tabular-nums;\n  overflow-wrap: anywhere;\n}\n";
+var calculator_default = "/* Calculator; a form's slider uses the same .hb-calc-head, .hb-calc-label, .hb-calc-value and .hb-range. */\n.hb-calc { display: flex; flex-direction: column; }\n/* At the top of a reply sliders stop at 720px rather than stretching across a wide board, placed or not; in a\n   layout block they fill their place. */\n.hb-blocks > .hb-calc, .hb-blocks > .hb-place > .hb-calc { max-width: 720px; }\n.hb-calc-slider { display: block; padding: 8px 0; }\n.hb-calc-head { display: flex; align-items: baseline; gap: 8px; }\n.hb-calc-label { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: var(--hb-ink-2); }\n.hb-calc-value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-range { display: block; width: 100%; margin: 8px 0 0; accent-color: var(--hb-accent); cursor: pointer; }\n.hb-calc-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--hb-muted); font-variant-numeric: tabular-nums; }\n.hb-calc-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 8px; }\n/* A calculator's live chart sits in the calculator's card, so it drops its own card look. */\n.hb-calc > .hb-chart { margin-top: 10px; padding: 10px 0 0; border: 0; border-top: 1px solid var(--hb-line); border-radius: 0; background: none; }\n.hb-calc-result { min-width: 0; padding: 10px 14px; border-radius: 14px; background: var(--hb-accent-soft); }\n.hb-calc-result-label { font-size: 12px; font-weight: 600; color: var(--hb-accent-ink); }\n.hb-calc-result-value {\n  margin-top: 2px;\n  font-size: 20px;\n  line-height: 1.2;\n  font-weight: 800;\n  letter-spacing: -0.02em;\n  font-variant-numeric: tabular-nums;\n  overflow-wrap: anywhere;\n}\n";
 
 // src/blocks/simulate/simulate.css
 var simulate_default = `/* Simulation: a title with the view switch, then Play, the time scrubber and the sliders, then the piles of dots or
    the line chart. The sliders use the calculator's .hb-calc-slider and .hb-range; the legend the chart's. */
 .hb-sim { display: flex; flex-direction: column; gap: 12px; container-type: inline-size; }
-.hb-blocks > .hb-sim { max-width: 720px; }
+.hb-blocks > .hb-sim, .hb-blocks > .hb-place > .hb-sim { max-width: 720px; }
 .hb-sim-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .hb-sim-switch { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--hb-well); }
 .hb-sim-switch button {
@@ -5149,7 +5254,7 @@ var simulate_default = `/* Simulation: a title with the view switch, then Play, 
 `;
 
 // src/blocks/form/form.css
-var form_default = "/* Form: at most 720px wide at the top of a reply (like a calculator), filling its place in a layout block. */\n.hb-blocks > .hb-form { max-width: 720px; }\n.hb-form-field { display: block; padding: 8px 0; }\n.hb-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }\n.hb-form-sent fieldset { opacity: 0.6; }\n.hb-form-label { display: block; margin-bottom: 6px; font-size: 13.5px; font-weight: 600; color: var(--hb-ink-2); }\n.hb-input {\n  display: block;\n  width: 100%;\n  min-width: 0;\n  height: 38px;\n  padding: 0 12px;\n  border: 1px solid var(--hb-line-strong);\n  border-radius: 12px;\n  background: var(--hb-surface);\n  color: var(--hb-ink);\n  font: inherit;\n  font-size: 14px;\n  color-scheme: light dark;\n}\ntextarea.hb-input { height: auto; padding: 8px 12px; line-height: 20px; resize: vertical; }\n.hb-input:focus { outline: 2px solid var(--hb-accent); outline-offset: -1px; }\n.hb-input::placeholder { color: var(--hb-muted); }\n.hb-options { display: flex; flex-wrap: wrap; gap: 8px; }\n.hb-option {\n  min-height: 34px;\n  max-width: 100%;\n  margin: 0;\n  padding: 6px 14px;\n  border: 1px solid var(--hb-line-strong);\n  border-radius: 999px;\n  background: none;\n  color: var(--hb-ink);\n  font: inherit;\n  font-size: 13.5px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  transition: background 0.15s, border-color 0.15s;\n}\n.hb-option:hover { background: var(--hb-well); }\n.hb-option-on, .hb-option-on:hover { border-color: var(--hb-accent); background: var(--hb-accent-soft); color: var(--hb-accent-ink); font-weight: 600; }\n.hb-option:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-option:disabled { cursor: default; }\n.hb-form-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 8px; }\n.hb-form-done { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--hb-good); }\n/* Form extras: group headings, option notes, a select's note and a slider's end words */\n.hb-form-group { padding: 12px 0 0; font-size: 12px; font-weight: 700; color: var(--hb-muted); }\n.hb-option-note { display: block; font-size: 11.5px; line-height: 15px; font-weight: 400; color: var(--hb-muted); }\n.hb-option-on .hb-option-note { color: var(--hb-accent-ink); }\n.hb-form-note { display: block; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--hb-muted); }\n.hb-form-ends { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--hb-muted); }\n@media (prefers-reduced-motion: reduce) {\n  .hb-option { transition: none; }\n}\n";
+var form_default = "/* Form: at most 720px wide at the top of a reply (like a calculator), placed or not, filling its place in a\n   layout block. */\n.hb-blocks > .hb-form, .hb-blocks > .hb-place > .hb-form { max-width: 720px; }\n.hb-form-field { display: block; padding: 8px 0; }\n.hb-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }\n.hb-form-sent fieldset { opacity: 0.6; }\n.hb-form-label { display: block; margin-bottom: 6px; font-size: 13.5px; font-weight: 600; color: var(--hb-ink-2); }\n.hb-input {\n  display: block;\n  width: 100%;\n  min-width: 0;\n  height: 38px;\n  padding: 0 12px;\n  border: 1px solid var(--hb-line-strong);\n  border-radius: 12px;\n  background: var(--hb-surface);\n  color: var(--hb-ink);\n  font: inherit;\n  font-size: 14px;\n  color-scheme: light dark;\n}\ntextarea.hb-input { height: auto; padding: 8px 12px; line-height: 20px; resize: vertical; }\n.hb-input:focus { outline: 2px solid var(--hb-accent); outline-offset: -1px; }\n.hb-input::placeholder { color: var(--hb-muted); }\n.hb-options { display: flex; flex-wrap: wrap; gap: 8px; }\n.hb-option {\n  min-height: 34px;\n  max-width: 100%;\n  margin: 0;\n  padding: 6px 14px;\n  border: 1px solid var(--hb-line-strong);\n  border-radius: 999px;\n  background: none;\n  color: var(--hb-ink);\n  font: inherit;\n  font-size: 13.5px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  transition: background 0.15s, border-color 0.15s;\n}\n.hb-option:hover { background: var(--hb-well); }\n.hb-option-on, .hb-option-on:hover { border-color: var(--hb-accent); background: var(--hb-accent-soft); color: var(--hb-accent-ink); font-weight: 600; }\n.hb-option:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-option:disabled { cursor: default; }\n.hb-form-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; margin-top: 8px; }\n.hb-form-done { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--hb-good); }\n/* Form extras: group headings, option notes, a select's note and a slider's end words */\n.hb-form-group { padding: 12px 0 0; font-size: 12px; font-weight: 700; color: var(--hb-muted); }\n.hb-option-note { display: block; font-size: 11.5px; line-height: 15px; font-weight: 400; color: var(--hb-muted); }\n.hb-option-on .hb-option-note { color: var(--hb-accent-ink); }\n.hb-form-note { display: block; margin-top: 4px; font-size: 12px; line-height: 16px; color: var(--hb-muted); }\n.hb-form-ends { display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; font-size: 11px; color: var(--hb-muted); }\n@media (prefers-reduced-motion: reduce) {\n  .hb-option { transition: none; }\n}\n";
 
 // src/styles/index.ts
 var STYLE_PARTS = [

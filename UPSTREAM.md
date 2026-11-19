@@ -1,7 +1,8 @@
-# UPSTREAM — three reviewed enhancements, one combined local candidate
+# UPSTREAM — four reviewed enhancements (three combined, plus alignment on its own branch)
 
 For the hermes-genui maintainer. This documents three small changes a daily user runs locally on top of
-upstream `main` @ `5f223c2`. Each is independent, tested, and adoptable on its own; the combined branch is
+upstream `main` @ `5f223c2`, and a fourth — block alignment — built on the combined three and kept on its own
+branch (`alignment`) so the first three stay untouched. Each is independent, tested, and adoptable on its own; the combined branch is
 offered as a convenience. Nothing here changes Hermes itself: no host/app change, no new runtime
 dependency, no new network call, no new block type, no catalog/prompt-text change.
 
@@ -13,6 +14,7 @@ Baseline: `5f223c2` · Branch: `combined-candidate` · Owner of this build: leos
 | 2 | images: draw tool-generated local files | `956d9dd` | `35078bf` (local-only) | candidate PR for the direction discussed in [issue #11](https://github.com/sagarmainkar/hermes-genui/issues/11) |
 | 3 | BlockTag: hide a block that cannot load | `10b8d52` | same commit (new) | new proposal — see trade-off below |
 | — | rebuilt bundle for all three | `d49c5da` | — | rebuild after taking any subset |
+| 4 | alignment: per-block and per-board placement, with a reader override | branch `alignment` @ `3fe1783` (off the combined three) | this card, test-first | proposal — see section 4 |
 
 ---
 
@@ -105,6 +107,64 @@ send whichever you prefer as a PR; this one is a proposal, no PR opened yet.
 
 ---
 
+## 4. alignment — per-block left/center/right, a board default, and the reader's own override
+
+**What & why.** Every block sat at the left of the chat column. A capped card (a lone calculator, a form, a
+chart) could not center itself beside prose, a whole board could not ask to sit centered, and a reader who
+wanted things elsewhere had no say at all. Owner's ask (2026-11-18): general placement control, model-side and
+manual-side.
+
+**Mechanism.** One semantic field, three voices, one resolution order — reader, then block, then board, then left:
+- `align: "left" | "center" | "right"` on any block spec. Read once, centrally, by `core/readBlocks.ts`
+  (`web/src/core/fields.ts` adds the word reader): trimmed and caseless, anything else ignored — the block still
+  draws, sitting left, exactly as an unknown callout tone becomes "info". No type's own reader or drawing was
+  touched; the word rides beside the block, never into its props-to-DOM path.
+- A board-level default in the stored envelope: `{"align": "center", "blocks": [...]}`. A board saved without a
+  word stays a plain list — the existing file shape is untouched, and old boards read exactly as before. The REST
+  route passes the word through (`{"blocks": [...], "align": "center"}`), includes and the text half take just the
+  blocks (`core/store.py` gains `blocks_of` / `align_of`, both shapes, lenient as everywhere else).
+- Placement draws a non-left block inside a `.hb-place` box — `display: flow-root`, filling the column or cell
+  exactly as the block did — and shifts it with `margin-inline` across the free space. Block layout inside is the
+  point: the block sizes as it sized unwrapped (a capped card stays its 720px cap; a `fit-content` table keeps
+  hugging; prose, a long line and other full-width blocks have no free space and shift by nothing), and the auto
+  margin only shares out what the block left over. Never auto-margin a block directly in a flex column: the margin
+  stops the stretch and the block collapses to its content (a real Chrome regression in `tests/` pins this).
+  Placement resolves recursively — `core/Blocks.tsx` hands containers the same drawing path, so a child's own word,
+  the board's default and the reader's override all reach nested blocks, each placed within the cell the container
+  already gave it (`layout.css` grows the cell rules so a placed card still fills and stretches as its unwrapped
+  siblings do). A board with no ask anywhere draws the DOM it always did: no wrappers, no new nodes,
+  `widths.test.tsx` unchanged and passing.
+- The reader's override is host-side: a small chip line above every drawn board (`host/BlockTag.tsx`) —
+  **Auto | Left | Center | Right** — remembered per board on this device (`localStorage`), Auto gives the choice
+  back to the model. It outranks every ask, model or board, at every depth, because it is what this reader wants
+  to see now.
+
+**What did not change.** Max-widths, light/dark theming, container geometry (grids, rows, columns, sections and
+tabs keep every cell they had; only the blocks inside them gain a place), the text fallback's words, the
+`catalog.json`/`describe()` budget (the field is documented in the `show_blocks` parameter descriptions, not the
+pinned catalog text), `check_blocks` (only undrawable things are refused, house rule — a wrong word is a layout
+default, not a broken block).
+
+**Tests** (behavior in vitest, real pixels in Chrome): vitest **529 passed / 71 files** — 28 over baseline,
+covering the word and its lenience, the envelope default, cascade, block-beats-board, reader-beats-all, caps
+under a place, full-width blocks unshifted, nested placement in a surviving grid/row/section/tabs (child's word,
+board default cascading in, reader override reaching in), the host chips and their remembering. pytest **691
+passed** — 9 new behavior tests across both board shapes end to end (save → include → REST → text), plus 6 new
+real-browser layout regressions (`tests/test_layout_alignment.py`, Chrome headless): measured rects prove a
+placed capped card stays exactly 720px at center and right (190px/380px offsets), full-width prose and wide
+charts stay at the 1100px column (and 360px in a narrow container, unshifted and unshrunk), a `fit-content`
+table keeps its hugging width while moving, nested grid cards match their unplaced twins cell for cell, and a
+placed row cell stretches to the same height as its plain sibling. `ruff` and `tsc --noEmit` clean; bundle
+`desktop/plugin.js` built twice byte-identical.
+
+**Disclosed trade-offs.** (1) The reader's choice lives in `localStorage`, not the board's server-side state: it
+is a way of looking, not content, and reading it is synchronous — no reflow flash after the board draws.
+(2) The chip line shows on every drawn board, deliberately quiet (11.5px chips at the theme's tertiary text
+color); a hover-only affordance is a one-line CSS change if you prefer it. (3) A word on a flattened container
+(a row drawn as a stack) becomes the word of every block in the stack unless a block asks otherwise.
+
+---
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →
@@ -117,6 +177,8 @@ send whichever you prefer as a PR; this one is a proposal, no PR opened yet.
   473 vitest: tiles +9 vitest, images +15 pytest / +19 vitest, BlockTag renames 3 of its existing 6.
 - Taking only some changes: cherry-pick the wanted subset and rerun `cd web && npm run build`; do not mix
   the combined bundle with a partial source tree.
+- The alignment change (section 4) is on branch `alignment`, off the combined candidate (`3fe1783`), with its
+  own rebuilt bundle; it assumes the combined three are in place and was tested there.
 - No new runtime dependency (the build still bundles only `web/src`), no new network call, no Hermes
   host/app change, no new block type, no `catalog.json`/prompt-size change (`tests/fixtures/describe.txt`
   untouched; the description-budget test passes).

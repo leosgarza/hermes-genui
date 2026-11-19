@@ -3,6 +3,7 @@
 import json
 import math
 
+from ..blocks.common import align_word
 from ..core import store, surface
 from ..core.catalog_text import describe
 from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, too_deep
@@ -151,7 +152,7 @@ def _included(block_id: str, here: str, problems: list[str]) -> list:
         problems.append(f"{here}: board {block_id} is too big to include (max {INCLUDE_LIMIT // 1024} KB)")
     elif board is None:
         problems.append(f"{here}: no stored board with id {block_id}")
-    return board or []
+    return store.blocks_of(board)  # its own align stays with the board it was saved for; includes take the blocks
 
 
 def too_big(blocks: list) -> str | None:
@@ -181,13 +182,14 @@ def show_blocks(params: dict, **kwargs) -> str:
         problems = [deep] if (deep := too_deep(blocks)) else []
     if problems:
         return _not_drawn(problems)
-    refusal = too_big(blocks)
+    board = blocks if (word := align_word(params.get("align"))) is None else {"align": word, "blocks": blocks}
+    refusal = too_big(board)
     if refusal:
         return refusal
     problems = unknown_photos(blocks, store.known_photo_urls())
     if problems:
         return _not_drawn(problems)
-    return paste_instruction(store.save(blocks))
+    return paste_instruction(store.save(board))
 
 
 SHOW_BLOCKS_SCHEMA = {
@@ -204,8 +206,14 @@ SHOW_BLOCKS_SCHEMA = {
             "blocks": {
                 "type": "array",
                 "items": {"type": "object"},
-                "description": "The blocks to draw, in order. Each has a `type`.",
-            }
+                "description": "The blocks to draw, in order. Each has a `type`, and may ask for its place with "
+                "`align`: left | center | right.",
+            },
+            "align": {
+                "type": "string",
+                "description": "Optional. Where the blocks of this whole board sit across the reply when a block "
+                "doesn't ask for itself: left (the default) | center | right. The reader can override it in the app.",
+            },
         },
         "required": ["blocks"],
     },

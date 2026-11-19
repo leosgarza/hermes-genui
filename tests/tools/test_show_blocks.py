@@ -213,3 +213,27 @@ def test_step_photos_must_come_from_find_photos(store_dir):
                    "- 0.items.1.image: use only photo URLs that find_photos returned")
     plugin_store.remember_photo_urls(["https://a.example/s.jpg"])
     assert "::blocks{" in tools.show_blocks({"blocks": [steps]})
+
+
+# --- alignment: the board's word rides along in an envelope; blocks keep their own ask ----------------------------
+
+def test_board_align_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "blocks": [TIMELINE]}
+
+
+def test_an_unknown_align_word_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "middle"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_block_may_ask_for_its_own_align(store_dir):
+    block = {"type": "text", "text": "Look here", "align": "right"}
+    result = tools.show_blocks({"blocks": [block]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_align(store_dir):
+    board_id = plugin_store.save({"align": "right", "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]

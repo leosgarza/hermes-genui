@@ -105,3 +105,10 @@ def test_a_board_from_another_profile_draws_and_keeps_its_ticks_there(client, tm
     assert (other / f"{block_id}.state.json").is_file()
     assert not (tmp_path / f"{block_id}.state.json").exists()
     assert http.get(f"/blocks/{block_id}/state").json() == {"state": {"0": [0]}}
+
+
+def test_api_passes_the_boards_own_align(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center"}

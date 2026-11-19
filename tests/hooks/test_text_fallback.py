@@ -543,3 +543,13 @@ def test_steps_say_what_each_step_changes_using_the_flow_labels():
 def test_steps_without_a_flow_on_the_board_name_the_node_id():
     steps = {"type": "steps", "for": "tf", "items": [{"title": "A", "holds": {"emb": ["v"]}}, {"title": "B"}]}
     assert render(steps) == "**Step 1 of 2 · A**\nemb now holds: v\n\n**Step 2 of 2 · B**"
+
+
+def test_replace_tags_reads_both_board_shapes():
+    # A stored board is either a plain list or an envelope carrying the board's own alignment; as text, both are
+    # just their blocks: alignment is a drawing concern.
+    heading = EXAMPLES["heading"]
+    plain = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [heading])
+    wrapped = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: {"align": "right", "blocks": [heading]})
+    assert wrapped == plain
+    assert wrapped.strip() and wrapped != tf.NOT_SHOWN

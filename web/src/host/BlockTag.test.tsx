@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import catalog from "../../../core/catalog.json";
 import { BlockActions } from "./actions";
@@ -50,5 +50,43 @@ describe("BlockTag", () => {
     );
     await waitFor(() => expect(screen.getByText("1 of 2 done")).toBeTruthy());
     expect(rest).toHaveBeenCalledWith("/blocks/7f3a09bc/state");
+  });
+});
+
+describe("BlockTag alignment", () => {
+  // The board's default comes from the stored envelope; the reader's own choice (host-side, this device) outranks
+  // both the board's default and every block's ask, and is remembered per board until given back ("Auto").
+  const stored = (blocks: unknown[], envelope: Record<string, unknown> = {}) => ({ ...envelope, blocks });
+
+  afterEach(() => {
+    localStorage.clear();
+    cleanup();
+  });
+
+  it("passes the board's own default down to the blocks", async () => {
+    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([timeline], { align: "center" })} />);
+    await waitFor(() => expect(screen.getByText("Day 1 · Fri 9 Oct")).toBeTruthy());
+    expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy();
+  });
+
+  it("offers the reader left, center and right, over the model's choice", async () => {
+    const calc = { type: "calculator", sliders: [{ name: "p", title: "Loan", max: 100, value: 40 }], results: [{ label: "Half", formula: "p / 2" }], align: "center" };
+    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([calc])} />);
+    await waitFor(() => expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy());  // the model asked
+    fireEvent.click(screen.getByRole("button", { name: "Left" }));
+    expect(document.querySelector(".hb-place")).toBeNull();                                              // the reader says left, blocks sit left
+    fireEvent.click(screen.getByRole("button", { name: "Right" }));
+    expect(document.querySelector(".hb-place[data-align='right']")).toBeTruthy();                        // and right
+    expect(localStorage.getItem("hermes-genui-align-7f3a09bc")).toBe("right");                            // remembered
+  });
+
+  it("starts from the remembered choice, and Auto gives it back to the model", async () => {
+    localStorage.setItem("hermes-genui-align-7f3a09bc", "right");
+    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([timeline], { align: "center" })} />);
+    await waitFor(() => expect(document.querySelector(".hb-place[data-align='right']")).toBeTruthy());   // remembered beats the board's default
+    expect(screen.getByRole("button", { name: "Right" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Auto" }));
+    expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy();                       // back to what the model chose
+    expect(localStorage.getItem("hermes-genui-align-7f3a09bc")).toBeNull();
   });
 });

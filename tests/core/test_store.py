@@ -156,3 +156,30 @@ def test_a_new_board_never_takes_an_id_used_in_another_profile(tmp_path, monkeyp
     monkeypatch.setattr(store, "secrets", FakeSecrets(taken, "bbbbbbbb"))
     assert store.save([{"type": "text", "text": "mine"}]) == "bbbbbbbb"
     assert not (active / f"{taken}.json").exists()
+
+
+# --- board shapes: a plain list, or an envelope that carries the board's own alignment ----------------------------
+
+def test_blocks_of_reads_both_board_shapes(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.blocks_of(plain) == plain
+    assert store.blocks_of({"align": "center", "blocks": plain}) == plain
+    assert store.align_of(plain) is None
+    assert store.align_of({"align": "center", "blocks": plain}) == "center"
+
+
+def test_blocks_of_gives_nothing_for_anything_else(tmp_path):
+    assert store.blocks_of(None) == []
+    assert store.blocks_of("text") == []
+    assert store.blocks_of([]) == []
+    assert store.blocks_of({"blocks": "not a list"}) == []
+    assert store.blocks_of({"type": "text", "text": "a lone block never gets stored"}) == []
+    assert store.align_of(None) is None
+    assert store.align_of({"align": 5, "blocks": []}) is None
+    assert store.align_of({"blocks": []}) is None
+
+
+def test_save_and_load_round_trip_an_envelope(tmp_path):
+    board = {"align": "right", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = store.save(board, root=tmp_path)
+    assert store.load(block_id, root=tmp_path) == board

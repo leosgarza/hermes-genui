@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import catalog from "../../../core/catalog.json";
-import { readBlocks, readBlocksNoted } from "./readBlocks";
+import type { Block } from "../registry";
+import { alignOf, readBlocks, readBlocksNoted } from "./readBlocks";
 
 describe("readBlocks", () => {
   it("reads chart, kpis and source; skips unknown types", () => {
@@ -23,6 +24,66 @@ describe("readBlocks", () => {
     const r = readBlocksNoted([{ type: "weather" }, "x"]);
     expect(r.blocks).toEqual([]);
     expect(r.dropped).toEqual([{ path: "0", why: 'unknown type "weather"' }, { path: "1", why: "not a block object" }]);
+  });
+});
+
+describe("alignment", () => {
+  // The semantic field `align` on a block spec: where the block sits in the column. Anything that isn't one of the
+  // three words is ignored (the block still draws, left), the same way a callout's unknown tone becomes "info".
+  it("reads a block's own align", () => {
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi", align: "center" }])[0])).toBe("center");
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi", align: "right" }])[0])).toBe("right");
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi", align: "left" }])[0])).toBe("left");
+  });
+
+  it("gives no align for a block that doesn't ask for one, or spells it wrongly", () => {
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi" }])[0])).toBeUndefined();
+    for (const bad of ["middle", "up", "", "  ", 16, null, true, {}, ["center"]]) {
+      expect([String(bad), alignOf(readBlocks([{ type: "text", text: "Hi", align: bad }])[0])][1]).toBeUndefined();
+    }
+  });
+
+  it("takes the word trimmed and caseless, the way models write it", () => {
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi", align: " Center " }])[0])).toBe("center");
+    expect(alignOf(readBlocks([{ type: "text", text: "Hi", align: "RIGHT" }])[0])).toBe("right");
+  });
+
+  it("reads the board-level default from the stored envelope, beside its blocks", () => {
+    const r = readBlocksNoted({ align: "center", blocks: [{ type: "text", text: "Hi" }] });
+    expect(r.align).toBe("center");
+    expect(r.blocks.length).toBe(1);
+    expect(readBlocksNoted({ blocks: [{ type: "text", text: "Hi" }] }).align).toBeUndefined();
+    expect(readBlocksNoted({ align: "middle", blocks: [{ type: "text", text: "Hi" }] }).align).toBeUndefined();
+    expect(readBlocksNoted({ type: "text", text: "Hi", align: "center" }).align).toBeUndefined();  // a lone block, not an envelope
+  });
+
+  it("keeps each block's own align when the board sets a default too", () => {
+    const r = readBlocksNoted({ align: "center", blocks: [{ type: "text", text: "Hi", align: "left" }, { type: "text", text: "There" }] });
+    expect(r.blocks.map(alignOf)).toEqual(["left", undefined]);
+  });
+
+  it("reads no board default from a block that merely spells its children blocks", () => {
+    expect(readBlocksNoted({ type: "section", title: "S", blocks: [{ type: "text", text: "Hi" }], align: "center" }).align).toBeUndefined();
+  });
+
+  it("carries a flattened container's own align down to the blocks drawn in its place", () => {
+    // A row holding a wide block is drawn as a stack: the row's align belongs to the stack.
+    const blocks = readBlocks([{ type: "row", align: "right", children: [{ type: "text", text: "A" }, { type: "chart", kind: "bar", x: ["Q1", "Q2"], series: [{ name: "R", data: [1, 2] }] }] }]);
+    expect(blocks.length).toBeGreaterThan(1);
+    expect(blocks.map(alignOf)).toEqual(["right", "right"]);
+  });
+
+  it("keeps a child's own align over the container's when the container is flattened", () => {
+    const blocks = readBlocks([{ type: "row", align: "right", children: [{ type: "text", text: "A", align: "center" }, { type: "chart", kind: "bar", x: ["Q1", "Q2"], series: [{ name: "R", data: [1, 2] }] }] }]);
+    expect(blocks.map(alignOf)).toEqual(["center", "right"]);
+  });
+
+  it("keeps an align on children inside a surviving container", () => {
+    // Placement resolves recursively (core/Blocks.tsx): the reader side must carry the word into the tree.
+    const blocks = readBlocks([{ type: "grid", children: [{ type: "text", text: "A", align: "right" }, { type: "text", text: "B" }] }]);
+    const grid = blocks[0] as { type: string; children: Block[] };
+    expect(grid.type).toBe("grid");
+    expect(grid.children.map(alignOf)).toEqual(["right", undefined]);
   });
 });
 

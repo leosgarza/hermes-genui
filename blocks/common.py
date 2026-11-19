@@ -38,6 +38,22 @@ def is_https(v: object) -> bool:
     return isinstance(v, str) and v.startswith("https://")
 
 
+# --- where a block sits in the column (the drawing side's concern, checked where it is drawn) ---------------------
+
+# The three words, on this side and the web's (core/fields.ts align): anything else a model wrote is ignored, and
+# the block sits left.
+ALIGN = ("left", "center", "right")
+
+
+def align_word(value: object) -> str | None:
+    """One of the alignment words, trimmed and caseless the way models write; anything else gives None.
+    " Center " → "center";  "middle" → None."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        return word if word in ALIGN else None
+    return None
+
+
 # An absolute local file path (POSIX "/…", a Windows drive "C:\…", or a UNC share "\\server\share"). A tool that
 # saves what it made (image_generate) returns one; show_blocks only lets through paths its provenance store saw the
 # tool return, and Hermes Desktop reads those from disk. A scheme (https:, file:, data:) is a URL, not a path.
