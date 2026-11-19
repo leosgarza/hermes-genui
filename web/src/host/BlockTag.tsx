@@ -20,7 +20,7 @@
 // it always drew: the control lives outside the board wrapper, and the wrapper takes no part in layout.
 import { useContext, useEffect, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
-import { readBlocksNoted } from "../core/readBlocks";
+import { readBlocksNoted, type FollowUp } from "../core/readBlocks";
 import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
@@ -28,12 +28,16 @@ import { BlockActions } from "./actions";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
-type Board = { blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean };
+type Board = {
+  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
+  boardFollowUps?: FollowUp[];
+};
 
 type State = {
   kind: "loading";
 } | {
-  kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
+  kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string;
+  boardLive?: boolean; boardFollowUps?: FollowUp[];
 } | { kind: "failed" };
 
 /**
@@ -58,8 +62,11 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     let live = true;
     load(id)
       .then((data) => {
-        const { blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
-        if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive } : { kind: "failed" });
+        const {
+          blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive,
+          followUps: boardFollowUps,
+        } = readBlocksNoted(data);
+        if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps } : { kind: "failed" });
       })
       .catch(() => {
         if (live) setState({ kind: "failed" });
@@ -131,7 +138,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
             </button>
           )}
           <Blocks blocks={board.blocks} boardAlign={board.boardAlign} boardTextAlign={board.boardTextAlign}
-            boardAsOf={board.boardAsOf} boardLive={board.boardLive} />
+            boardAsOf={board.boardAsOf} boardLive={board.boardLive} boardFollowUps={board.boardFollowUps} />
         </div>
       </div>
     </BlockActions.Provider>

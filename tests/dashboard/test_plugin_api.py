@@ -141,3 +141,18 @@ def test_api_keeps_live_false_and_skips_junk(client, tmp_path):
     block_id = api.store.save(board, root=tmp_path)
     # an as_of that was never a string is not served; a live false is.
     assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center", "live": False}
+
+
+def test_api_passes_the_boards_own_follow_ups(client, tmp_path):
+    http, api = client
+    ups = [{"label": "Go", "run": "Tell me more"}]
+    board = {"follow_ups": ups, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "follow_ups": ups}
+
+
+def test_api_skips_follow_ups_that_were_never_a_list(client, tmp_path):
+    http, api = client
+    board = {"follow_ups": "just keep going", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"]}

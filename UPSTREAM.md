@@ -653,6 +653,43 @@ ruff clean, the byte-identical bundle above, and all captures re-drawn from the 
 
 ---
 
+## 9. follow-ups — `follow_ups`: a quiet strip of tappable continuations under the board (enhancement #5, this card)
+
+The board's envelope gains one more word, beside `align`, `text_align`, `as_of` and `live`: an optional
+`follow_ups: [{label, run}]` of one to four prompts the AI offers beneath the board, so the reader can
+continue the conversation in one tap. The presentation is AI-directed; the reader gets no controls.
+
+- The write path (`tools/show_blocks.py`, `blocks/common.py`): the parameter is checked like the actions
+  row is — every button needs both halves, a message Hermes would act on before the model (a command, a
+  shell line, an @-reference) is refused with the same NO_SEND problem, and a board that says it well stores
+  it in the envelope beside its words. `describe()` is untouched: like `interactive` before it, the model
+  reads the documentation beside the parameter itself.
+- The read path (`core/store.py` `follow_ups_of`, `dashboard/plugin_api.py`): served beside the blocks, as
+  every board word is; an `include` still takes just the blocks.
+- The web read (`core/readBlocks.ts`): the envelope word reads leniently like a row of action buttons
+  (aliases included, NO_SEND items dropped with the note, at most four kept) — and both words are kept
+  WHOLE: the writer stored the entire message, a read cut would send a different message than the board
+  offered, and length is the row's business to wrap, not the reader's to amputate (round-2 correction: the
+  generic 40/300 caps that quietly applied here are gone for follow-ups). Only from an envelope, never
+  from a block that merely spells its children `blocks`.
+- The drawing (`core/FollowUps.tsx`, `core/Blocks.tsx`, `tokens.css`): a flex row beneath the blocks — and
+  beneath the provenance footer when there is one — built from the shipped `.hb-pill`. It costs a
+  fit-content hug ZERO width (`width:0 + min-width:100%`, the interactive-table tools row's own trick),
+  its pills wrap and its labels WRAP rather than clip (`white-space:normal; overflow-wrap:anywhere`, the
+  round-3 lesson), long words wrap line for line at the narrowest hug with the status word on its own
+  line beneath the pills, and it takes the board's placement (`center`/`right` classes only when asked; the
+  default DOM is byte-identical to the board without the word).
+- The send is the existing seam, not a new mechanism: a tap calls `send(run, { force: true })` —
+  interactive-table #3's explicit route, so a prompt past MAX_SENT is POSTED whole (the tap showed it in
+  full, title included) while the command/file guard still holds. The word on the row is only ever the
+  host's own answer — sent / drafted / blocked / failed / no chat — and it belongs to the LAST tap; a new
+  tap replaces the old word with a quiet "pending" mark the moment it starts, so a success never stands
+  for a tap the host has not answered (round-2 correction). The vocabulary now lives once, exported as
+  `SENT_WORDS` from `host/actions.ts` (the table's words moved there unchanged).
+- Single-instance preserved: the strip is drawn inside the ONE `<Blocks>` the expand dialog moves (never a
+  second instance), rides into the dialog and back with its state, and takes no layer of its own — a chart
+  detail opened above still answers the first Escape, and the board steps down only on the second.
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

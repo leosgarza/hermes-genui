@@ -2,28 +2,36 @@
 // in blocks/<type>/read.ts, with a comment and a worked example, listed in registry.tsx. The rule throughout: drop what
 // doesn't fit and note why; never show broken data.
 import { REGISTRY, type Block } from "../registry";
-import { align, str, Trail, type Align, type Diagnostic } from "./fields";
+import { actsBeforeTheModel, align, firstText, keepFirst, NO_SEND, str, Trail, type Align, type Diagnostic } from "./fields";
 
 /** Every block type that can be drawn, containers included. */
 export const BLOCK_TYPES: string[] = Object.keys(REGISTRY);
+
+/** One tappable follow-up below the board: the short words shown on the pill, and the message a tap sends to
+ *  the chat as the reader's own. */
+export type FollowUp = { label: string; run: string };
 
 /**
  * Stored JSON → its blocks, notes on what was dropped, and the board's own words from the stored envelope: its
  * alignment default (where the cards sit) and its text default (how the words inside them read), and provenance —
  * asOf (when the data is from, one short line) and live (true: the figures update; false: a snapshot; undefined:
- * the board didn't say). A lone block object is a list of one, and the store's {blocks: [...]} envelope is
- * unwrapped (it may say align, text_align, as_of or live beside blocks). Anything else gives no blocks.
+ * the board didn't say) — plus followUps, the quiet strip of taps the board offers under itself. A lone block
+ * object is a list of one, and the store's {blocks: [...]} envelope is unwrapped (it may say align, text_align,
+ * as_of, live or follow_ups beside blocks). Anything else gives no blocks.
  *   [{type: "heading", text: "Day 1"}, {type: "weather"}]
  *   → {blocks: [{type: "heading", text: "Day 1"}], dropped: [{path: "1", why: 'unknown type "weather"'}]}
  */
 export function readBlocksNoted(data: unknown): {
   blocks: Block[]; dropped: Diagnostic[]; align?: Align; textAlign?: Align; asOf?: string; live?: boolean;
+  followUps?: FollowUp[];
 } {
   let list: unknown = data;
   let board: Align | undefined;
   let boardText: Align | undefined;
   let asOf: string | undefined;
   let live: boolean | undefined;
+  let followUps: FollowUp[] | undefined;
+  const top = new Trail();
   if (isObject(list) && Array.isArray((list as any).blocks)) {
     // The envelope's own words are the board's defaults. A block that merely spells its children `blocks` (a
     // section with `blocks: [...]` on its own line — drawn unwrapped, as it has always been) is not an envelope:
@@ -33,18 +41,18 @@ export function readBlocksNoted(data: unknown): {
       boardText = align((list as any).text_align);  // the same three words; they move the reading, not the card
       asOf = str((list as any).as_of, 80);  // the date line, cut the way every shown string is; junk gives nothing
       live = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
+      followUps = readFollowUps((list as any).follow_ups, top.at("follow_ups"));
     }
     list = (list as any).blocks;
   }
   if (isObject(list) && typeof (list as any).type === "string") list = [list];
-  const top = new Trail();
   const blocks: Block[] = [];
   if (Array.isArray(list)) {
     list.forEach((raw, i) => {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live };
+  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live, followUps };
 }
 
 /** Just the blocks to draw. */
@@ -62,6 +70,32 @@ export function alignOf(block: Block): Align | undefined {
  *  didn't say. Like placement, only the board reads it — a drawing never does. */
 export function textAlignOf(block: Block): Align | undefined {
   return (block as { text_align?: Align }).text_align;
+}
+
+/** The envelope's follow_ups, read like a row of action buttons: both halves needed (aliases included, the way
+ *  `actions` takes them), a message Hermes acts on before the model is dropped with the note buttons have always
+ *  carried, and at most four taps. The words themselves are kept WHOLE: the writer stored the entire prompt, and
+ *  a tap that sent a cut version would be a different message than the board offered (and a cut label is a
+ *  clipped label — length is the row's business to wrap, not the reader's to amputate). Nothing usable is
+ *  nothing said: undefined, and the board draws no strip. */
+function readFollowUps(value: unknown, here: Trail): FollowUp[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items: FollowUp[] = [];
+  value.forEach((item, i) => {
+    const label = firstText([item?.label, item?.text], Infinity);
+    const run = firstText([item?.run, item?.ask, item?.message], Infinity);
+    if (!label || !run) {
+      here.at(i).drop("button needs a label and a run message");
+      return;
+    }
+    if (actsBeforeTheModel(run)) {
+      here.at(i).drop(NO_SEND);
+      return;
+    }
+    items.push({ label, run });
+  });
+  const kept = keepFirst(items, 4, here, "follow-ups");
+  return kept.length ? kept : undefined;
 }
 
 function isObject(v: unknown): boolean {

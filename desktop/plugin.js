@@ -135,6 +135,13 @@ function actsBeforeTheModel(message) {
 var BlockActions = createContext({ send: async () => "nowhere", fill: () => {
 } });
 var MAX_SENT = 120;
+var SENT_WORDS = {
+  sent: "Sent to chat.",
+  drafted: "In the composer \u2014 press Send.",
+  blocked: "Blocked from sending \u2014 in the composer \u2014 press Send.",
+  failed: "Send failed \u2014 nothing was sent or kept.",
+  nowhere: "No chat here."
+};
 function composerActions(composer) {
   const insert = async (text) => {
     await composer?.insertText(null, text, { mode: "block" });
@@ -171,10 +178,10 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext9, useEffect as useEffect10, useRef as useRef17, useState as useState24 } from "react";
+import { useContext as useContext10, useEffect as useEffect10, useRef as useRef18, useState as useState25 } from "react";
 
 // src/core/Blocks.tsx
-import { createContext as createContext3, Fragment as Fragment14, useContext as useContext8 } from "react";
+import { createContext as createContext3, Fragment as Fragment14, useContext as useContext9 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -4950,13 +4957,6 @@ function pickedMessage(caption, columns, rows, picked) {
 // src/blocks/table/Table.tsx
 import { jsx as jsx36, jsxs as jsxs32 } from "react/jsx-runtime";
 var MINI_BARS_FROM = 3;
-var SENT_WORDS = {
-  sent: "Sent to chat.",
-  drafted: "In the composer \u2014 press Send.",
-  blocked: "Blocked from sending \u2014 in the composer \u2014 press Send.",
-  failed: "Send failed \u2014 nothing was sent or kept.",
-  nowhere: "No chat here."
-};
 function Table({ columns, rows, highlight, caption, interactive }) {
   const [sort, setSort] = useState22(null);
   const [query, setQuery] = useState22("");
@@ -5283,30 +5283,51 @@ function readBlocksNoted(data) {
   let boardText;
   let asOf;
   let live;
+  let followUps;
+  const top = new Trail();
   if (isObject(list) && Array.isArray(list.blocks)) {
     if (typeof list.type !== "string") {
       board = align(list.align);
       boardText = align(list.text_align);
       asOf = str(list.as_of, 80);
       live = typeof list.live === "boolean" ? list.live : void 0;
+      followUps = readFollowUps(list.follow_ups, top.at("follow_ups"));
     }
     list = list.blocks;
   }
   if (isObject(list) && typeof list.type === "string") list = [list];
-  const top = new Trail();
   const blocks = [];
   if (Array.isArray(list)) {
     list.forEach((raw, i) => {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live };
+  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live, followUps };
 }
 function alignOf(block) {
   return block.align;
 }
 function textAlignOf(block) {
   return block.text_align;
+}
+function readFollowUps(value, here) {
+  if (!Array.isArray(value)) return void 0;
+  const items = [];
+  value.forEach((item, i) => {
+    const label = firstText([item?.label, item?.text], Infinity);
+    const run = firstText([item?.run, item?.ask, item?.message], Infinity);
+    if (!label || !run) {
+      here.at(i).drop("button needs a label and a run message");
+      return;
+    }
+    if (actsBeforeTheModel(run)) {
+      here.at(i).drop(NO_SEND);
+      return;
+    }
+    items.push({ label, run });
+  });
+  const kept = keepFirst(items, 4, here, "follow-ups");
+  return kept.length ? kept : void 0;
 }
 function isObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -5336,26 +5357,62 @@ function readOne(raw, here, depth) {
   return blocks;
 }
 
-// src/core/Blocks.tsx
+// src/core/FollowUps.tsx
+import { useContext as useContext8, useRef as useRef17, useState as useState24 } from "react";
 import { jsx as jsx40, jsxs as jsxs35 } from "react/jsx-runtime";
+var PENDING_WORD = "Pending\u2026";
+function FollowUps({ items, place }) {
+  const { send } = useContext8(BlockActions);
+  const [said, setSaid] = useState24(null);
+  const taps = useRef17(0);
+  const cls = ["hb-followups"];
+  if (place === "center") cls.push("hb-followups-center");
+  if (place === "right") cls.push("hb-followups-right");
+  return /* @__PURE__ */ jsxs35("div", { className: cls.join(" "), children: [
+    items.map((f, i) => /* @__PURE__ */ jsxs35(
+      "button",
+      {
+        type: "button",
+        className: "hb-pill",
+        title: f.run,
+        onClick: () => {
+          const tap = ++taps.current;
+          setSaid("pending");
+          send(f.run, { force: true }).then((where) => {
+            if (tap === taps.current) setSaid(where);
+          });
+        },
+        children: [
+          /* @__PURE__ */ jsx40(Icon, { name: "spark", size: 14, stroke: 2.2 }),
+          /* @__PURE__ */ jsx40("span", { className: "hb-followup-label", children: f.label })
+        ]
+      },
+      i
+    )),
+    /* @__PURE__ */ jsx40("span", { className: "hb-followups-said", role: "status", "aria-live": "polite", children: said === "pending" ? PENDING_WORD : said ? SENT_WORDS[said] : "" })
+  ] });
+}
+
+// src/core/Blocks.tsx
+import { jsx as jsx41, jsxs as jsxs36 } from "react/jsx-runtime";
 var AlignScope = createContext3({ board: void 0, text: void 0 });
 var TEXT_BEARING = /* @__PURE__ */ new Set(["heading", "text", "stat", "callout"]);
 function BlockView({ block }) {
   const entry = REGISTRY[block.type];
   if (!entry) return null;
   const { Component } = entry;
-  return /* @__PURE__ */ jsx40(Component, { block, draw: drawAll });
+  return /* @__PURE__ */ jsx41(Component, { block, draw: drawAll });
 }
 function Placed({ block }) {
-  const { board, text } = useContext8(AlignScope);
+  const { board, text } = useContext9(AlignScope);
   const at2 = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
-  const view = /* @__PURE__ */ jsx40(BlockView, { block });
+  const view = /* @__PURE__ */ jsx41(BlockView, { block });
   if (at2 === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at2 !== "left") cls.push(`hb-place-${at2}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
-  return /* @__PURE__ */ jsx40(
+  return /* @__PURE__ */ jsx41(
     "div",
     {
       className: cls.join(" "),
@@ -5366,27 +5423,27 @@ function Placed({ block }) {
   );
 }
 function drawAll(blocks) {
-  return blocks.map((b, i) => /* @__PURE__ */ jsx40(Placed, { block: b }, i));
+  return blocks.map((b, i) => /* @__PURE__ */ jsx41(Placed, { block: b }, i));
 }
 function Provenance({ source, chartSources, asOf, live }) {
   const parts = [];
   const add = (key, node) => {
-    if (parts.length) parts.push(/* @__PURE__ */ jsx40("span", { className: "hb-provenance-dot", "aria-hidden": "true", children: "\xB7" }, `${key}-dot`));
-    parts.push(/* @__PURE__ */ jsx40(Fragment14, { children: node }, key));
+    if (parts.length) parts.push(/* @__PURE__ */ jsx41("span", { className: "hb-provenance-dot", "aria-hidden": "true", children: "\xB7" }, `${key}-dot`));
+    parts.push(/* @__PURE__ */ jsx41(Fragment14, { children: node }, key));
   };
   for (const [i, s] of (chartSources ?? []).entries()) {
-    add(`chart-${i}`, /* @__PURE__ */ jsx40("span", { className: "hb-provenance-source", children: s }));
+    add(`chart-${i}`, /* @__PURE__ */ jsx41("span", { className: "hb-provenance-source", children: s }));
   }
-  if (asOf) add("as_of", /* @__PURE__ */ jsx40("span", { className: "hb-provenance-time", children: asOf }));
+  if (asOf) add("as_of", /* @__PURE__ */ jsx41("span", { className: "hb-provenance-time", children: asOf }));
   if (live !== void 0) {
-    add("live", /* @__PURE__ */ jsx40("span", { className: "hb-provenance-badge", "data-live": live ? "live" : "snapshot", children: live ? "Live" : "Snapshot" }));
+    add("live", /* @__PURE__ */ jsx41("span", { className: "hb-provenance-badge", "data-live": live ? "live" : "snapshot", children: live ? "Live" : "Snapshot" }));
   }
-  return /* @__PURE__ */ jsxs35("div", { className: "hb-provenance", children: [
-    source && /* @__PURE__ */ jsx40(Placed, { block: source }),
-    /* @__PURE__ */ jsx40("div", { className: "hb-provenance-line", children: parts })
+  return /* @__PURE__ */ jsxs36("div", { className: "hb-provenance", children: [
+    source && /* @__PURE__ */ jsx41(Placed, { block: source }),
+    /* @__PURE__ */ jsx41("div", { className: "hb-provenance-line", children: parts })
   ] });
 }
-function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive }) {
+function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps }) {
   const declared = boardAsOf !== void 0 || boardLive !== void 0;
   let list = blocks;
   let source;
@@ -5407,29 +5464,37 @@ function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive }) {
       }
     }
   }
-  return /* @__PURE__ */ jsx40(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs35("div", { className: "hb-blocks", children: [
-    /* @__PURE__ */ jsx40(FlowLightBoard, { children: drawAll(list) }),
-    declared && /* @__PURE__ */ jsx40(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive })
+  return /* @__PURE__ */ jsx41(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs36("div", { className: "hb-blocks", children: [
+    /* @__PURE__ */ jsx41(FlowLightBoard, { children: drawAll(list) }),
+    declared && /* @__PURE__ */ jsx41(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive }),
+    !!boardFollowUps?.length && /* @__PURE__ */ jsx41(FollowUps, { items: boardFollowUps, place: boardAlign })
   ] }) });
 }
 
 // src/host/BlockTag.tsx
-import { jsx as jsx41, jsxs as jsxs36 } from "react/jsx-runtime";
+import { jsx as jsx42, jsxs as jsxs37 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext9(BlockActions);
-  const [state, setState] = useState24({ kind: "loading" });
-  const [expanded, setExpanded] = useState24(false);
-  const hostRef = useRef17(null);
-  const expandRef = useRef17(null);
-  const closeRef = useRef17(null);
+  const actions = useContext10(BlockActions);
+  const [state, setState] = useState25({ kind: "loading" });
+  const [expanded, setExpanded] = useState25(false);
+  const hostRef = useRef18(null);
+  const expandRef = useRef18(null);
+  const closeRef = useRef18(null);
   useEffect10(() => {
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
-      const { blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
-      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive } : { kind: "failed" });
+      const {
+        blocks,
+        align: boardAlign,
+        textAlign: boardTextAlign,
+        asOf: boardAsOf,
+        live: boardLive,
+        followUps: boardFollowUps
+      } = readBlocksNoted(data);
+      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -5472,11 +5537,11 @@ function BlockTag({ id, streaming, load }) {
     };
   }, [expanded]);
   if (!validId && !streaming) return null;
-  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx41(Note, { text: "drawing\u2026", pulse: true });
+  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx42(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
   const board = state;
-  return /* @__PURE__ */ jsx41(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs36("div", { className: "hb-tag", children: [
-    /* @__PURE__ */ jsx41(
+  return /* @__PURE__ */ jsx42(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs37("div", { className: "hb-tag", children: [
+    /* @__PURE__ */ jsx42(
       "button",
       {
         ref: expandRef,
@@ -5485,10 +5550,10 @@ function BlockTag({ id, streaming, load }) {
         "aria-label": "Expand board",
         "aria-haspopup": "dialog",
         onClick: () => setExpanded(true),
-        children: /* @__PURE__ */ jsx41(IconExpand, {})
+        children: /* @__PURE__ */ jsx42(IconExpand, {})
       }
     ),
-    /* @__PURE__ */ jsxs36(
+    /* @__PURE__ */ jsxs37(
       "div",
       {
         ref: hostRef,
@@ -5496,7 +5561,7 @@ function BlockTag({ id, streaming, load }) {
         ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
         onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
         children: [
-          expanded && /* @__PURE__ */ jsx41(
+          expanded && /* @__PURE__ */ jsx42(
             "button",
             {
               ref: closeRef,
@@ -5504,17 +5569,18 @@ function BlockTag({ id, streaming, load }) {
               className: "hb-overlay-close",
               "aria-label": "Close expanded board",
               onClick: close,
-              children: /* @__PURE__ */ jsx41(IconClose, {})
+              children: /* @__PURE__ */ jsx42(IconClose, {})
             }
           ),
-          /* @__PURE__ */ jsx41(
+          /* @__PURE__ */ jsx42(
             Blocks,
             {
               blocks: board.blocks,
               boardAlign: board.boardAlign,
               boardTextAlign: board.boardTextAlign,
               boardAsOf: board.boardAsOf,
-              boardLive: board.boardLive
+              boardLive: board.boardLive,
+              boardFollowUps: board.boardFollowUps
             }
           )
         ]
@@ -5529,10 +5595,10 @@ function tabbableIn(root) {
   );
 }
 function Note({ text, pulse = false }) {
-  return /* @__PURE__ */ jsx41("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+  return /* @__PURE__ */ jsx42("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
 }
 function IconExpand() {
-  return /* @__PURE__ */ jsx41(
+  return /* @__PURE__ */ jsx42(
     "svg",
     {
       width: "15",
@@ -5543,12 +5609,12 @@ function IconExpand() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx41("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+      children: /* @__PURE__ */ jsx42("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
     }
   );
 }
 function IconClose() {
-  return /* @__PURE__ */ jsx41(
+  return /* @__PURE__ */ jsx42(
     "svg",
     {
       width: "16",
@@ -5559,7 +5625,7 @@ function IconClose() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx41("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx42("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
@@ -5680,6 +5746,41 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 .hb-provenance-badge[data-live="live"] {
   color: var(--hb-good);
   border-color: color-mix(in srgb, var(--hb-good) 45%, transparent);
+}
+/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers
+   follow-ups. The row is width:0 + min-width:100% on purpose \u2014 the interactive-table tools row's shipped trick:
+   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can
+   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the
+   point of the tap, so no board is too narrow to read one \u2014 height may grow, width never, nothing clips, no
+   nowrap and no ellipsis (the review round-3 lesson, pinned in Chrome by tests/test_follow_ups_chrome.py).
+   The word the strip says is only ever the host's own answer, and it follows the same rule. */
+.hb-followups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 0 0;
+}
+.hb-followups-center { justify-content: center; }
+.hb-followups-right { justify-content: flex-end; }
+.hb-followups .hb-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.hb-followups-said {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--hb-muted);
 }
 `;
 
@@ -6024,7 +6125,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx42 } from "react/jsx-runtime";
+import { jsx as jsx43 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -6050,7 +6151,7 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx42(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx42(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx43(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
       }
     });
   }

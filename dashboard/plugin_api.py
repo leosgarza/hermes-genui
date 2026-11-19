@@ -41,6 +41,8 @@ async def get_block(block_id: str):
         answer["as_of"] = as_of
     if (live := store.live_of(board)) is not None:
         answer["live"] = live
+    if (ups := store.follow_ups_of(board)) is not None:  # and its tappable follow-ups, when the board offers them
+        answer["follow_ups"] = ups
     return answer
 
 

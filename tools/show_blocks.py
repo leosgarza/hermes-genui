@@ -3,7 +3,7 @@
 import json
 import math
 
-from ..blocks.common import align_word, as_of_line, live_flag
+from ..blocks.common import align_word, as_of_line, follow_up_problems, follow_up_words, live_flag
 from ..core import store, surface
 from ..core.catalog_text import describe
 from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, too_deep
@@ -152,7 +152,8 @@ def _included(block_id: str, here: str, problems: list[str]) -> list:
         problems.append(f"{here}: board {block_id} is too big to include (max {INCLUDE_LIMIT // 1024} KB)")
     elif board is None:
         problems.append(f"{here}: no stored board with id {block_id}")
-    return store.blocks_of(board)  # its own align and provenance stay with the board; includes take just the blocks
+    # the board's own words (align, provenance, follow-ups) stay with it: an include takes just the blocks.
+    return store.blocks_of(board)
 
 
 def too_big(blocks: list | dict) -> str | None:
@@ -175,7 +176,7 @@ def show_blocks(params: dict, **kwargs) -> str:
         return _not_drawn(["blocks: not valid JSON"])
     if not blocks:
         return _not_drawn(["blocks: give at least one block"])
-    problems = check_blocks(blocks)
+    problems = check_blocks(blocks) + follow_up_problems(params.get("follow_ups"))
     if not problems:
         blocks = resolve_includes(blocks, problems)
     if not problems:  # an included board can take the whole one past the nesting limit
@@ -192,6 +193,8 @@ def show_blocks(params: dict, **kwargs) -> str:
         envelope["as_of"] = as_of
     if (live := live_flag(params.get("live"))) is not None:
         envelope["live"] = live
+    if (ups := follow_up_words(params.get("follow_ups"))) is not None:  # checked by follow_up_problems above
+        envelope["follow_ups"] = ups
     if envelope:  # the board's own words ride beside its blocks, in one envelope
         board = {**envelope, "blocks": blocks}
     refusal = too_big(board)
@@ -248,6 +251,16 @@ SHOW_BLOCKS_SCHEMA = {
                 "type": "boolean",
                 "description": "Optional. true: the figures update live; false: this is a snapshot taken at as_of. "
                 "The board's footer shows the word Live or Snapshot. Only give it when you really know.",
+            },
+            "follow_ups": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Optional. One line of quiet tappable prompts (1-4) drawn under the board, each "
+                "{\"label\": \"Plan day 2\", \"run\": \"Plan the second day of my Kyoto itinerary\"}. A tap sends "
+                "the run message to the chat as the reader's own — you choose the prompts; the reader gets no "
+                "controls. Offer them when one more exchange would genuinely help (a next step, a deeper cut, a "
+                "fix to a flaw the board itself shows); skip them when the answer is finished. A message Hermes "
+                "acts on before the model (starting / @ or !, or carrying an @-reference) is refused.",
             },
         },
         "required": ["blocks"],

@@ -19,13 +19,18 @@
 // flex row would collapse to its content and every word would sit back at the left. The join line — the charts'
 // sources, as_of · the badge — reads as its own line beside it. A board that declares nothing draws exactly what
 // it always drew.
+// A board whose envelope offers follow-ups (boardFollowUps, readBlocks.ts) also grows a quiet strip beneath
+// everything — even beneath the provenance footer: up to four tappable prompts the AI chose so the reader can
+// continue the conversation in one tap. Their drawing is core/FollowUps.tsx; the row costs a fit-content hug
+// zero width and wraps long labels rather than clip them. Nothing offered, no strip: the same DOM as always.
 import { createContext, Fragment, useContext, type ReactNode } from "react";
 import { FlowLightBoard } from "../blocks/flow/highlight";
 import type { SourceBlock } from "../blocks/source/read";
 import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
 import type { Align } from "./fields";
-import { alignOf, textAlignOf } from "./readBlocks";
+import { alignOf, textAlignOf, type FollowUp } from "./readBlocks";
+import { FollowUps } from "./FollowUps";
 
 /** The two board-wide voices, carried down so every block — top level or nested — resolves both the same way:
  *  `board` places the cards, `text` says how the words inside the blocks that carry text should read. */
@@ -97,8 +102,9 @@ function Provenance({ source, chartSources, asOf, live }: {
   );
 }
 
-export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive }: {
+export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps }: {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
+  boardFollowUps?: FollowUp[];
 }) {
   const declared = boardAsOf !== undefined || boardLive !== undefined;
   let list = blocks;
@@ -125,6 +131,7 @@ export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLiv
       <div className="hb-blocks">
         <FlowLightBoard>{drawAll(list)}</FlowLightBoard>
         {declared && <Provenance source={source} chartSources={chartSources} asOf={boardAsOf} live={boardLive} />}
+        {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} place={boardAlign} />}
       </div>
     </AlignScope.Provider>
   );
