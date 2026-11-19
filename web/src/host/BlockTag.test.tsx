@@ -104,13 +104,17 @@ describe("BlockTag placement", () => {
   });
 
   it("draws no alignment control of any kind", async () => {
-    // The only host control a board grows is the expand control (t_e7796349): it is a view, not an alignment
-    // ask, and it never places or types anything. Every OTHER button remains forbidden at the host level.
+    // The host controls a board grows are view acts, never placement asks: the expand control (t_e7796349) and,
+    // since #6 (t_bff8178a), the export affordance — a deterministic save of what is drawn. Every button at the
+    // host level must be one of them; every OTHER button — and above all any alignment word — stays forbidden.
     render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([calc], { align: "center" })} />);
     await waitFor(() => expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy());
     expect(document.querySelector(".hb-align")).toBeNull();
     for (const b of [...document.querySelectorAll("button")]) {
-      expect(b.classList.contains("hb-expand"), b.className).toBe(true);
+      const viewAct = b.classList.contains("hb-expand") ||
+        b.classList.contains("hb-export") || b.classList.contains("hb-export-btn") ||
+        b.closest(".hb-export-menu") !== null;
+      expect(viewAct, b.className).toBe(true);
     }
     for (const word of ["Auto", "Left", "Center", "Right"]) {
       expect(screen.queryByRole("button", { name: word })).toBeNull();
@@ -278,10 +282,13 @@ describe("BlockTag expand / full-screen", () => {
     const realLast = add(document.createElement("button"));
     realLast.textContent = "Real last";
     const close = document.querySelector<HTMLElement>(".hb-overlay-close")!;
+    const exportMenu = document.querySelector<HTMLElement>(".hb-board-overlay .hb-export")!;  // the dialog's own export control: eligible by design (#6 round 2)
     const slider = document.querySelector<HTMLElement>(".hb-board-overlay .hb-calc input")!;
     close.focus();
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(slider);                         // first: the close control, then the slider
+    expect(document.activeElement).toBe(exportMenu);                     // first: the close control, then the board menu, then the slider
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(slider);
     fireEvent.keyDown(window, { key: "Tab" });                           // skipping negative, hidden and held
     expect(document.activeElement).toBe(realLast);
     fireEvent.keyDown(window, { key: "Tab" });                           // and wrapping at that real end

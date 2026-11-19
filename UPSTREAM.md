@@ -690,6 +690,74 @@ continue the conversation in one tap. The presentation is AI-directed; the reade
   second instance), rides into the dialog and back with its state, and takes no layer of its own — a chart
   detail opened above still answers the first Escape, and the board steps down only on the second.
 
+## 10. export — a per-block affordance: chart PNG, table CSV, whole board Markdown or JSON (enhancement #6, this card)
+
+A reader can take what the board drew out of the chat and into a file. The export is host chrome — the same
+family of deterministic view acts as the expand control — and it costs no model turn and no request: not at
+export time, not at any time. The presentation stays AI-directed; the reader gets a save, not a settings
+panel. (Round 2 — the Reviewer's findings F1-F4 corrected the first cut's mechanism; those corrections are
+the contract now.)
+
+- The affordance (`host/ExportChrome.tsx`, `host/BlockTag.tsx`, `host/blockTag.css`): EVERY exportable block
+  carries its own corner button — charts of both kinds (the hand-drawn SVG ones and the DOM-drawn horizontal
+  bars), tables, at any nesting the drawing shows. A parallel walk of the read block tree and the live DOM
+  pairs each block's data with its drawn element (grid/row/column cells, section bodies, the ACTIVE tab panel
+  by `aria-selected`, placement wrappers unwrapped); unmounted children — a closed accordion, an inactive tab
+  — are not drawn and are not offered. The buttons live in a layer OUTSIDE `.hb-blocks` (the board's DOM is
+  byte-identical under every act, pinned in real Chrome) and INSIDE the board host, so they ride into the
+  expanded dialog: exports work while expanded, the menu moves to the dialog's corner, the one instance never
+  re-mounts, and the dialog's focus trap carries the corners. Any scroll re-pairs the corners (a
+  capture-phase scroll listener): the dialog scrolls its board inside the fixed host, and the pins follow.
+- Keyboard first-class (F4): every control is ALWAYS in the DOM and in the tab order — invisible at rest
+  (opacity 0, pointer-events none — neither keeps focus away), revealed by the pointer (the `lit` class) or
+  by any focus. Every control names itself in its `aria-label`; a keyboard reader Tabs to a block's export —
+  including one with no interactive descendants at all — and presses Enter without a mouse ever existing
+  (pinned with real Tab presses in Chrome).
+- The PNG (`lib/export.ts`): the SVG kinds serialize as self-contained drawings (computed paint inlined) and
+  rasterize through `<img>` onto an offscreen canvas at a fixed 2x; the horizontal-bar picture is REBUILT BY
+  MEASURING the live drawing — every bar, zero line and value word is emitted at the exact rect the browser
+  laid out (relative to the drawing's own box, and the picture IS that box, so no row can print over another
+  or leave the canvas), painted with the colours sampled from the elements themselves. (`blocks/chart/
+  hbarLayout.ts` keeps the drawing's math in one place; the export no longer recomputes it — round 3's
+  real-Chrome regressions pin the emitted picture against the live rects and the downloaded pixels against the
+  picture, multi-series included. No rasterizer dependency.) Under the picture: an OPAQUE
+  backdrop — the block's own translucent card colours composited down to the nearest solid ground (F3: a PNG
+  whose alpha is 8 vanishes on a dark viewer surface; the raster's alpha is 255 everywhere, proven by
+  decoding the download). Above the picture: the chart's own words (title, headline, legend, source) and,
+  when the board declares provenance, the footer's line — composed by the SAME `core/provenance.ts` the
+  drawn footer uses.
+- The CSV (`lib/csv.ts`, `lib/export.ts`): RFC 4180 — quote exactly when bare text could not hold the cell
+  together, double inner quotes, CRLF records, UTF-8 BOM first. Provenance (F3) rides as a leading `#`
+  comment record BEFORE the data block: comment-aware readers see exactly the stored headers and rows, byte
+  readers see where the numbers came from; the comment-stripped round-trip through Python's csv reader is
+  pinned. The stored table is exported — the reader's filter box and sort ticks are page state, not the
+  board's data.
+- The board files, with the door OFF (F1): the stored envelope rides along with the board's own load
+  (`dashboard/plugin_api.py` adds `"stored"` to `GET /blocks/<id>`; the drawer ignores the key), so the JSON
+  export is the envelope verbatim from the page's memory — unknown words and all. Markdown is written by the
+  host-side TWIN of the chat serializer (`lib/markdown.ts` — a faithful port of `hooks/text_fallback.py` and
+  every `text_<type>` renderer: the caps, the escapes, the half-to-even number formats, the nesting depth,
+  the flow-referencing steps; uncapped, because a file is not one chat message). Parity is a corpus
+  contract, not a hope: `tests/hooks/test_export_markdown_corpus.py` pins 40 boards through the REAL Python
+  serializer into `web/src/lib/markdown.corpus.json`; `markdown.test.ts` demands the twin say the same
+  bytes; the real-Chrome download is asserted equal to the Python uncapped output plus the footer line. The
+  export route the first cut added is GONE (`test_there_is_no_export_route_to_ask` pins its 404), and every
+  export test runs with the door torn off after the load — the page records `rest()` calls; the count stays
+  at the one the load cost.
+- One shipped defect the coverage exposed, fixed in a line: `.hb-blocks` is a flex column, so a board taller
+  than the dialog shrink-fought instead of scrolling — the cards whose own `overflow: hidden` gives them a
+  zero automatic minimum (the table among them) collapsed while the dialog's `overflow: auto` meant to
+  scroll them. `.hb-board-overlay .hb-blocks > * { flex-shrink: 0 }` restores the intended behaviour, pinned
+  numerically: the table card keeps its height in the dialog.
+- What stands as before: static rendering, hug geometry, theming, AI alignment (no reader controls beyond
+  the save acts), the overlay/expand stack, single-instance state, the follow-up strip (#5), the interactive
+  table's send seam (#3), chart drill-down (#4), and every NO_SEND guard — an export is bytes to a file,
+  never a message. `describe()` and `tests/fixtures/describe.txt` are untouched: the feature adds no
+  model-facing schema word at all.
+- Deferred — the only deferral left, and it is the card's own: the whole-board raster PNG. A faithful one
+  needs a DOM rasterizer, a dependency this card forbids; per-block PNG/CSV and whole-board Markdown/JSON
+  now cover every supported block instead.
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

@@ -568,3 +568,12 @@ def test_replace_tags_reads_both_board_shapes():
                              load=lambda _: {"text_align": "center", "blocks": [heading]})
     assert voiced == plain
     assert wrapped.strip() and wrapped != tf.NOT_SHOWN
+
+
+def test_blocks_as_text_can_go_uncapped_for_exports():
+    """limit=None is the export's ask: every block whole. The default cap is the chat contract, untouched."""
+    blocks = [{"type": "text", "text": f"line {i} " + "x" * 60} for i in range(80)]
+    whole = tf.blocks_as_text(blocks, limit=None)
+    assert len(whole) > tf.LIMIT and whole.count("line ") == 80
+    capped = tf.blocks_as_text(blocks)
+    assert len(capped) <= tf.LIMIT and capped.endswith(tf.MORE_NOTE)

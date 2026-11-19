@@ -32,7 +32,11 @@ async def get_block(block_id: str):
     board = store.load(block_id, store.find_root(block_id))
     if board is None:
         return JSONResponse({"error": "not found"}, status_code=404)
-    answer = {"blocks": store.blocks_of(board)}
+    # `stored` is the envelope exactly as it was saved, riding along so a board's JSON export is the board's
+    # OWN words — unknown fields and all — with no second read and no request at export time (enhancement #6:
+    # an export is a deterministic host act, local to the page). The drawer ignores the key; its reader
+    # (core/readBlocks.ts) reads the words it knows, as it always did.
+    answer = {"blocks": store.blocks_of(board), "stored": board}
     if (word := store.align_of(board)) is not None:  # the board's own alignment default, when it has one
         answer["align"] = word
     if (word := store.text_align_of(board)) is not None:  # and its text default: how the words inside read

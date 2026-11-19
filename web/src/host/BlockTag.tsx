@@ -25,19 +25,29 @@ import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
+import { useExportChrome } from "./ExportChrome";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
+/** A get_block answer that carries the stored envelope beside its projection (the local door does). */
+function isEnvelopeCarrying(data: unknown): data is { stored: unknown } {
+  return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
+}
+
+// One stable empty list for the chrome's "nothing drawn yet" argument: a fresh [] every render would churn its
+// deps and let its scan re-commit forever.
+const NO_BLOCKS: Block[] = [];
+
 type Board = {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
-  boardFollowUps?: FollowUp[];
+  boardFollowUps?: FollowUp[]; stored: unknown;
 };
 
 type State = {
   kind: "loading";
 } | {
   kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string;
-  boardLive?: boolean; boardFollowUps?: FollowUp[];
+  boardLive?: boolean; boardFollowUps?: FollowUp[]; stored: unknown;
 } | { kind: "failed" };
 
 /**
@@ -66,7 +76,12 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive,
           followUps: boardFollowUps,
         } = readBlocksNoted(data);
-        if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps } : { kind: "failed" });
+        // The export's JSON source: the stored envelope when the answer carries it (the local get_block does);
+        // the answer itself where it does not (previews, old doors) — never a fabrication.
+        const envelope = isEnvelopeCarrying(data) ? (data as { stored: unknown }).stored : data;
+        if (live) setState(blocks.length
+          ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps, stored: envelope }
+          : { kind: "failed" });
       })
       .catch(() => {
         if (live) setState({ kind: "failed" });
@@ -80,6 +95,19 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     setExpanded(false);
     expandRef.current?.focus();  // the dialog hands focus back to the control it opened from
   };
+
+  // The export affordance (host/ExportChrome.tsx): chrome around the board, never inside it. Its corner buttons
+  // pair the one drawn instance's elements with the read blocks by walking both trees together; its board
+  // files come out of the stored envelope this very load already delivered — export asks the door for nothing.
+  const chrome = useExportChrome({
+    blocks: state.kind === "drawn" ? state.blocks : NO_BLOCKS,
+    asOf: state.kind === "drawn" ? state.boardAsOf : undefined,
+    live: state.kind === "drawn" ? state.boardLive : undefined,
+    stored: state.kind === "drawn" ? state.stored : null,
+    expanded,
+    getBoard: () => hostRef.current?.querySelector<HTMLElement>(".hb-blocks") ?? null,
+    getHost: () => hostRef.current,
+  });
 
   useEffect(() => {
     if (expanded) closeRef.current?.focus();  // an open dialog owns the keyboard
@@ -123,11 +151,12 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
 
   return (
     <BlockActions.Provider value={{ ...actions, blockId: id }}>
-      <div className="hb-tag">
+      <div className="hb-tag" {...chrome.bind}>
         <button ref={expandRef} type="button" className="hb-expand" aria-label="Expand board" aria-haspopup="dialog"
           onClick={() => setExpanded(true)}>
           <IconExpand />
         </button>
+        {chrome.menu}
         <div ref={hostRef} className={expanded ? "hb-board-host hb-board-overlay" : "hb-board-host"}
           {...(expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {})}
           onClick={expanded ? (e) => e.target === e.currentTarget && close() : undefined}>
@@ -137,8 +166,10 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
               <IconClose />
             </button>
           )}
+          {chrome.dialogMenu}
           <Blocks blocks={board.blocks} boardAlign={board.boardAlign} boardTextAlign={board.boardTextAlign}
             boardAsOf={board.boardAsOf} boardLive={board.boardLive} boardFollowUps={board.boardFollowUps} />
+          {chrome.layer}
         </div>
       </div>
     </BlockActions.Provider>

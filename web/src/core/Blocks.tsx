@@ -30,6 +30,7 @@ import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
 import type { Align } from "./fields";
 import { alignOf, textAlignOf, type FollowUp } from "./readBlocks";
+import { provenanceOf } from "./provenance";
 import { FollowUps } from "./FollowUps";
 
 /** The two board-wide voices, carried down so every block — top level or nested — resolves both the same way:
@@ -106,26 +107,8 @@ export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLiv
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
   boardFollowUps?: FollowUp[];
 }) {
-  const declared = boardAsOf !== undefined || boardLive !== undefined;
-  let list = blocks;
-  let source: SourceBlock | undefined;
-  let chartSources: string[] = [];
-  if (declared) {  // the first top-level source line belongs to the footer, not twice on the board
-    const at = blocks.findIndex((b) => b.type === "source");
-    if (at >= 0) {
-      source = blocks[at] as SourceBlock;
-      list = blocks.filter((_, i) => i !== at);
-    }
-    const said = new Set<string>(source ? [source.text] : []);
-    for (const b of list) {  // charts say their own source; the line joins each once, in draw order
-      if (b.type !== "chart") continue;
-      const s = b.spec.source;
-      if (typeof s === "string" && s.trim() && !said.has(s)) {
-        said.add(s);
-        chartSources.push(s);
-      }
-    }
-  }
+  // What the board's origins ARE is core/provenance.ts, the same reading an export writes; this draws it.
+  const { declared, list, source, chartSources } = provenanceOf(blocks, boardAsOf, boardLive);
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
       <div className="hb-blocks">

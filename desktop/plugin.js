@@ -178,7 +178,7 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext10, useEffect as useEffect10, useRef as useRef18, useState as useState25 } from "react";
+import { useContext as useContext11, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
 
 // src/core/Blocks.tsx
 import { createContext as createContext3, Fragment as Fragment14, useContext as useContext9 } from "react";
@@ -424,8 +424,8 @@ function barAmount(value, max, unit) {
   if (max === 100 && !unit) return `${value}%`;
   const money = formatAmount(value, unit);
   if (money !== null) return `${money} / ${formatAmount(max, unit)}`;
-  const amount = `${formatNumber(value, { digits: 3 })} / ${formatNumber(max, { digits: 3 })}`;
-  return unit ? `${amount} ${unit}` : amount;
+  const amount2 = `${formatNumber(value, { digits: 3 })} / ${formatNumber(max, { digits: 3 })}`;
+  return unit ? `${amount2} ${unit}` : amount2;
 }
 function Bar({ label, value, max, unit }) {
   const share = Math.max(0, Math.min(1, value / max));
@@ -628,16 +628,16 @@ function changePct(data) {
 }
 var MAX_SLICES = 8;
 function pieSlices(x, data) {
-  const slices = [];
+  const slices2 = [];
   data.forEach((v, i) => {
-    if (v !== null && v > 0 && i < x.length) slices.push({ label: x[i], value: v });
+    if (v !== null && v > 0 && i < x.length) slices2.push({ label: x[i], value: v });
   });
-  if (slices.length <= MAX_SLICES) return { x: slices.map((s) => s.label), data: slices.map((s) => s.value) };
-  const biggestFirst = [...slices].sort((a, b) => b.value - a.value);
+  if (slices2.length <= MAX_SLICES) return { x: slices2.map((s) => s.label), data: slices2.map((s) => s.value) };
+  const biggestFirst = [...slices2].sort((a, b) => b.value - a.value);
   const kept = new Set(biggestFirst.slice(0, MAX_SLICES - 1));
-  const shown = slices.filter((s) => kept.has(s));
+  const shown = slices2.filter((s) => kept.has(s));
   let other = 0;
-  for (const s of slices) if (!kept.has(s)) other += s.value;
+  for (const s of slices2) if (!kept.has(s)) other += s.value;
   return { x: [...shown.map((s) => s.label), "Other"], data: [...shown.map((s) => s.value), other] };
 }
 function histogramBins(values) {
@@ -1293,7 +1293,7 @@ function stepPick(at2, key, n, rows = false) {
   if (back) return at2 === null ? n - 1 : Math.max(0, at2 - 1);
   return void 0;
 }
-function pickKeys(n, at2, pick, rows = false, activate) {
+function pickKeys(n, at2, pick2, rows = false, activate) {
   return {
     tabIndex: 0,
     "aria-haspopup": "dialog",
@@ -1306,10 +1306,10 @@ function pickKeys(n, at2, pick, rows = false, activate) {
       const next = stepPick(at2, e.key, n, rows);
       if (next === void 0) return;
       e.preventDefault();
-      pick(next);
+      pick2(next);
     },
     onBlur: (e) => {
-      if (e.relatedTarget) pick(null);
+      if (e.relatedTarget) pick2(null);
     }
   };
 }
@@ -1679,6 +1679,21 @@ function ScatterMarks({ spec, layout, hover }) {
 
 // src/blocks/chart/HBarChart.tsx
 import { Fragment as Fragment3, useRef as useRef3, useState as useState5 } from "react";
+
+// src/blocks/chart/hbarLayout.ts
+function hbarSpan(spec) {
+  const values = spec.series.flatMap((s) => s.data.filter((v) => v !== null));
+  const lo = Math.min(0, ...values);
+  const hi = Math.max(0, ...values);
+  const span = hi - lo || 1;
+  return { lo, hi, span, zeroAt: -lo / span * 100 };
+}
+function hbarBarOf(v, span, zeroAt) {
+  const width = Math.max(Math.abs(v) / span * 100, 1.5);
+  return { left: v < 0 ? zeroAt - width : zeroAt, width };
+}
+
+// src/blocks/chart/HBarChart.tsx
 import { Fragment as Fragment4, jsx as jsx13, jsxs as jsxs10 } from "react/jsx-runtime";
 function HBarChart({ spec }) {
   const [tip, setTip] = useState5(null);
@@ -1687,11 +1702,7 @@ function HBarChart({ spec }) {
   const box = useRef3(null);
   const grid = useRef3(null);
   const tracks = useRef3([]);
-  const values = spec.series.flatMap((s) => s.data.filter((v) => v !== null));
-  const lo = Math.min(0, ...values);
-  const hi = Math.max(0, ...values);
-  const span = hi - lo || 1;
-  const zeroAt = -lo / span * 100;
+  const { lo, span, zeroAt } = hbarSpan(spec);
   const single = spec.series.length === 1;
   const signed = lo < 0;
   const colourOf2 = (k, v) => {
@@ -1699,10 +1710,7 @@ function HBarChart({ spec }) {
     return v >= 0 ? "var(--hb-good)" : "var(--hb-warn)";
   };
   const unitOf2 = (k) => spec.series[k].unit ?? spec.unit;
-  const barOf = (v) => {
-    const width = Math.max(Math.abs(v) / span * 100, 1.5);
-    return { left: v < 0 ? zeroAt - width : zeroAt, width };
-  };
+  const barOf = (v) => hbarBarOf(v, span, zeroAt);
   function rowsAt(i) {
     const rows = [];
     spec.series.forEach((s, k) => {
@@ -1712,7 +1720,7 @@ function HBarChart({ spec }) {
     });
     return rows;
   }
-  function pick(i) {
+  function pick2(i) {
     setPicked(i);
     const track = i === null ? null : tracks.current[i];
     if (i === null || !track || !box.current) return setTip(null);
@@ -1728,7 +1736,7 @@ function HBarChart({ spec }) {
     setTip({ x: t.left - b.left + t.width * end / 100, y: t.top - b.top, title: String(spec.x[i]), rows: rowsAt(i) });
   }
   function open(i) {
-    pick(i);
+    pick2(i);
     setDrill({ at: i, detail: {
       datum: String(spec.x[i]),
       chartTitle: spec.title,
@@ -1742,7 +1750,7 @@ function HBarChart({ spec }) {
     grid.current?.focus();
   };
   const pickKeep = (i) => {
-    if (i !== null || !drill) pick(i);
+    if (i !== null || !drill) pick2(i);
   };
   const shade3 = (i) => picked === null || picked === i ? 1 : 0.55;
   const rowEvents = (i) => ({ onPointerEnter: () => pickKeep(i), onPointerDown: () => pickKeep(i), onClick: () => open(i) });
@@ -1832,21 +1840,21 @@ function PieChart({ spec }) {
   const unit = spec.series[0].unit ?? spec.unit;
   const donut = spec.type === "donut";
   const hole = donut ? HOLE : 0;
-  const slices = [];
+  const slices2 = [];
   let start = 0;
   for (const v of values) {
-    slices.push({ start, end: start + v / total });
+    slices2.push({ start, end: start + v / total });
     start += v / total;
   }
   const valuesAreShares = unit === "%";
   const biggest = values.indexOf(Math.max(...values));
   const headline = valuesAreShares ? { value: sharePct(values[biggest] / total), label: String(spec.x[biggest]) } : { value: fmt(total, unit), label: "Total" };
-  function pick(i) {
+  function pick2(i) {
     setPicked(i);
     const el = svg.current;
     const body = el?.parentElement;
     if (i === null || !el || !body) return setTip(null);
-    const [x, y] = at((slices[i].start + slices[i].end) / 2, donut ? (OUTER + HOLE) / 2 : OUTER * 0.6);
+    const [x, y] = at((slices2[i].start + slices2[i].end) / 2, donut ? (OUTER + HOLE) / 2 : OUTER * 0.6);
     const drawing = el.getBoundingClientRect();
     const around = body.getBoundingClientRect();
     const label = String(spec.x[i]);
@@ -1863,7 +1871,7 @@ function PieChart({ spec }) {
     return [{ colour: sliceColour(label, i), name: seriesName(spec.series, 0), value: fmt(values[i], unit, { full: true }) }];
   }
   function open(i) {
-    pick(i);
+    pick2(i);
     setDrill({ at: i, detail: {
       datum: String(spec.x[i]),
       chartTitle: spec.title,
@@ -1878,7 +1886,7 @@ function PieChart({ spec }) {
     svg.current?.focus();
   };
   const pickKeep = (i) => {
-    if (i !== null || !drill) pick(i);
+    if (i !== null || !drill) pick2(i);
   };
   const faded = (i) => picked === null || picked === i ? 1 : 0.5;
   const mouse = (i) => (e) => e.pointerType === "mouse" && pickKeep(i);
@@ -1902,7 +1910,7 @@ function PieChart({ spec }) {
             "aria-label": spec.title ?? "chart",
             ...pickKeys(values.length, picked, pickKeep, false, () => picked !== null && open(picked)),
             children: [
-              slices.map((s, i) => /* @__PURE__ */ jsx14(
+              slices2.map((s, i) => /* @__PURE__ */ jsx14(
                 "path",
                 {
                   d: slicePath(s.start, s.end, hole),
@@ -2012,7 +2020,7 @@ function XYChart({ spec }) {
     setDrill(null);
     svg.current?.focus();
   };
-  const pick = (i) => {
+  const pick2 = (i) => {
     if (i !== null || !drill) setHover(i);
   };
   const multiLegend = spec.type === "combo" || spec.type === "bar" && spec.series.length > 1 || spec.type === "line" && spec.series.length > 1;
@@ -2031,13 +2039,13 @@ function XYChart({ spec }) {
             className: "hb-chart-svg",
             role: "img",
             "aria-label": spec.title ?? "chart",
-            ...pickKeys(n, hover, pick, false, () => open(hover)),
+            ...pickKeys(n, hover, pick2, false, () => open(hover)),
             onPointerDown: (e) => {
               down.current = { x: e.clientX, y: e.clientY };
               pickAt(e);
             },
             onPointerMove: (e) => (e.buttons || e.pointerType === "mouse") && pickAt(e),
-            onPointerLeave: () => pick(null),
+            onPointerLeave: () => pick2(null),
             onClick: (e) => {
               const d = down.current;
               if (d && Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 8) open(committedAt(e.target));
@@ -2297,10 +2305,10 @@ function readSpec(d) {
   let series = d.series.filter((s) => s && Array.isArray(s.data)).slice(0, maxSeries(type)).map((s, k) => readSeries(s, k, type, unit));
   if (!series.length || series.every((s) => s.data.every((v) => v === null))) return null;
   if (type === "pie" || type === "donut") {
-    const slices = pieSlices(x, series[0].data);
-    if (!slices.x.length) return null;
-    x = slices.x;
-    series = [{ ...series[0], data: slices.data }];
+    const slices2 = pieSlices(x, series[0].data);
+    if (!slices2.x.length) return null;
+    x = slices2.x;
+    series = [{ ...series[0], data: slices2.data }];
   }
   if (type === "histogram") {
     const bins = histogramBins(series[0].data.filter((v) => v !== null));
@@ -3194,14 +3202,14 @@ function FieldView({ field, value, onChange }) {
     ] });
   }
   if (field.kind === "select") {
-    const chosen = field.options.find((o) => o.value === value);
+    const chosen2 = field.options.find((o) => o.value === value);
     return /* @__PURE__ */ jsxs18("label", { className: "hb-form-field", children: [
       /* @__PURE__ */ jsx21("span", { className: "hb-form-label", children: /* @__PURE__ */ jsx21(InlineText, { text: field.label }) }),
-      /* @__PURE__ */ jsxs18("select", { className: "hb-input", value: chosen ? chosen.value : "", onChange: (e) => onChange(e.target.value), children: [
-        !chosen && /* @__PURE__ */ jsx21("option", { value: "", disabled: true, children: "Choose\u2026" }),
+      /* @__PURE__ */ jsxs18("select", { className: "hb-input", value: chosen2 ? chosen2.value : "", onChange: (e) => onChange(e.target.value), children: [
+        !chosen2 && /* @__PURE__ */ jsx21("option", { value: "", disabled: true, children: "Choose\u2026" }),
         field.options.map((o) => /* @__PURE__ */ jsx21("option", { value: o.value, children: o.label }, o.value))
       ] }),
-      chosen?.note && /* @__PURE__ */ jsx21("span", { className: "hb-form-note", children: chosen.note })
+      chosen2?.note && /* @__PURE__ */ jsx21("span", { className: "hb-form-note", children: chosen2.note })
     ] });
   }
   return /* @__PURE__ */ jsx21(Pills, { field, value, onChange });
@@ -4407,7 +4415,7 @@ function Piles({ piles, amounts, start, per, most, playing, unit, label }) {
     ] })
   ] });
 }
-function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }) {
+function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, unit }) {
   const canvas = useRef12(null);
   const born = useRef12([]);
   const width = useWidth(canvas);
@@ -4416,7 +4424,7 @@ function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }) {
   const cols = Math.max(20, Math.floor(width / DOT));
   const size = width / cols;
   const height = Math.ceil(tallest / cols) * size;
-  const shown = amount === null ? "\u2013" : fmt(amount, unit, { full: true });
+  const shown = amount2 === null ? "\u2013" : fmt(amount2, unit, { full: true });
   useEffect7(() => {
     const el = canvas.current;
     if (!el) return;
@@ -5357,6 +5365,38 @@ function readOne(raw, here, depth) {
   return blocks;
 }
 
+// src/core/provenance.ts
+function provenanceOf(blocks, asOf, live) {
+  const declared = asOf !== void 0 || live !== void 0;
+  if (!declared) return { declared, list: blocks, chartSources: [], asOf, live };
+  let list = blocks;
+  let source;
+  const at2 = blocks.findIndex((b) => b.type === "source");
+  if (at2 >= 0) {
+    source = blocks[at2];
+    list = blocks.filter((_, i) => i !== at2);
+  }
+  const said = new Set(source ? [source.text] : []);
+  const chartSources = [];
+  for (const b of list) {
+    if (b.type !== "chart") continue;
+    const s = b.spec.source;
+    if (typeof s === "string" && s.trim() && !said.has(s)) {
+      said.add(s);
+      chartSources.push(s);
+    }
+  }
+  return { declared, list, source, chartSources, asOf, live };
+}
+function provenanceLine(p) {
+  const parts = [];
+  if (p.source) parts.push(p.source.text);
+  parts.push(...p.chartSources);
+  if (p.asOf) parts.push(`as of ${p.asOf}`);
+  if (p.live !== void 0) parts.push(p.live ? "Live" : "Snapshot");
+  return parts.join(" \xB7 ");
+}
+
 // src/core/FollowUps.tsx
 import { useContext as useContext8, useRef as useRef17, useState as useState24 } from "react";
 import { jsx as jsx40, jsxs as jsxs35 } from "react/jsx-runtime";
@@ -5444,26 +5484,7 @@ function Provenance({ source, chartSources, asOf, live }) {
   ] });
 }
 function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps }) {
-  const declared = boardAsOf !== void 0 || boardLive !== void 0;
-  let list = blocks;
-  let source;
-  let chartSources = [];
-  if (declared) {
-    const at2 = blocks.findIndex((b) => b.type === "source");
-    if (at2 >= 0) {
-      source = blocks[at2];
-      list = blocks.filter((_, i) => i !== at2);
-    }
-    const said = new Set(source ? [source.text] : []);
-    for (const b of list) {
-      if (b.type !== "chart") continue;
-      const s = b.spec.source;
-      if (typeof s === "string" && s.trim() && !said.has(s)) {
-        said.add(s);
-        chartSources.push(s);
-      }
-    }
-  }
+  const { declared, list, source, chartSources } = provenanceOf(blocks, boardAsOf, boardLive);
   return /* @__PURE__ */ jsx41(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs36("div", { className: "hb-blocks", children: [
     /* @__PURE__ */ jsx41(FlowLightBoard, { children: drawAll(list) }),
     declared && /* @__PURE__ */ jsx41(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive }),
@@ -5471,18 +5492,1429 @@ function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boar
   ] }) });
 }
 
+// src/host/ExportChrome.tsx
+import { useContext as useContext10, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useRef as useRef18, useState as useState25 } from "react";
+
+// src/lib/csv.ts
+function csvCell(value) {
+  return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+function csvOf(headers, rows) {
+  return [headers, ...rows].map((line) => line.map(csvCell).join(",") + "\r\n").join("");
+}
+
+// src/lib/export.ts
+var PNG_SCALE = 2;
+var PNG_PAD = 14;
+var LINE_RATIO = 1.4;
+var LINE_GAP = 6;
+var SWATCH = 12;
+var SWATCH_GAP = 6;
+var MINUS = "\u2013";
+function measureLine(line) {
+  return line.swatch ? SWATCH + SWATCH_GAP : 0;
+}
+function pngMetrics(lines, measure, svgWidth, svgHeight) {
+  const textWidth2 = lines.reduce((widest, l) => Math.max(widest, measure(l) + measureLine(l)), 0);
+  const textHeight = lines.length ? lines.reduce((h, l) => h + l.size * LINE_RATIO, 0) + (lines.length - 1) * LINE_GAP : 0;
+  return {
+    width: Math.round(Math.max(svgWidth, textWidth2)) + PNG_PAD * 2,
+    height: Math.round(svgHeight + textHeight) + PNG_PAD * 2
+  };
+}
+function fontOf(cs) {
+  const size = Number.parseFloat(cs.fontSize) || 14;
+  const parts = [cs.fontStyle !== "normal" ? cs.fontStyle : "", cs.fontWeight, `${size}px`, cs.fontFamily];
+  return { font: parts.filter(Boolean).join(" "), size };
+}
+function captionLines(figure2, provenance = "") {
+  const out = [];
+  const line = (el, text, swatch) => {
+    if (!el || !text.trim()) return;
+    const cs = getComputedStyle(el);
+    const { font, size } = fontOf(cs);
+    out.push({ text, font, colour: cs.color, size, ...swatch ? { swatch } : {} });
+  };
+  const title = figure2.querySelector(".hb-chart-title");
+  line(title, title?.textContent?.trim() ?? "");
+  const figureEl = figure2.querySelector(".hb-chart-figure");
+  line(figureEl, (figureEl?.textContent ?? "").trim());
+  for (const item of figure2.querySelectorAll(".hb-legend-item")) {
+    const swatch = item.querySelector(".hb-legend-dot");
+    const words = [...item.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE || n.classList?.contains("hb-legend-value") || n.classList?.contains("hb-legend-note")).map((n) => (n.textContent ?? "").trim()).filter(Boolean).join(" ");
+    line(item, words, swatch ? getComputedStyle(swatch).backgroundColor : void 0);
+  }
+  for (const row of figure2.querySelectorAll(".hb-pie-legend tr")) {
+    if (!row.querySelector(".hb-pie-swatch")) continue;
+    const sw = row.querySelector(".hb-pie-swatch i");
+    const words = [...row.querySelectorAll("td")].filter((td) => !td.classList.contains("hb-pie-swatch")).map((td) => (td.textContent ?? "").trim()).filter(Boolean).join(" ");
+    line(row, words, sw ? getComputedStyle(sw).backgroundColor : void 0);
+  }
+  const source = figure2.querySelector(".hb-chart-source");
+  line(source, source?.textContent?.trim() ?? "");
+  if (provenance.trim() && provenance.trim() !== (source?.textContent?.trim() ?? "")) {
+    const styleEl = source ?? figure2;
+    const cs = getComputedStyle(styleEl);
+    const { font, size } = fontOf(cs);
+    out.push({ text: provenance.trim(), font, colour: cs.color, size });
+  }
+  return out;
+}
+var RGB = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/;
+var TRANSPARENT = /^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/;
+function parseColour(value) {
+  const m = RGB.exec(value);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === void 0 ? 1 : Number(m[4])];
+}
+function over(fg, bg) {
+  const a = fg[3];
+  return [
+    Math.round(fg[0] * a + bg[0] * (1 - a)),
+    Math.round(fg[1] * a + bg[1] * (1 - a)),
+    Math.round(fg[2] * a + bg[2] * (1 - a))
+  ];
+}
+function opaqueBackdrop(el) {
+  const layers = [];
+  let base = [255, 255, 255];
+  for (let node = el; node; node = node.parentElement) {
+    const cs = getComputedStyle(node);
+    const value = cs.backgroundColor;
+    if (value && value !== "transparent" && !TRANSPARENT.test(value)) {
+      const rgb = parseColour(value);
+      if (!rgb) continue;
+      if (rgb[3] >= 1) {
+        base = [rgb[0], rgb[1], rgb[2]];
+        break;
+      }
+      layers.push(rgb);
+    }
+  }
+  let out = base;
+  for (let i = layers.length - 1; i >= 0; i--) out = over(layers[i], out);
+  return out;
+}
+var SVG_NS = 'xmlns="http://www.w3.org/2000/svg"';
+function esc(text) {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function hbarSvg(figure2, spec) {
+  const box = figure2.querySelector(".hb-hbar-box");
+  const grid = box?.querySelector(".hb-hbar-grid");
+  if (!box || !grid) return null;
+  const rows = spec.x.map(String);
+  const labelEls = [...grid.querySelectorAll(".hb-hbar-label")];
+  const trackEls = [...grid.querySelectorAll(".hb-hbar-tracks")];
+  const valueEls = [...grid.querySelectorAll(".hb-hbar-values")];
+  if (!labelEls.length || labelEls.length !== rows.length || trackEls.length !== rows.length || valueEls.length !== rows.length) return null;
+  const base = box.getBoundingClientRect();
+  if (base.width < 2 || base.height < 2) return null;
+  const rel = (el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left - base.left, y: r.top - base.top, w: r.width, h: r.height };
+  };
+  const TRANSPARENT_PAINT = /^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*0\s*\)$/;
+  const pictureW = Math.ceil(base.width);
+  const pictureH = Math.ceil(base.height);
+  const fit = (r) => {
+    const x = Math.max(r.x, 0);
+    const y = Math.max(r.y, 0);
+    return { x, y, w: Math.max(Math.min(r.x + r.w, pictureW) - x, 1), h: Math.max(Math.min(r.y + r.h, pictureH) - y, 1) };
+  };
+  const sample = (el) => {
+    if (!el) return "";
+    const value = getComputedStyle(el).backgroundColor;
+    return value && value !== "transparent" && !TRANSPARENT_PAINT.test(value) && !TRANSPARENT.test(value) ? value : "";
+  };
+  const look = (el, fallback) => {
+    const cs = getComputedStyle(el);
+    return {
+      family: (cs.fontFamily || "sans-serif").replaceAll('"', "'"),
+      size: cs.fontSize || "12px",
+      ink: cs.color || fallback
+    };
+  };
+  const parts = [];
+  rows.forEach((_row, i) => {
+    const lr = rel(labelEls[i]);
+    const lf = look(labelEls[i], "#222");
+    const labelWord = (labelEls[i].textContent ?? "").trim() || rows[i];
+    parts.push(`<text data-label="${i}" x="${lr.x.toFixed(1)}" y="${(lr.y + lr.h / 2).toFixed(1)}" dominant-baseline="central" font-family="${esc(lf.family)}" font-size="${esc(lf.size)}" fill="${esc(lf.ink)}">${esc(labelWord)}</text>`);
+    const tracks = [...trackEls[i].querySelectorAll(".hb-hbar-track")];
+    tracks.forEach((track, k) => {
+      const zero = track.querySelector(".hb-hbar-zero");
+      if (zero) {
+        const zr = fit(rel(zero));
+        parts.push(`<rect data-zero="${i}:${k}" x="${zr.x.toFixed(1)}" y="${zr.y.toFixed(1)}" width="${zr.w.toFixed(1)}" height="${zr.h.toFixed(1)}" fill="${esc(sample(zero) || "#999")}"/>`);
+      }
+      const bar = track.querySelector(".hb-hbar-bar");
+      if (!bar) return;
+      const br = fit(rel(bar));
+      parts.push(`<rect data-bar="${i}:${k}" x="${br.x.toFixed(1)}" y="${br.y.toFixed(1)}" width="${br.w.toFixed(1)}" height="${br.h.toFixed(1)}" rx="3" fill="${esc(sample(bar) || "#888")}"/>`);
+    });
+    const spans = [...valueEls[i].querySelectorAll("span")];
+    spans.forEach((span, k) => {
+      const vr = rel(span);
+      const vf = look(span, "#222");
+      const word = (span.textContent ?? "").trim() || MINUS;
+      parts.push(`<text data-word="${i}:${k}" x="${(vr.x + vr.w).toFixed(1)}" y="${(vr.y + vr.h / 2).toFixed(1)}" text-anchor="end" dominant-baseline="central" font-family="${esc(vf.family)}" font-size="${esc(vf.size)}" fill="${esc(vf.ink)}">${esc(word)}</text>`);
+    });
+  });
+  return { width: pictureW, height: pictureH, body: parts.join("") };
+}
+var PAINT = [
+  "fill",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "fill-opacity",
+  "stroke-opacity",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "letter-spacing",
+  "paint-order",
+  "vector-effect"
+];
+function serializeSvg(svg) {
+  const clone = svg.cloneNode(true);
+  const sources = [svg, ...svg.querySelectorAll("*")];
+  const copies = [clone, ...clone.querySelectorAll("*")];
+  const box = svg.getBoundingClientRect();
+  const px = (which, view) => {
+    if (view > 0) return String(Math.round(view));
+    const attr = (svg.getAttribute(which) ?? "").trim();
+    const stated = Number.parseFloat(attr);
+    if (attr && !attr.endsWith("%") && Number.isFinite(stated) && stated > 0) return String(Math.round(stated));
+    const vb = (svg.getAttribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+    if (vb.length === 4) {
+      const side = vb[which === "width" ? 2 : 3];
+      if (Number.isFinite(side) && side > 0) return String(Math.round(side));
+    }
+    return "640";
+  };
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", px("width", box.width));
+  clone.setAttribute("height", px("height", box.height));
+  for (const [i, src] of sources.entries()) {
+    const dst = copies[i];
+    if (!dst) continue;
+    const cs = getComputedStyle(src);
+    if (cs.display === "none" || cs.visibility === "hidden") {
+      dst.remove();
+      continue;
+    }
+    for (const prop of PAINT) {
+      const value = cs.getPropertyValue(prop);
+      if (value) dst.style.setProperty(prop, value);
+    }
+  }
+  return new XMLSerializer().serializeToString(clone);
+}
+async function loadImage(src) {
+  const url = URL.createObjectURL(new Blob([src], { type: "image/svg+xml;charset=utf-8" }));
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+function canvasPng(canvas) {
+  return new Promise((done) => canvas.toBlob((blob) => done(blob), "image/png"));
+}
+async function chartPng(figure2, opts = {}) {
+  const svg = figure2.querySelector("svg");
+  let svgWidth = 0;
+  let svgHeight = 0;
+  let document_;
+  if (svg) {
+    const box = svg.getBoundingClientRect();
+    const stated = (which) => {
+      const raw = Number.parseFloat(svg.getAttribute(which) ?? "");
+      return Number.isFinite(raw) && raw > 0 ? raw : 640;
+    };
+    svgWidth = Math.round(box.width || stated("width"));
+    svgHeight = Math.round(box.height || stated("height"));
+    document_ = serializeSvg(svg);
+  } else if (opts.spec) {
+    const picture = hbarSvg(figure2, opts.spec);
+    if (!picture) return null;
+    svgWidth = Math.round(picture.width);
+    svgHeight = Math.round(picture.height);
+    document_ = `<svg ${SVG_NS} width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}">` + picture.body + "</svg>";
+  } else {
+    return null;
+  }
+  const lines = captionLines(figure2, opts.provenance ?? "");
+  const probe = document.createElement("canvas").getContext("2d");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!probe || !ctx) return null;
+  const measure = (l) => {
+    probe.font = l.font;
+    return probe.measureText(l.text).width;
+  };
+  const { width, height } = pngMetrics(lines, measure, svgWidth, svgHeight);
+  const img = await loadImage(document_);
+  if (!img) return null;
+  canvas.width = Math.round(width * PNG_SCALE);
+  canvas.height = Math.round(height * PNG_SCALE);
+  ctx.scale(PNG_SCALE, PNG_SCALE);
+  const [r, g, b] = opaqueBackdrop(figure2);
+  ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+  ctx.fillRect(0, 0, width, height);
+  const textHeight = lines.reduce((h, l) => h + l.size * LINE_RATIO, 0) + (lines.length ? (lines.length - 1) * LINE_GAP : 0);
+  let y = PNG_PAD;
+  ctx.textBaseline = "top";
+  for (const l of lines) {
+    if (l.swatch) {
+      ctx.fillStyle = l.swatch;
+      ctx.fillRect(PNG_PAD, y + Math.max(0, (l.size * LINE_RATIO - SWATCH) / 2), SWATCH, SWATCH);
+    }
+    ctx.font = l.font;
+    ctx.fillStyle = l.colour;
+    ctx.fillText(l.text, PNG_PAD + measureLine(l), y);
+    y += l.size * LINE_RATIO + LINE_GAP;
+  }
+  ctx.drawImage(img, PNG_PAD, PNG_PAD + textHeight, svgWidth, svgHeight);
+  return canvasPng(canvas);
+}
+function csvBlob(columns, rows, provenance = "") {
+  const head = provenance.trim() ? `# ${provenance.trim()}\r
+` : "";
+  return new Blob([`\uFEFF${head}${csvOf(columns, rows)}`], { type: "text/csv;charset=utf-8" });
+}
+function markdownFile(body, provenance) {
+  const parts = [];
+  const head = body.trimEnd();
+  const footer = provenanceText(provenance);
+  if (head) parts.push(head);
+  if (footer) parts.push(`---
+
+${footer}`);
+  return `${parts.join("\n\n")}
+`;
+}
+function provenanceText(p) {
+  const parts = [];
+  if (p.source) parts.push(p.source.text);
+  parts.push(...p.chartSources);
+  if (p.asOf) parts.push(`as of ${p.asOf}`);
+  if (p.live !== void 0) parts.push(p.live ? "Live" : "Snapshot");
+  return parts.join(" \xB7 ");
+}
+function jsonFile(stored) {
+  return `${JSON.stringify(stored, null, 2)}
+`;
+}
+function fileBase(name, fallback) {
+  const slug2 = (name ?? "").trim().toLowerCase().replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]+/g, "").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/, "");
+  return slug2 || fallback;
+}
+function chartFileBase(figure2) {
+  return fileBase(figure2.querySelector(".hb-chart-title")?.textContent ?? "", "chart");
+}
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 6e4);
+}
+
+// src/lib/markdown.ts
+var MAX_DEPTH2 = 6;
+var MAX_STRING = 300;
+var MAX_URL = 500;
+var MAX_CELL = 80;
+var CONTROL = new RegExp("[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\\u200b\\u200c\\u200e\\u200f\\u202a-\\u202e\\u2060-\\u2064\\u2066-\\u2069\\ufeff]", "g");
+var CONTROL_TEST = new RegExp(CONTROL.source);
+var LAYOUT_TYPES = ["row", "section", "grid", "columns", "tabs"];
+function isNum(v) {
+  return typeof v === "number";
+}
+function isStr(v) {
+  return typeof v === "string";
+}
+function isDict(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function isList(v) {
+  return Array.isArray(v);
+}
+function firstList2(block, ...keys) {
+  for (const k of keys) if (isList(block[k])) return block[k];
+  return [];
+}
+function firstOf(block, ...keys) {
+  for (const k of keys) {
+    const t = safeText(block[k]);
+    if (t) return t;
+  }
+  return "";
+}
+function orField(block, first, second) {
+  const v = block[first];
+  if (isPyFalsy(v)) return block[second];
+  return v;
+}
+function isPyFalsy(v) {
+  if (v === null || v === void 0 || v === false || v === "" || v === 0 || typeof v === "number" && Number.isNaN(v)) return true;
+  if (Array.isArray(v)) return v.length === 0;
+  if (isDict(v)) return Object.keys(v).length === 0;
+  return false;
+}
+function pick(block, key, dflt) {
+  return key in block ? block[key] : dflt;
+}
+function fmtNum(v) {
+  if (!Number.isFinite(v)) return "";
+  if (Number.isInteger(v) && Math.abs(v) < 1e15) return groupInt(v);
+  if (Math.abs(v) >= 1) return fixed2(v);
+  return g3(v);
+}
+function fixed2(v) {
+  const s = roundHalfEven(v, 2).toFixed(2);
+  const [intPart, fracPart] = s.split(".");
+  const sign = intPart.startsWith("-") ? "-" : "";
+  const digits = sign ? intPart.slice(1) : intPart;
+  let frac = fracPart;
+  while (frac.endsWith("0")) frac = frac.slice(0, -1);
+  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${sign}${grouped}${frac ? `.${frac}` : ""}`;
+}
+function g3(v) {
+  const sign = v < 0 ? "-" : "";
+  const a = Math.abs(v);
+  let e = Math.floor(Math.log10(a));
+  let m = a / 10 ** e;
+  if (m >= 10) {
+    m /= 10;
+    e += 1;
+  } else if (m < 1) {
+    m *= 10;
+    e -= 1;
+  }
+  let rm = roundHalfEven(m, 2);
+  if (rm >= 10) {
+    rm /= 10;
+    e += 1;
+  }
+  const digits = String(rm).replace(".", "").replace(/0+$/, "") || "0";
+  if (e < -4) {
+    const mant = digits.length > 1 ? `${digits[0]}.${digits.slice(1)}` : digits;
+    return `${sign}${mant}e-${String(-e).padStart(2, "0")}`;
+  }
+  if (e < 0) return `${sign}0.${"0".repeat(-e - 1)}${digits}`;
+  return `${sign}${digits}${"0".repeat(e)}`;
+}
+function groupInt(v) {
+  const sign = v < 0 ? "-" : "";
+  const digits = String(Math.abs(Math.trunc(v)));
+  return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function roundHalfEven(x, digits) {
+  if (!Number.isFinite(x)) return x;
+  if (digits < 0) {
+    const shifted = roundHalfEven(x / 10 ** -digits, 0);
+    return shifted * 10 ** -digits;
+  }
+  if (Number.isInteger(x)) return x;
+  const buf = new ArrayBuffer(8);
+  new Float64Array(buf)[0] = Math.abs(x);
+  const bits = new DataView(buf).getBigUint64(0, true);
+  let m = Number(bits & 2n ** 52n - 1n);
+  let e = (Number(bits >> 52n) & 2047) - 1075;
+  if (bits >> 52n === 0n) e = -50;
+  else m += 2 ** 52;
+  const num2 = BigInt(m) * 10n ** BigInt(digits);
+  const den = 1n << BigInt(-e);
+  const floor = num2 / den;
+  const rem = num2 % den;
+  const half = den >> 1n;
+  const up = rem > half || rem === half && floor % 2n !== 0n;
+  const n = up ? floor + 1n : floor;
+  const v = Number(n) / 10 ** digits;
+  return x < 0 ? -v : v;
+}
+var MARKDOWN_MARKS = /([\\\[\]<>])/g;
+function mdEscape(text) {
+  return text.replace(MARKDOWN_MARKS, "\\$1");
+}
+function safeText(value, limit = MAX_STRING, inline = true) {
+  if (isNum(value)) return fmtNum(value);
+  if (!isStr(value)) return "";
+  let text = value.replace(CONTROL, "").replaceAll("	", " ");
+  if (inline) text = text.replaceAll("\n", " ");
+  text = text.trim();
+  return mdEscape(text.length <= limit ? text : `${text.slice(0, limit - 1)}\u2026`);
+}
+function safeUrl(value, httpsOnly = false) {
+  if (!isStr(value)) return "";
+  let url = value.replace(CONTROL, "").trim();
+  if (url.length > MAX_URL) return "";
+  const lower = url.toLowerCase();
+  if (!(httpsOnly ? lower.startsWith("https://") : lower.startsWith("https://") || lower.startsWith("http://"))) return "";
+  for (const [raw, safe] of [[" ", "%20"], ["(", "%28"], [")", "%29"], ["<", "%3C"], [">", "%3E"], ["\n", ""]]) {
+    url = url.split(raw).join(safe);
+  }
+  return url;
+}
+function mdLink(text, url) {
+  return url ? `[${text}](${url})` : text;
+}
+function withUnit(value, unit) {
+  if (!unit) return value;
+  return unit === "%" ? `${value}${unit}` : `${value} ${unit}`;
+}
+function changeChip(change, unit = "%") {
+  if (!isNum(change)) return "";
+  const arrow = change < 0 ? "\u25BC" : "\u25B2";
+  return `(${arrow} ${fmtNum(Math.abs(change))}${safeText(unit, 8) || "%"})`;
+}
+function outOf(label, value, goal, unit) {
+  if (!label || !isNum(value) || !isNum(goal)) return "";
+  return `${label}: ${fmtNum(value)} / ${withUnit(fmtNum(goal), safeText(unit, 20))}`;
+}
+function tableCell(value) {
+  return safeText(value, MAX_CELL).replaceAll("|", "\\|");
+}
+function mdTable(header, rows) {
+  const width = header.length;
+  const lines = ["| " + header.join(" | ") + " |", "| " + Array(width).fill("---").join(" | ") + " |"];
+  for (const row of rows) {
+    lines.push("| " + [...row, ...Array(Math.max(0, width - row.length)).fill("")].slice(0, width).join(" | ") + " |");
+  }
+  return lines;
+}
+function childLists(block) {
+  if (!isDict(block)) return [];
+  if (isList(block.children)) return [block.children];
+  if (block.type !== "tabs" || !isList(block.tabs)) return [];
+  const out = [];
+  for (const tab of block.tabs) {
+    if (isDict(tab) && isList(tab.children)) out.push(tab.children);
+  }
+  return out;
+}
+function flowLabels(blocks, depth = 0) {
+  let found = {};
+  if (depth > MAX_DEPTH2) return found;
+  for (const block of blocks) {
+    if (!isDict(block)) continue;
+    if (block.type === "flow" && isStr(block.id) && isList(block.nodes)) {
+      const nodes = block.nodes.filter(isDict);
+      const map = {};
+      for (const n of nodes) if (isStr(n.id) && isStr(n.label)) map[n.id] = n.label;
+      found[block.id] = map;
+    }
+    for (const children of childLists(block)) {
+      const deeper = flowLabels(children, depth + 1);
+      found = { ...deeper, ...found };
+    }
+  }
+  return found;
+}
+var F = (v) => isDict(v) ? v : {};
+var IMAGE_URL_FIELDS = ["url", "src", "image"];
+function textHeading(block) {
+  const text = safeText(block.text);
+  return text ? `**${text}**` : "";
+}
+function textText(block) {
+  return safeText(block.text, MAX_STRING, false);
+}
+function textDivider() {
+  return "---";
+}
+function textBadge(block) {
+  const text = firstOf(block, "text", "label");
+  return text ? `[${text}]` : "";
+}
+function textLink(block) {
+  const text = firstOf(block, "text", "label");
+  const url = safeUrl(orField(block, "url", "href"), true);
+  return mdLink(text || mdEscape(url), url);
+}
+function textImage(block) {
+  let url = "";
+  for (const k of IMAGE_URL_FIELDS) {
+    url = safeUrl(block[k]);
+    if (url) break;
+  }
+  const caption = firstOf(block, "caption", "alt", "title");
+  if (!url) return caption;
+  return `![${caption || "image"}](${url})`;
+}
+function textBar(block) {
+  return outOf(firstOf(block, "label", "title"), block.value, pick(block, "max", 100), block.unit);
+}
+function textCallout(block) {
+  const title = safeText(block.title);
+  const text = safeText(block.text, MAX_STRING, false);
+  const lines = (title ? [`**${title}**`] : []).concat(text.split("\n").filter((l) => l.trim()));
+  return lines.map((l) => `> ${l}`).join("\n");
+}
+function textSource(block) {
+  const text = safeText(block.text);
+  return text ? `_Source: ${mdLink(text, safeUrl(block.url))}_` : "";
+}
+var MAX_TABLE_ROWS = 12;
+function textTable(block) {
+  const names = block.columns, rows = block.rows;
+  if (!isList(names) || !names.length || !isList(rows) || !rows.length) return "";
+  const headerNames = names.slice(0, 8);
+  const columns = headerNames.map(tableCell);
+  const cells = [];
+  for (const row of rows.slice(0, MAX_TABLE_ROWS)) {
+    if (isDict(row)) {
+      cells.push(headerNames.map((name) => isStr(name) ? tableCell(row[name]) : ""));
+    } else if (isList(row)) {
+      cells.push(row.map(tableCell));
+    }
+  }
+  const caption = safeText(orField(block, "caption", "title"));
+  const lines = (caption ? [`**${caption}**`] : []).concat(mdTable(columns, cells));
+  if (rows.length > MAX_TABLE_ROWS) lines.push(`_(${rows.length - MAX_TABLE_ROWS} more rows)_`);
+  return lines.join("\n");
+}
+function textListBlock(block) {
+  const items = firstList2(block, "items", "rows");
+  const lines = [];
+  for (const item of items.slice(0, 12)) {
+    const row = isStr(item) ? { title: item } : item;
+    const name = isDict(row) ? firstOf(row, "title", "name", "label", "text") : "";
+    if (!name) continue;
+    const r = F(row);
+    const subtitle = safeText(r.subtitle);
+    const value = safeText(r.value, 40);
+    const mark = block.ranked ? `${lines.length + 1}.` : "-";
+    lines.push(`${mark} ${name}${subtitle ? ` \u2014 ${subtitle}` : ""}${value ? ` \xB7 ${value}` : ""}`);
+  }
+  const title = safeText(block.title);
+  return (title && lines.length ? [`**${title}**`] : []).concat(lines).join("\n");
+}
+function textChecklist(block) {
+  const items = isList(block.items) ? block.items : [];
+  const lines = [];
+  for (const item of items.slice(0, 40)) {
+    const text = safeText(isDict(item) ? item.text : item);
+    if (text) lines.push(`- [ ] ${text}`);
+  }
+  const title = safeText(block.title);
+  return (title && lines.length ? [`**${title}**`] : []).concat(lines).join("\n");
+}
+function textTiles(block) {
+  const items = isList(block.items) ? block.items : [];
+  const lines = [];
+  for (const item of items.slice(0, 8)) {
+    const t = isDict(item) ? safeText(item.title) : "";
+    const subtitle = t ? safeText(F(item).subtitle) : "";
+    if (t) lines.push(subtitle ? `- ${t}: ${subtitle}` : `- ${t}`);
+  }
+  return lines.join("\n");
+}
+function textStreak(block) {
+  const count = block.count;
+  if (!isNum(count)) return "";
+  const label = safeText(block.label) || "Current streak";
+  return `${label}: ${fmtNum(count)} ${safeText(block.unit, 20) || "days"}`;
+}
+function textProgress(block) {
+  return outOf(firstOf(block, "title", "label"), block.value, block.goal, block.unit);
+}
+function figure(item) {
+  const label = firstOf(item, "label", "title");
+  const value = safeText(item.value);
+  if (!label || !value) return "";
+  const line = `${label}: ${withUnit(value, safeText(item.unit, 20))}`;
+  const chip = changeChip(item.change, pick(item, "change_unit", "%"));
+  return chip ? `${line} ${chip}` : line;
+}
+function textStat(block) {
+  return figure(block);
+}
+function textKpis(block) {
+  const items = isList(block.items) ? block.items : [];
+  return items.filter(isDict).map(figure).filter(Boolean).join("\n");
+}
+var CHART_KINDS2 = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram"];
+var KIND_ALIASES2 = {
+  doughnut: "donut",
+  stackedbar: "stacked",
+  horizontalbar: "hbar",
+  barh: "hbar",
+  hist: "histogram"
+};
+function chartKind2(name) {
+  if (!isStr(name)) return "line";
+  const plain = name.toLowerCase().replace(/[ _-]/g, "");
+  return CHART_KINDS2.includes(plain) ? plain : Object.hasOwn(KIND_ALIASES2, plain) ? KIND_ALIASES2[plain] : "line";
+}
+function seriesLine(series) {
+  const data = dataOf(series).filter(isNum);
+  if (!data.length) return "";
+  const name = safeText(series.name);
+  const first = data[0], last = data[data.length - 1];
+  let line = `${name} ${fmtNum(first)} \u2192 ${fmtNum(last)}`.trim();
+  if (first) line += " " + changeChip(roundHalfEven((last - first) / Math.abs(first) * 100, 1));
+  return line;
+}
+function slices(x, series, top = 4) {
+  const data = dataOf(series);
+  const parts = [];
+  for (let i = 0; i < Math.min(x.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v) && v > 0) parts.push([safeText(x[i]), v]);
+  }
+  const total = parts.reduce((s, [, v]) => s + v, 0);
+  if (!total) return "";
+  parts.sort((a, b) => b[1] - a[1]);
+  const shown = parts.slice(0, top).map(([label, v]) => `${label} ${roundHalfEven(v / total * 100, 0)}`.trim() + "%");
+  if (parts.length > top) shown.push(`+${parts.length - top} more`);
+  return shown.join(", ");
+}
+function pointsLine(series) {
+  const data = dataOf(series).filter(isNum);
+  if (!data.length) return "";
+  const name = safeText(series.name);
+  const line = name ? `${name} ` : "";
+  return `${line}${data.length} points, y ${fmtNum(Math.min(...data))} \u2192 ${fmtNum(Math.max(...data))}`;
+}
+function histogramLine(values) {
+  const data = values.filter(isNum).sort((a, b) => a - b);
+  if (!data.length) return "";
+  const n = data.length;
+  const mid = n % 2 ? data[(n - 1) / 2] : (data[n / 2 - 1] + data[n / 2]) / 2;
+  return `${n} values, ${fmtNum(data[0])} \u2192 ${fmtNum(data[n - 1])}, median ${fmtNum(mid)}`;
+}
+function textChart(block) {
+  const series = (isList(block.series) ? block.series : []).filter(isDict);
+  if (!series.length) return "";
+  const kind = chartKind2(block.kind);
+  let body = "";
+  if (kind === "histogram") {
+    body = histogramLine(dataOf(series[0]));
+  } else if (kind === "scatter") {
+    body = series.slice(0, 3).map(pointsLine).filter(Boolean).join("; ");
+  } else if (kind === "pie" || kind === "donut") {
+    body = slices(isList(block.x) ? block.x : [], series[0]);
+  } else {
+    body = series.slice(0, 6).map(seriesLine).filter(Boolean).join("; ");
+  }
+  if (!body) return "";
+  const unit = safeText(block.unit, 20);
+  const title = `**${safeText(block.title) || "Chart"}**` + (unit ? ` (${unit})` : "");
+  return `${title}: ${body}`;
+}
+var LOCAL_PATH = /^(?:[A-Za-z]:[\\/]|\/|\\\\)/;
+function isLocalPath(v) {
+  if (!isStr(v) || v.length === 0 || v.length > MAX_URL || CONTROL_TEST.test(v)) return false;
+  return LOCAL_PATH.test(v);
+}
+function dataOf(series) {
+  return walkable(series, "data", true);
+}
+function walkable(block, key, missingDefault = false) {
+  const v = missingDefault ? pick(block, key, []) : block[key];
+  if (v === void 0 && missingDefault) return [];
+  if (isList(v)) return v;
+  if (isStr(v)) return [...v];
+  if (isDict(v)) return Object.keys(v);
+  if (v === void 0 && !missingDefault) return [];
+  throw new Error(key);
+}
+function textImages(block) {
+  const photos = isList(block.images) ? block.images : [];
+  const lines = [];
+  for (const photo of photos.slice(0, 12)) {
+    if (!isDict(photo)) continue;
+    if (isLocalPath(photo.url)) {
+      const caption = safeText(photo.caption);
+      lines.push(caption ? `${caption} (generated image)` : "Generated image");
+      continue;
+    }
+    const line = textImage(photo);
+    const source = safeText(photo.source);
+    if (line) lines.push(source ? `${line} [${source}]` : line);
+  }
+  const title = safeText(block.title);
+  return (title && lines.length ? [`**${title}**`] : []).concat(lines).join("\n");
+}
+function textInclude() {
+  return "";
+}
+function textFlip(block) {
+  const cards = isList(block.cards) ? block.cards : [];
+  const lines = [];
+  for (const card of cards.slice(0, 12)) {
+    if (!isDict(card)) continue;
+    const front = firstOf(card, "front", "question");
+    const back = firstOf(card, "back", "answer");
+    if (front && back) lines.push(`- Q: ${front} \u2014 A: ${back}`);
+  }
+  const title = safeText(block.title);
+  return (title && lines.length ? [`**${title}**`] : []).concat(lines).join("\n");
+}
+function nextSteps(labels2) {
+  const kept = labels2.filter(Boolean);
+  return kept.length ? "Next: " + kept.join(" \xB7 ") : "";
+}
+function textButton(block) {
+  const label = safeText(block.label);
+  return nextSteps([label ? mdLink(label, safeUrl(block.url, true)) : ""]);
+}
+function textActions(block) {
+  const items = isList(block.items) ? block.items : [];
+  return nextSteps(items.filter(isDict).map((it) => safeText(F(it).label)));
+}
+var LAYERS_MAX = 12;
+var L_TITLE = 80;
+var L_CAPTION = 200;
+var L_LABEL = 24;
+var L_NOTE = 280;
+function textLayers(block) {
+  const layers = firstList2(block, "layers").slice(0, LAYERS_MAX).filter((x) => isDict(x) && safeText(x.label));
+  const lines = [];
+  layers.forEach((layer, i) => {
+    const l = F(layer);
+    const label = safeText(l.label, L_LABEL);
+    const note = safeText(l.note, L_NOTE);
+    lines.push(note ? `${i + 1}. ${label} \u2014 ${note}` : `${i + 1}. ${label}`);
+  });
+  if (!lines.length) return "";
+  const title = safeText(block.title, L_TITLE);
+  const caption = safeText(block.caption, L_CAPTION);
+  return (title ? [`**${title}**`] : []).concat(caption ? [caption] : []).concat(lines).join("\n");
+}
+function stopsOf(block) {
+  if (isList(block.groups)) return block.groups;
+  const flat = firstList2(block, "items", "events", "stops", "steps");
+  return [{ items: flat }];
+}
+function textTimeline(block) {
+  const title = safeText(block.title);
+  const lines = title ? [`**${title}**`] : [];
+  for (const group of stopsOf(block).slice(0, 14)) {
+    if (!isDict(group) || !isList(group.items)) continue;
+    const label = safeText(group.label);
+    const stops = [];
+    for (const item of group.items.slice(0, 12)) {
+      const name = isDict(item) ? safeText(item.title) : "";
+      if (!name) continue;
+      const it = F(item);
+      const time = safeText(it.time, 40);
+      const place = safeText(it.place);
+      stops.push("- " + (time ? `${time} \xB7 ` : "") + name + (place ? ` (${place})` : ""));
+    }
+    if (stops.length) {
+      if (label) lines.push(`**${label}**`);
+      lines.push(...stops);
+    }
+  }
+  return lines.length > (title ? 1 : 0) ? lines.join("\n") : "";
+}
+function textHeatmap(block) {
+  const rows = block.rows, cols = block.cols, values = block.values;
+  if (!isList(rows) || !rows.length || !isList(cols) || !cols.length || !isList(values) || !values.length) return "";
+  const columns = cols.slice(0, 12);
+  const body = [];
+  rows.slice(0, 12).forEach((label, i) => {
+    const line = isList(values[i]) ? values[i].slice(0, columns.length) : [];
+    body.push([tableCell(label), ...line.map(tableCell)]);
+  });
+  const title = safeText(block.title);
+  const unit = safeText(block.unit, 20);
+  const head = title || unit ? `**${title || "Heatmap"}**` + (unit ? ` (${unit})` : "") : "";
+  return (head ? [head] : []).concat(mdTable(["", ...columns.map(tableCell)], body)).join("\n");
+}
+var FL_TITLE = 80;
+var FL_LABEL = 40;
+var FL_NOTE = 280;
+var FL_GROUP = 40;
+var FL_MAX_NODES = 10;
+var FL_MAX_GROUPS = 3;
+var FL_MIN_COUNT = 2;
+var FL_MAX_COUNT = 100;
+var CHIP2 = 16;
+var MAX_CHIPS2 = 10;
+function chipsText(chips) {
+  if (!isList(chips)) return "";
+  return chips.slice(0, MAX_CHIPS2).map((c) => safeText(isDict(c) ? c.text : c, CHIP2)).filter(Boolean).join(", ");
+}
+function isCount(value, low, high) {
+  return isNum(value) && Number.isInteger(value) && value >= low && value <= high;
+}
+function textFlow(block) {
+  const nodes = firstList2(block, "nodes").slice(0, FL_MAX_NODES).filter((n) => isDict(n) && safeText(n.label));
+  const lines = [];
+  nodes.forEach((node, i) => {
+    const n = F(node);
+    const label = safeText(n.label, FL_LABEL);
+    const note = safeText(n.note, FL_NOTE);
+    const holds = chipsText(n.holds);
+    let line = note ? `${i + 1}. ${label} \u2014 ${note}` : `${i + 1}. ${label}`;
+    if (holds) line = `${line} (holds: ${holds})`;
+    lines.push(line);
+  });
+  if (!lines.length) return "";
+  const numbers = /* @__PURE__ */ new Map();
+  nodes.forEach((node, i) => {
+    const id = F(node).id;
+    if (isStr(id)) numbers.set(id, i + 1);
+  });
+  for (const group of firstList2(block, "groups").slice(0, FL_MAX_GROUPS)) {
+    const label = isDict(group) ? safeText(group.label, FL_GROUP) : "";
+    if (!label) continue;
+    const g = F(group);
+    const at2 = walkable(g, "nodes").filter((k) => isStr(k) && numbers.has(k)).map((k) => numbers.get(k));
+    if (!at2.length) continue;
+    const span = at2.length === 1 ? `step ${at2[0]}` : `steps ${Math.min(...at2)}-${Math.max(...at2)}`;
+    const times = isCount(g.count, FL_MIN_COUNT, FL_MAX_COUNT) ? ` \xD7 ${g.count}` : "";
+    lines.push(`_${label}${times}: ${span}_`);
+  }
+  const title = safeText(block.title, FL_TITLE);
+  return (title ? [`**${title}**`] : []).concat(lines).join("\n");
+}
+var S_TITLE = 80;
+var S_TEXT = 600;
+var S_MAX_ITEMS = 12;
+var S_MAX_TICK = 20;
+function changeLines(item, labels2) {
+  const holds = isDict(item.holds) ? item.holds : {};
+  const lines = [];
+  for (const [node, chips] of Object.entries(holds).slice(0, FL_MAX_NODES)) {
+    const named = Object.hasOwn(labels2, node) ? labels2[node] : void 0;
+    const name = safeText(named, S_TITLE) || safeText(node, 24);
+    const held = chipsText(chips);
+    if (name && held) lines.push(`${name} now holds: ${held}`);
+  }
+  if (isCount(item.tick, 1, S_MAX_TICK)) lines.push(`The repeated part runs ${item.tick} more times.`);
+  return lines;
+}
+function textSteps(block, labels2) {
+  const items = firstList2(block, "items").slice(0, S_MAX_ITEMS).filter((it) => isDict(it) && safeText(it.title));
+  const flowId = isStr(block.for) ? block.for : "";
+  const forLabels = labels2 && flowId && Object.hasOwn(labels2, flowId) ? labels2[flowId] : {};
+  const parts = [];
+  items.forEach((item, i) => {
+    const it = F(item);
+    const head = `**Step ${i + 1} of ${items.length} \xB7 ${safeText(it.title, S_TITLE)}**`;
+    const lines = [head, safeText(it.text, S_TEXT), ...changeLines(it, forLabels)].filter(Boolean);
+    parts.push(lines.join("\n"));
+  });
+  if (!parts.length) return "";
+  const title = safeText(block.title, S_TITLE);
+  return (title ? [`**${title}**`] : []).concat(parts).join("\n\n");
+}
+var INPUT_ID = /^[A-Za-z_][A-Za-z0-9_]{0,23}$/;
+function arithmetic(formula, names, powers = false) {
+  if (!isStr(formula) || formula.length > MAX_STRING) return null;
+  let tree;
+  try {
+    tree = parseFormula(formula);
+  } catch {
+    return null;
+  }
+  if (!simpleTree(tree, powers)) return null;
+  return evaluate(tree, names);
+}
+function simpleTree(node, powers) {
+  switch (node.kind) {
+    case "number":
+    case "name":
+      return true;
+    case "negate":
+      return simpleTree(node.arg, powers);
+    case "binary": {
+      const ops = ["+", "-", "*", "/"];
+      if (node.op === "^") return powers;
+      if (!ops.includes(node.op)) return false;
+      return simpleTree(node.left, powers) && simpleTree(node.right, powers);
+    }
+    case "call":
+      return false;
+  }
+}
+function textCalculator(block) {
+  const inputs = walkable(block, "inputs").slice(0, 6).filter((it) => isDict(it) && isStr(it.id));
+  const names = /* @__PURE__ */ new Map();
+  const shown = [];
+  for (const item of inputs) {
+    const it = F(item);
+    const start = [it.value, it.min].find(isNum) ?? 0;
+    names.set(it.id, start);
+    const label = firstOf(it, "label", "id");
+    shown.push(`${label} ${withUnit(fmtNum(start), safeText(it.unit, 20))}`);
+  }
+  const lines = [];
+  for (const out of walkable(block, "outputs").slice(0, 6)) {
+    const label = isDict(out) ? safeText(out.label) : "";
+    if (!label) continue;
+    const value = arithmetic(F(out).formula, names);
+    lines.push(value === null ? `- ${label}: open in Hermes Desktop for the live calculator` : `- ${label}: ${withUnit(fmtNum(value), safeText(F(out).unit, 20))}`);
+  }
+  if (!lines.length) return "";
+  return (shown.length ? [`With ${shown.join(", ")}:`] : []).concat(lines).join("\n");
+}
+var SIM_TITLE = 80;
+var SIM_UNIT = 12;
+var SIM_MAX_PILES = 3;
+var SIM_ROWS = 5;
+function isName(v) {
+  return isStr(v) && INPUT_ID.test(v);
+}
+function timesOf2(to, step) {
+  const out = [];
+  for (let k = 0; k < SIM_ROWS; k++) out.push(Math.floor(to * k / (SIM_ROWS - 1) / step + 0.5) * step);
+  return out;
+}
+function amount(v) {
+  if (Math.abs(v) >= 100) return fmtNum(roundHalfEven(v, 0));
+  if (Math.abs(v) >= 1) return fmtNum(roundHalfEven(v, 2));
+  return fmtNum(v);
+}
+function textSimulate(block) {
+  const t = block.t, view = block.view;
+  if (!isDict(t) || !isDict(view) || !isName(t.name)) return "";
+  const to = t.to, step = pick(t, "step", 1);
+  const pilesRaw = Object.hasOwn(view, "piles") ? view.piles : view.series;
+  if (!isNum(to) || !isNum(step) || to <= 0 || step <= 0 || !isList(pilesRaw)) return "";
+  const piles = pilesRaw.slice(0, SIM_MAX_PILES).filter((p) => isDict(p) && safeText(p.name));
+  if (!piles.length) return "";
+  const names = /* @__PURE__ */ new Map();
+  if (isDict(block.values)) {
+    for (const [k, v] of Object.entries(block.values)) if (isName(k) && isNum(v)) names.set(k, v);
+  }
+  const shown = [];
+  const inputs = isList(block.inputs) ? block.inputs : [];
+  for (const item of inputs) {
+    if (!isDict(item)) continue;
+    const it = F(item);
+    const key = pick(it, "name", it.id);
+    if (!isName(key)) continue;
+    const start = [it.value, it.min].find(isNum) ?? 0;
+    names.set(key, start);
+    const value = withUnit(fmtNum(start), safeText(it.unit, SIM_UNIT));
+    shown.push(`${firstOf(it, "label", "name", "id")} ${value}`);
+  }
+  const unit = safeText(block.unit, SIM_UNIT);
+  const rows = [];
+  for (const when of timesOf2(to, step)) {
+    const withTime = new Map(names);
+    withTime.set(t.name, when);
+    const cells = piles.map((p) => {
+      const v = arithmetic(F(p).formula, withTime, true);
+      return v === null ? "\u2013" : withUnit(amount(v), unit);
+    });
+    rows.push([fmtNum(when), ...cells]);
+  }
+  const header = [tableCell(t.unit) || t.name, ...piles.map((p) => tableCell(F(p).name))];
+  const title = safeText(block.title, SIM_TITLE);
+  const lead = (title ? [`**${title}**`] : []).concat(shown.length ? [`With ${shown.join(", ")}:`] : []);
+  return lead.concat(mdTable(header, rows)).join("\n");
+}
+var FORM_NOTE = 80;
+var FORM_GROUP = 40;
+function choice(value) {
+  if (isList(value)) return value.slice(0, 12).map(choice).filter(Boolean).join(", ");
+  if (isDict(value)) return firstOf(value, "label", "value");
+  return safeText(value, 60);
+}
+function optionText(option) {
+  const name = choice(option);
+  const note = isDict(option) && name ? safeText(option.note, FORM_NOTE) : "";
+  return note ? `${name} \u2014 ${note}` : name;
+}
+function chosen(field, options) {
+  const value = field.value;
+  for (const option of options) {
+    if (isDict(option) && !Array.isArray(value) && option.value === value) return choice(option);
+  }
+  return choice(value);
+}
+function textForm(block) {
+  const fields = isList(block.fields) ? block.fields : [];
+  const lines = [];
+  let group = "";
+  for (const field of fields.slice(0, 12)) {
+    if (!isDict(field)) continue;
+    const f = F(field);
+    const label = firstOf(f, "label", "id");
+    if (!label) continue;
+    const heading = safeText(f.group, FORM_GROUP);
+    if (heading && heading !== group) lines.push(`${heading}:`);
+    group = heading;
+    const options = isList(f.options) ? f.options : [];
+    const picked = chosen(f, options);
+    const value = picked ? withUnit(picked, safeText(f.unit, 20)) : "";
+    const listed = options.slice(0, 12).map(optionText).filter(Boolean).join(" / ");
+    lines.push(`- ${label}${value ? `: ${value}` : ""}${listed ? ` (${listed})` : ""}`);
+  }
+  if (!lines.length) return "";
+  const title = safeText(block.title);
+  return (title ? [`**${title}**`] : []).concat(lines, ["(answer in a message)"]).join("\n");
+}
+var RENDERERS = {
+  heading: textHeading,
+  text: textText,
+  divider: () => textDivider(),
+  badge: textBadge,
+  link: textLink,
+  image: textImage,
+  bar: textBar,
+  callout: textCallout,
+  source: textSource,
+  table: textTable,
+  list: textListBlock,
+  checklist: textChecklist,
+  tiles: textTiles,
+  streak: textStreak,
+  progress: textProgress,
+  stat: textStat,
+  kpis: textKpis,
+  chart: textChart,
+  images: textImages,
+  include: textInclude,
+  flip: textFlip,
+  button: textButton,
+  actions: textActions,
+  layers: textLayers,
+  timeline: textTimeline,
+  heatmap: textHeatmap,
+  flow: textFlow,
+  calculator: textCalculator,
+  simulate: textSimulate,
+  form: textForm,
+  steps: textSteps
+};
+var SIMPLE = {};
+for (const [kind, fn] of Object.entries(RENDERERS)) {
+  SIMPLE[kind] = (block, _depth, labels2) => fn(block, labels2);
+}
+function layoutPieces(block, depth, labels2) {
+  if (block.type === "tabs") {
+    const out = [];
+    for (const tab of isList(block.tabs) ? block.tabs : []) {
+      const children2 = isDict(tab) && isList(tab.children) ? tab.children : [];
+      const inside3 = pieces2(children2, depth + 1, labels2);
+      const label = inside3.length ? safeText(F(tab).label) : "";
+      if (label) out.push(`**${label}**`);
+      out.push(...inside3);
+    }
+    return out;
+  }
+  const children = isList(block.children) ? block.children : [];
+  const title = block.type === "section" ? safeText(block.title) : "";
+  const inside2 = pieces2(children, depth + 1, labels2);
+  return (title && inside2.length ? [`**${title}**`] : []).concat(inside2);
+}
+function renderBlock(block, depth, labels2) {
+  if (!isDict(block) || depth > MAX_DEPTH2) return [];
+  const kind = block.type;
+  if (LAYOUT_TYPES.includes(kind)) return layoutPieces(block, depth, labels2);
+  const renderer = isStr(kind) && Object.hasOwn(SIMPLE, kind) ? SIMPLE[kind] : void 0;
+  const text = renderer ? renderer(block, depth, labels2) : "";
+  return text ? [text] : [];
+}
+function renderSafely(block, depth, labels2) {
+  try {
+    return renderBlock(block, depth, labels2);
+  } catch {
+    return [];
+  }
+}
+function pieces2(blocks, depth, labels2) {
+  const out = [];
+  for (const block of blocks) out.push(...renderSafely(block, depth, labels2));
+  return out;
+}
+function blocksAsMarkdown(blocks) {
+  if (!isList(blocks)) return "";
+  let labels2 = {};
+  try {
+    labels2 = flowLabels(blocks);
+  } catch {
+    labels2 = {};
+  }
+  return pieces2(blocks, 0, labels2).join("\n\n");
+}
+
+// src/host/ExportChrome.tsx
+import { Fragment as Fragment15, jsx as jsx42, jsxs as jsxs37 } from "react/jsx-runtime";
+var CONTAINER = ["row", "section", "grid", "columns", "tabs"];
+function blocksOf(board) {
+  if (Array.isArray(board)) return board;
+  if (board && typeof board === "object" && Array.isArray(board.blocks)) {
+    return board.blocks;
+  }
+  return [];
+}
+function useExportChrome(args) {
+  const { blocks, asOf, live, stored, expanded, getBoard, getHost } = args;
+  const actions = useContext10(BlockActions);
+  const provenance = provenanceOf(blocks, asOf, live);
+  const line = provenanceLine(provenance);
+  const [found, setFound] = useState25([]);
+  const foundRef = useRef18([]);
+  const [lit, setLit] = useState25(null);
+  const [said, setSaid] = useState25(null);
+  const [open, setOpen] = useState25(false);
+  const [failed, setFailed] = useState25(null);
+  const menuButtonRef = useRef18(null);
+  const menuRef = useRef18(null);
+  function scan() {
+    const board = getBoard();
+    const host2 = getHost();
+    const commit = (out2) => {
+      const same = out2.length === foundRef.current.length && out2.every((c, i) => c.root === foundRef.current[i].root && c.left === foundRef.current[i].left && c.top === foundRef.current[i].top);
+      if (same) return;
+      foundRef.current = out2;
+      setFound(out2);
+    };
+    if (!board || !host2) {
+      commit([]);
+      return;
+    }
+    const out = [];
+    const place = (el) => {
+      let node = el;
+      while (node instanceof HTMLElement && node.classList.contains("hb-place")) node = node.firstElementChild ?? node;
+      return node;
+    };
+    const measure = (block, el, kind) => {
+      const root = place(el);
+      const r = root.getBoundingClientRect();
+      const t = host2.getBoundingClientRect();
+      const name = kind === "table" ? block.caption ?? "" : block.spec.title ?? block.spec.series[0]?.name ?? "Chart";
+      out.push({ block, root, kind, name, left: Math.round(r.right - t.left) - 34, top: Math.round(r.top - t.top) + 6 });
+    };
+    const walk = (list, els) => {
+      list.forEach((block, i) => {
+        const el = els[i];
+        if (!el) return;
+        if (block.type === "table" || block.type === "chart") {
+          measure(block, el, block.type);
+          return;
+        }
+        if (!CONTAINER.includes(block.type)) return;
+        const root = place(el);
+        const container = block;
+        if (block.type === "tabs") {
+          const tabs = [...root.querySelectorAll(":scope > .hb-tab-bar > .hb-tab")];
+          const at2 = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+          const panel = root.querySelector(":scope > .hb-tab-panel");
+          const children = container.tabs?.[at2 >= 0 ? at2 : 0]?.children ?? [];
+          if (panel) walk(children, [...panel.children]);
+          return;
+        }
+        if (block.type === "section") {
+          const body = root.querySelector(":scope > .hb-section-body");
+          if (body) walk(container.children ?? [], [...body.children]);
+          return;
+        }
+        const cellClass = block.type === "grid" ? ".hb-grid-cell" : block.type === "row" ? ".hb-row-cell" : ".hb-column";
+        const cells = [...root.querySelectorAll(`:scope > ${cellClass}`)];
+        walk(container.children ?? [], cells.map((c) => c.firstElementChild).filter((c) => !!c));
+      });
+    };
+    walk(provenance.list, [...board.children]);
+    commit(out);
+  }
+  const scanRef = useRef18(scan);
+  scanRef.current = scan;
+  useLayoutEffect4(() => {
+    scanRef.current();
+  }, [blocks, asOf, live, expanded]);
+  useEffect10(() => {
+    const board = getBoard();
+    if (!board) return;
+    const observer = new MutationObserver(() => scanRef.current());
+    observer.observe(board, { childList: true, subtree: true });
+    const onResize = () => scanRef.current();
+    window.addEventListener("resize", onResize);
+    const onScroll = () => scanRef.current();
+    window.addEventListener("scroll", onScroll, true);
+    let ro = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => scanRef.current());
+      ro.observe(board);
+    }
+    return () => {
+      observer.disconnect();
+      ro?.disconnect();
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [getBoard]);
+  useEffect10(() => {
+    if (!open) return;
+    const away = (e) => {
+      const node = e.target;
+      if (menuRef.current?.contains(node) || menuButtonRef.current?.contains(node)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      menuButtonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", away, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", away, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  useEffect10(() => {
+    if (expanded) {
+      setOpen(false);
+      setLit(null);
+    }
+  }, [expanded]);
+  function light(e) {
+    const node = e.target;
+    if (node?.closest?.(".hb-export-btn, .hb-export, .hb-export-menu")) return;
+    const at2 = found.findIndex((c) => c.root.contains(node));
+    setLit(at2 >= 0 ? at2 : null);
+  }
+  async function runBlock(c) {
+    if (c.block.type === "table") {
+      saveBlob(csvBlob(c.block.columns, c.block.rows, line), `${fileBase(c.block.caption, "table")}.csv`);
+      return;
+    }
+    const blob = await chartPng(c.root, { spec: c.block.spec, provenance: line });
+    if (blob) saveBlob(blob, `${chartFileBase(c.root)}.png`);
+    else setSaid(found.indexOf(c));
+  }
+  function runBoard(kind) {
+    if (stored === null || stored === void 0) {
+      setFailed("Nothing was exported.");
+      return;
+    }
+    const base = `board-${actions.blockId ?? "board"}`;
+    if (kind === "markdown") {
+      saveBlob(new Blob([markdownFile(blocksAsMarkdown(blocksOf(stored)), provenance)], {
+        type: "text/markdown;charset=utf-8"
+      }), `${base}.md`);
+    } else {
+      saveBlob(new Blob([jsonFile(stored)], { type: "application/json" }), `${base}.json`);
+    }
+    setFailed(null);
+    setOpen(false);
+  }
+  const bind = {
+    onPointerMove: (e) => light(e),
+    onPointerLeave: () => setLit(null),
+    onFocus: (e) => light(e),
+    onBlur: (e) => {
+      const to = e.relatedTarget;
+      if (to?.closest?.(".hb-export-btn, .hb-export, .hb-export-menu")) return;
+      setLit(null);
+    }
+  };
+  const menu = /* @__PURE__ */ jsx42(
+    "button",
+    {
+      ref: menuButtonRef,
+      type: "button",
+      className: expanded ? "hb-export hb-export-dialog" : "hb-export",
+      "aria-label": "Export board",
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      onClick: () => {
+        setOpen((o) => !o);
+        setFailed(null);
+      },
+      children: /* @__PURE__ */ jsx42(IconDownload, {})
+    }
+  );
+  const popover = open && /* @__PURE__ */ jsxs37("div", { ref: menuRef, className: "hb-export-menu", role: "menu", "aria-label": "Export the whole board", children: [
+    /* @__PURE__ */ jsx42("button", { type: "button", role: "menuitem", onClick: () => runBoard("markdown"), children: "Markdown" }),
+    /* @__PURE__ */ jsx42("button", { type: "button", role: "menuitem", onClick: () => runBoard("json"), children: "JSON" }),
+    failed && /* @__PURE__ */ jsx42("div", { className: "hb-export-failed", role: "status", "aria-live": "polite", children: failed })
+  ] });
+  const layer = /* @__PURE__ */ jsxs37("div", { className: "hb-export-layer", children: [
+    found.map((c, i) => /* @__PURE__ */ jsx42(
+      "button",
+      {
+        type: "button",
+        className: i === lit ? "hb-export-btn lit" : "hb-export-btn",
+        style: { left: `${c.left}px`, top: `${c.top}px` },
+        "aria-label": `Export ${c.kind === "table" ? "table" : "chart"}${c.name ? ` \u201C${c.name}\u201D` : ""} as ${c.kind === "table" ? "CSV" : "PNG"}`,
+        onClick: () => runBlock(c),
+        children: /* @__PURE__ */ jsx42(IconDownload, {})
+      },
+      i
+    )),
+    said !== null && found[said] && /* @__PURE__ */ jsx42(
+      "span",
+      {
+        className: "hb-export-said",
+        role: "status",
+        "aria-live": "polite",
+        style: { left: `${found[said].left}px`, top: `${found[said].top + 30}px` },
+        children: "No picture could be exported."
+      }
+    )
+  ] });
+  const whole2 = /* @__PURE__ */ jsxs37(Fragment15, { children: [
+    menu,
+    popover
+  ] });
+  return { bind, menu: expanded ? null : whole2, dialogMenu: expanded ? whole2 : null, layer };
+}
+function IconDownload() {
+  return /* @__PURE__ */ jsx42(
+    "svg",
+    {
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx42("path", { d: "M12 4v10m0 0l-4-4m4 4l4-4M4 19h16" })
+    }
+  );
+}
+
 // src/host/BlockTag.tsx
-import { jsx as jsx42, jsxs as jsxs37 } from "react/jsx-runtime";
+import { jsx as jsx43, jsxs as jsxs38 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
+function isEnvelopeCarrying(data) {
+  return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
+}
+var NO_BLOCKS = [];
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext10(BlockActions);
-  const [state, setState] = useState25({ kind: "loading" });
-  const [expanded, setExpanded] = useState25(false);
-  const hostRef = useRef18(null);
-  const expandRef = useRef18(null);
-  const closeRef = useRef18(null);
-  useEffect10(() => {
+  const actions = useContext11(BlockActions);
+  const [state, setState] = useState26({ kind: "loading" });
+  const [expanded, setExpanded] = useState26(false);
+  const hostRef = useRef19(null);
+  const expandRef = useRef19(null);
+  const closeRef = useRef19(null);
+  useEffect11(() => {
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
@@ -5494,7 +6926,8 @@ function BlockTag({ id, streaming, load }) {
         live: boardLive,
         followUps: boardFollowUps
       } = readBlocksNoted(data);
-      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps } : { kind: "failed" });
+      const envelope = isEnvelopeCarrying(data) ? data.stored : data;
+      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps, stored: envelope } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -5506,10 +6939,19 @@ function BlockTag({ id, streaming, load }) {
     setExpanded(false);
     expandRef.current?.focus();
   };
-  useEffect10(() => {
+  const chrome = useExportChrome({
+    blocks: state.kind === "drawn" ? state.blocks : NO_BLOCKS,
+    asOf: state.kind === "drawn" ? state.boardAsOf : void 0,
+    live: state.kind === "drawn" ? state.boardLive : void 0,
+    stored: state.kind === "drawn" ? state.stored : null,
+    expanded,
+    getBoard: () => hostRef.current?.querySelector(".hb-blocks") ?? null,
+    getHost: () => hostRef.current
+  });
+  useEffect11(() => {
     if (expanded) closeRef.current?.focus();
   }, [expanded]);
-  useEffect10(() => {
+  useEffect11(() => {
     if (!expanded) return;
     const layer = pushLayer();
     const onKey = (e) => {
@@ -5537,11 +6979,11 @@ function BlockTag({ id, streaming, load }) {
     };
   }, [expanded]);
   if (!validId && !streaming) return null;
-  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx42(Note, { text: "drawing\u2026", pulse: true });
+  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx43(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
   const board = state;
-  return /* @__PURE__ */ jsx42(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs37("div", { className: "hb-tag", children: [
-    /* @__PURE__ */ jsx42(
+  return /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs38("div", { className: "hb-tag", ...chrome.bind, children: [
+    /* @__PURE__ */ jsx43(
       "button",
       {
         ref: expandRef,
@@ -5550,10 +6992,11 @@ function BlockTag({ id, streaming, load }) {
         "aria-label": "Expand board",
         "aria-haspopup": "dialog",
         onClick: () => setExpanded(true),
-        children: /* @__PURE__ */ jsx42(IconExpand, {})
+        children: /* @__PURE__ */ jsx43(IconExpand, {})
       }
     ),
-    /* @__PURE__ */ jsxs37(
+    chrome.menu,
+    /* @__PURE__ */ jsxs38(
       "div",
       {
         ref: hostRef,
@@ -5561,7 +7004,7 @@ function BlockTag({ id, streaming, load }) {
         ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
         onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
         children: [
-          expanded && /* @__PURE__ */ jsx42(
+          expanded && /* @__PURE__ */ jsx43(
             "button",
             {
               ref: closeRef,
@@ -5569,10 +7012,11 @@ function BlockTag({ id, streaming, load }) {
               className: "hb-overlay-close",
               "aria-label": "Close expanded board",
               onClick: close,
-              children: /* @__PURE__ */ jsx42(IconClose, {})
+              children: /* @__PURE__ */ jsx43(IconClose, {})
             }
           ),
-          /* @__PURE__ */ jsx42(
+          chrome.dialogMenu,
+          /* @__PURE__ */ jsx43(
             Blocks,
             {
               blocks: board.blocks,
@@ -5582,7 +7026,8 @@ function BlockTag({ id, streaming, load }) {
               boardLive: board.boardLive,
               boardFollowUps: board.boardFollowUps
             }
-          )
+          ),
+          chrome.layer
         ]
       }
     )
@@ -5595,10 +7040,10 @@ function tabbableIn(root) {
   );
 }
 function Note({ text, pulse = false }) {
-  return /* @__PURE__ */ jsx42("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+  return /* @__PURE__ */ jsx43("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
 }
 function IconExpand() {
-  return /* @__PURE__ */ jsx42(
+  return /* @__PURE__ */ jsx43(
     "svg",
     {
       width: "15",
@@ -5609,12 +7054,12 @@ function IconExpand() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx42("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+      children: /* @__PURE__ */ jsx43("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
     }
   );
 }
 function IconClose() {
-  return /* @__PURE__ */ jsx42(
+  return /* @__PURE__ */ jsx43(
     "svg",
     {
       width: "16",
@@ -5625,7 +7070,7 @@ function IconClose() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx42("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx43("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
@@ -5788,7 +7233,218 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s, transform 0.1s;\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
 
 // src/host/blockTag.css
-var blockTag_default = "/* The block tag's own states */\n.hb-state {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  margin: 8px 0;\n  padding: 10px 14px;\n  max-width: 100%;\n  border-radius: 14px;\n  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);\n  color: var(--ui-text-tertiary, #6b7280);\n  font-size: 13px;\n}\n.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }\n@keyframes hb-pulse { 50% { opacity: 0.45; } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pulse { animation: none; }\n}\n/* Expand / full-screen board (host/BlockTag.tsx): the images strip's full-size overlay pattern, raised to a\n   whole board \u2014 the photo scrim's own numbers (fixed, same z, same appear animation) and the same way of\n   closing (Escape, the scrim, a close control). One honest correction: a stateless photo may be re-drawn at\n   full size, a board may not \u2014 its blocks carry live state. So the host wrapper (.hb-board-host) is a plain\n   block container at rest, costing the inline board nothing, and IS the dialog while expanded: the ONE drawn\n   .hb-blocks is lifted into it, not duplicated, and settles back into flow on close. The control lives\n   OUTSIDE .hb-blocks and out of flow (absolute); it stays quiet until the pointer is on the board or the key\n   reaches it. Inside the dialog the board's 1100px reading cap lifts, so full-width blocks ride the wider\n   container, while every .hb-blocks > X cap (the 720px cards, the fit-content table) is the board's own rule\n   and keeps its number in both views. Chrome measures exactly that (tests/test_expand_fullscreen.py). */\n.hb-tag { position: relative; }\n.hb-expand {\n  position: absolute;\n  top: 6px;\n  right: 6px;\n  z-index: 1;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);\n  border-radius: 8px;\n  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);\n  color: var(--ui-text-tertiary, #6b7280);\n  cursor: pointer;\n  opacity: 0;\n}\n.hb-tag:hover .hb-expand, .hb-expand:focus-visible { opacity: 1; }\n@media (prefers-reduced-motion: reduce) {\n  .hb-expand { transition: none; }\n}\n.hb-board-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 2147483000;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  padding: 32px;\n  background: rgba(0, 0, 0, 0.82);\n  animation: hb-appear 0.18s ease-out;\n}\n/* The wider container, in the ONE shipped rule the swap experiment comments out: the expanded board box is a\n   single element now \u2014 it sheds the reading cap and margin (folded into the panel's own padding) and carries\n   the paper its old separate body used to draw. The caps are .hb-blocks > X rules, scoped to the board\n   itself \u2014 this selector reaches none of them. */\n.hb-board-overlay .hb-blocks {\n  box-sizing: border-box;\n  width: min(1600px, 100%);\n  max-width: none;\n  max-height: 100%;\n  overflow: auto;\n  margin: 0;\n  padding: 24px;\n  border-radius: 16px;\n  background: var(--background, Canvas);\n}\n.hb-overlay-close {\n  position: absolute;\n  top: 14px;\n  right: 14px;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 32px;\n  height: 32px;\n  padding: 0;\n  border: 1px solid rgba(255, 255, 255, 0.35);\n  border-radius: 9px;\n  background: rgba(0, 0, 0, 0.45);\n  color: #fff;\n  cursor: pointer;\n}\n.hb-overlay-close:hover { background: rgba(0, 0, 0, 0.65); }\n";
+var blockTag_default = `/* The block tag's own states */
+.hb-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px 14px;
+  max-width: 100%;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+}
+.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }
+@keyframes hb-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+  .hb-pulse { animation: none; }
+}
+/* Expand / full-screen board (host/BlockTag.tsx): the images strip's full-size overlay pattern, raised to a
+   whole board \u2014 the photo scrim's own numbers (fixed, same z, same appear animation) and the same way of
+   closing (Escape, the scrim, a close control). One honest correction: a stateless photo may be re-drawn at
+   full size, a board may not \u2014 its blocks carry live state. So the host wrapper (.hb-board-host) is a plain
+   block container at rest, costing the inline board nothing, and IS the dialog while expanded: the ONE drawn
+   .hb-blocks is lifted into it, not duplicated, and settles back into flow on close. The control lives
+   OUTSIDE .hb-blocks and out of flow (absolute); it stays quiet until the pointer is on the board or the key
+   reaches it. Inside the dialog the board's 1100px reading cap lifts, so full-width blocks ride the wider
+   container, while every .hb-blocks > X cap (the 720px cards, the fit-content table) is the board's own rule
+   and keeps its number in both views. Chrome measures exactly that (tests/test_expand_fullscreen.py). */
+.hb-tag { position: relative; }
+.hb-expand {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-tag:hover .hb-expand, .hb-expand:focus-visible { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .hb-expand { transition: none; }
+}
+.hb-board-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.82);
+  animation: hb-appear 0.18s ease-out;
+}
+/* A tall board in the dialog overflows the max-height box \u2014 and .hb-blocks is a flex column, so overflow
+   beyond it is a SHRINK fight, not a scroll, for any child whose automatic minimum size is zero (the spec
+   gives one to every card that sets overflow: hidden \u2014 the table card among them). The dialog is meant to
+   SCROLL (overflow: auto above); children must therefore never shrink. Pre-existing defect, exposed by the
+   export rework's real-browser coverage of a board taller than the viewport (t_bff8178a round 2): the table
+   card collapsed to 6px and the grid slid up over its corner. One rule, inline boards untouched. */
+.hb-board-overlay .hb-blocks > * { flex-shrink: 0; }
+/* The wider container, in the ONE shipped rule the swap experiment comments out: the expanded board box is a
+   single element now \u2014 it sheds the reading cap and margin (folded into the panel's own padding) and carries
+   the paper its old separate body used to draw. The caps are .hb-blocks > X rules, scoped to the board
+   itself \u2014 this selector reaches none of them. */
+.hb-board-overlay .hb-blocks {
+  box-sizing: border-box;
+  width: min(1600px, 100%);
+  max-width: none;
+  max-height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--background, Canvas);
+}
+.hb-overlay-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+}
+.hb-overlay-close:hover { background: rgba(0, 0, 0, 0.65); }
+/* Export affordance (host/ExportChrome.tsx): deterministic host acts, zero requests \u2014 a chart's PNG (the SVG
+   kinds and the DOM-drawn bars alike), a table's CSV, the whole board's Markdown or JSON from the envelope the
+   page already holds. The board menu sits beside the expand control at rest and in the dialog's corner while
+   expanded: quiet until the pointer is on the board or the key reaches it, and visible while its own menu is
+   open. The per-block corner buttons live in a layer OUTSIDE .hb-blocks \u2014 inside the board host, so they ride
+   the dialog when the board moves there. Every exportable block's button is ALWAYS in the DOM and in the tab
+   order (keyboard readers reach it without a mouse); at rest it is merely invisible and unreachable to the
+   pointer (opacity 0, pointer-events none \u2014 neither keeps focus away), and the pointer lights its corner while
+   any focus, especially a keyboard one, shows it whole. The menu's word (a failure) and the corner's word (no
+   2D painting here) WRAP: they may grow taller, never wider than their box, the rule every status word here
+   keeps. Controls sit outside .hb-blocks, so --hb-* tokens are undefined here: the app tokens, with fallbacks.
+   The host itself takes position:relative and no part in layout \u2014 it only anchors the layer. */
+/* Anchors the corner layer at rest. The NOT guard is load-bearing: when the host IS the fixed dialog, its
+   own rule below must keep position:fixed \u2014 a class of the same specificity later in this file would
+   otherwise silently demote the dialog to static layout (round-2 Chrome caught it at the pixel level). */
+.hb-board-host:not(.hb-board-overlay) { position: relative; }
+.hb-export {
+  position: absolute;
+  top: 6px;
+  right: 42px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-tag:hover .hb-export, .hb-export:focus-visible, .hb-export[aria-expanded="true"] { opacity: 1; }
+/* While the board lives in the dialog, the menu keeps company with its close control. */
+.hb-export-dialog { top: 14px; right: 56px; z-index: 3; }
+.hb-export-menu {
+  position: absolute;
+  top: 38px;
+  right: 42px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 150px;
+  max-width: 240px;
+  padding: 4px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 10px;
+  background: var(--background, #ffffff);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.hb-export-menu > button {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--foreground, #1f2328);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.hb-export-menu > button:hover, .hb-export-menu > button:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+}
+.hb-export-failed {
+  padding: 4px 10px 6px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.hb-export-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.hb-export-btn {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 88%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;              /* invisible at rest, never in the pointer's way \u2014 and still in the tab order */
+  pointer-events: none;
+}
+.hb-export-btn.lit, .hb-export-btn:hover, .hb-export-btn:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--foreground, #1f2328);
+  background: var(--background, #ffffff);
+}
+.hb-export-said {
+  position: absolute;
+  max-width: 220px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 90%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+`;
 
 // src/blocks/atoms/atoms.css
 var atoms_default = "/* Small pieces: heading, text, divider, badge, link, image, bar */\n.hb-heading { font-size: 16px; line-height: 22px; font-weight: 700; letter-spacing: -0.01em; margin-top: 4px; }\n.hb-text { color: var(--hb-ink-2); }\n.hb-text strong { color: var(--hb-ink); font-weight: 650; }\n.hb-divider { height: 1px; background: var(--hb-line); margin: 2px 0; }\n\n.hb-badge { display: flex; align-items: center; }\n.hb-link a {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 14px;\n  font-weight: 600;\n  color: var(--hb-accent-ink);\n  text-decoration: underline;\n  text-underline-offset: 2px;\n}\n.hb-image { margin: 0; display: flex; flex-direction: column; gap: 6px; }\n.hb-image img {\n  display: block;\n  width: 100%;\n  max-height: 300px;\n  object-fit: cover;\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  background: var(--hb-well);\n}\n.hb-image figcaption { padding: 0 4px; font-size: 12px; line-height: 16px; color: var(--hb-muted); }\n.hb-bar { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 11px 14px; }\n.hb-bar-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }\n.hb-bar-label { flex: 1 0 auto; font-weight: 600; color: var(--hb-ink-2); }\n.hb-bar-amount { color: var(--hb-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-bar-track { height: 8px; border-radius: 999px; background: var(--hb-accent-soft); overflow: hidden; }\n.hb-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--hb-accent); }\n.hb-bar-fill { transform-origin: left; animation: hb-grow 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@media (prefers-reduced-motion: reduce) {\n  .hb-bar-fill { animation: none; }\n}\n";
@@ -6125,7 +7781,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx43 } from "react/jsx-runtime";
+import { jsx as jsx44 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -6151,7 +7807,7 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx43(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx44(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx44(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
       }
     });
   }
