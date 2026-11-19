@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import catalog from "../../../core/catalog.json";
 import type { Block } from "../registry";
-import { alignOf, readBlocks, readBlocksNoted } from "./readBlocks";
+import { alignOf, readBlocks, readBlocksNoted, textAlignOf } from "./readBlocks";
 
 describe("readBlocks", () => {
   it("reads chart, kpis and source; skips unknown types", () => {
@@ -84,6 +84,65 @@ describe("alignment", () => {
     const grid = blocks[0] as { type: string; children: Block[] };
     expect(grid.type).toBe("grid");
     expect(grid.children.map(alignOf)).toEqual(["right", undefined]);
+  });
+});
+
+describe("text alignment read", () => {
+  // The semantic field `text_align` on a block spec: how the block's words read inside it. Read centrally,
+  // exactly like align: anything that isn't one of the three words is ignored, and the block follows the board.
+  it("reads a block's own text_align", () => {
+    expect(textAlignOf(readBlocks([{ type: "text", text: "Hi", text_align: "center" }])[0])).toBe("center");
+    expect(textAlignOf(readBlocks([{ type: "heading", text: "H", text_align: "right" }])[0])).toBe("right");
+    expect(textAlignOf(readBlocks([{ type: "stat", label: "L", value: 1, text_align: "left" }])[0])).toBe("left");
+  });
+
+  it("gives no text_align for a block that doesn't ask, or spells it wrongly", () => {
+    expect(textAlignOf(readBlocks([{ type: "text", text: "Hi" }])[0])).toBeUndefined();
+    for (const bad of ["middle", "justify", "", 16, null, true, {}, ["center"]]) {
+      expect([String(bad), textAlignOf(readBlocks([{ type: "text", text: "Hi", text_align: bad }])[0])][1]).toBeUndefined();
+    }
+  });
+
+  it("takes the word trimmed and caseless, the way models write it", () => {
+    expect(textAlignOf(readBlocks([{ type: "text", text: "Hi", text_align: " Center " }])[0])).toBe("center");
+    expect(textAlignOf(readBlocks([{ type: "text", text: "Hi", text_align: "RIGHT" }])[0])).toBe("right");
+  });
+
+  it("reads the board-level default from the stored envelope, beside align", () => {
+    const r = readBlocksNoted({ align: "center", text_align: "right", blocks: [{ type: "text", text: "Hi" }] });
+    expect([r.align, r.textAlign]).toEqual(["center", "right"]);
+    expect(readBlocksNoted({ blocks: [{ type: "text", text: "Hi" }] }).textAlign).toBeUndefined();
+    expect(readBlocksNoted({ text_align: "middle", blocks: [{ type: "text", text: "Hi" }] }).textAlign).toBeUndefined();
+    // a lone block, not an envelope: its word belongs to the block
+    expect(readBlocksNoted({ type: "text", text: "Hi", text_align: "center" }).textAlign).toBeUndefined();
+  });
+
+  it("keeps each block's own text_align when the board sets a default too", () => {
+    const r = readBlocksNoted({ text_align: "center", blocks: [{ type: "text", text: "Hi", text_align: "left" }, { type: "text", text: "There" }] });
+    expect(r.blocks.map(textAlignOf)).toEqual(["left", undefined]);
+  });
+
+  it("reads no board default from a block that merely spells its children blocks", () => {
+    const r = readBlocksNoted({ type: "section", title: "S", blocks: [{ type: "text", text: "Hi" }], text_align: "center" });
+    expect(r.textAlign).toBeUndefined();
+  });
+
+  it("carries a flattened container's own text_align down to the blocks drawn in its place", () => {
+    // A row holding a wide block is drawn as a stack: the row's word belongs to the stack, exactly like its align.
+    const blocks = readBlocks([{ type: "row", text_align: "center", children: [{ type: "text", text: "A" }, { type: "chart", kind: "bar", x: ["Q1", "Q2"], series: [{ name: "R", data: [1, 2] }] }] }]);
+    expect(blocks.length).toBeGreaterThan(1);
+    expect(blocks.map(textAlignOf)).toEqual(["center", "center"]);
+  });
+
+  it("keeps a child's own text_align over the container's when the container is flattened", () => {
+    const blocks = readBlocks([{ type: "row", text_align: "center", children: [{ type: "text", text: "A", text_align: "right" }, { type: "chart", kind: "bar", x: ["Q1", "Q2"], series: [{ name: "R", data: [1, 2] }] }] }]);
+    expect(blocks.map(textAlignOf)).toEqual(["right", "center"]);
+  });
+
+  it("keeps a text_align on children inside a surviving container", () => {
+    const blocks = readBlocks([{ type: "grid", children: [{ type: "text", text: "A", text_align: "center" }, { type: "text", text: "B" }] }]);
+    const grid = blocks[0] as { type: string; children: Block[] };
+    expect(grid.children.map(textAlignOf)).toEqual(["center", undefined]);
   });
 });
 

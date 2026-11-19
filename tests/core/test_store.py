@@ -184,6 +184,24 @@ def test_save_and_load_round_trip_an_envelope(tmp_path):
     block_id = store.save(board, root=tmp_path)
     assert store.load(block_id, root=tmp_path) == board
 
+
+def test_text_align_of_reads_the_envelope_word_like_align_of(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.text_align_of({"text_align": "center", "blocks": plain}) == "center"
+    assert store.text_align_of(plain) is None
+    assert store.text_align_of({"text_align": 5, "blocks": []}) is None
+    assert store.text_align_of({"blocks": []}) is None
+    assert store.text_align_of(None) is None
+
+
+def test_save_and_load_round_trip_a_text_align_envelope(tmp_path):
+    board = {"align": "center", "text_align": "right", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = store.save(board, root=tmp_path)
+    assert store.load(block_id, root=tmp_path) == board
+    assert store.text_align_of(store.load(block_id, root=tmp_path)) == "right"
+    assert store.align_of(store.load(block_id, root=tmp_path)) == "center"
+    assert store.blocks_of(store.load(block_id, root=tmp_path)) == board["blocks"]
+
 # --- the envelope's provenance words: as_of (a date line) and live (a real bool) --------------------------------
 
 def test_blocks_of_still_reads_a_provenance_envelope(tmp_path):

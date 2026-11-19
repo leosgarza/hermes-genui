@@ -1,12 +1,15 @@
 // Draws a list of blocks in order. Each type's drawing is its entry in registry.tsx; containers draw their children
 // through the same lookup. One list is one board: its blocks share which flow node a steps block has lit.
 // Where a block sits across its column or cell is the board's placement, resolved for every block wherever it sits:
-// `align` says it per block (readBlocks.ts), `boardAlign` defaults it for every block that didn't ask, and
-// `userAlign` — the reader's own choice — outranks both. Containers draw their children through this same placement,
-// so a child's own word, the board's default and the reader's override all reach inside a grid, row, columns,
+// `align` says it per block (readBlocks.ts), `boardAlign` defaults it for every block that didn't ask, and a block
+// that says nothing on a board that says nothing sits left as it always has. The model's cascade — block, board,
+// left — is the whole rule; the reader has no override. Containers draw their children through this same placement,
+// so a child's own word and the board's default both reach inside a grid, row, columns,
 // section or tab panel; each block is placed within the cell it already had, and the cell keeps the layout it owns.
-// Only a block placed away from left gets wrapped (a .hb-place box), so a board with no ask anywhere draws the same
-// DOM it always did.
+// The same block also answers for how the words read inside the blocks that carry words (heading, text, stat,
+// callout): `text_align` per block, `boardTextAlign` for every block that didn't ask, left when neither says.
+// A block wrapped for placement, for its text voice, or for both, gets the one wrapper; a board with no ask
+// anywhere draws the same DOM it always did.
 // A board whose envelope declares provenance (boardAsOf or boardLive) also grows a quiet footer — its source,
 // when its data is from, and the word Live or Snapshot. The source part joins both attributions the board says:
 // its first top-level source block — drawn here rather than twice, and placed exactly like any block, through
@@ -22,10 +25,18 @@ import type { SourceBlock } from "../blocks/source/read";
 import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
 import type { Align } from "./fields";
-import { alignOf } from "./readBlocks";
+import { alignOf, textAlignOf } from "./readBlocks";
 
-/** The two board-wide voices, carried down so every block — top level or nested — resolves placement the same way. */
-const AlignScope = createContext<{ board?: Align; user?: Align }>({ board: undefined, user: undefined });
+/** The two board-wide voices, carried down so every block — top level or nested — resolves both the same way:
+ *  `board` places the cards, `text` says how the words inside the blocks that carry text should read. */
+const AlignScope = createContext<{ board?: Align; text?: Align }>({ board: undefined, text: undefined });
+
+/** The blocks whose whole draw is words, where a text voice has something to move. A drawing that owns a layout
+ *  (a chart, a table, photos, any container) is never re-typed by the board: the ask is simply not drawn there.
+ *  A kind joins this set only where its words fill a line box wide enough for the voice to distribute them —
+ *  Chrome measures every kind below at real word position; a shrink-wrapped text container (the callout body)
+ *  is opened for the ask in tokens.css, never by default. */
+const TEXT_BEARING: ReadonlySet<string> = new Set(["heading", "text", "stat", "callout"]);
 
 function BlockView({ block }: { block: Block }) {
   const entry = REGISTRY[block.type] as BlockEntry<Block> | undefined;
@@ -34,13 +45,22 @@ function BlockView({ block }: { block: Block }) {
   return <Component block={block} draw={drawAll} />;
 }
 
-/** One block wherever it sits, wrapped in its place unless it sits left the way blocks do anyway. */
+/** One block wherever it sits: wrapped in its place when it sits away from left, and marked with its text voice
+ *  when it carries words and they are asked to read other than left. Either ask grows the one wrapper; nothing
+ *  asked for, nothing added — the board draws exactly the DOM it always drew. */
 function Placed({ block }: { block: Block }) {
-  const { board, user } = useContext(AlignScope);
-  const at = user ?? alignOf(block) ?? board ?? "left";
+  const { board, text } = useContext(AlignScope);
+  const at = alignOf(block) ?? board ?? "left";
+  const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
   const view = <BlockView block={block} />;
-  if (at === "left") return view;
-  return <div className={`hb-place hb-place-${at}`} data-align={at}>{view}</div>;
+  if (at === "left" && ta === "left") return view;
+  const cls = ["hb-place"];
+  if (at !== "left") cls.push(`hb-place-${at}`);
+  if (ta !== "left") cls.push(`hb-ta-${ta}`);
+  return (
+    <div className={cls.join(" ")} {...(at !== "left" ? { "data-align": at } : {})}
+      {...(ta !== "left" ? { "data-text-align": ta } : {})}>{view}</div>
+  );
 }
 
 /** The drawing path every container gets: children come back placed, exactly like the board's own list. */
@@ -49,8 +69,8 @@ function drawAll(blocks: Block[]): ReactNode[] {
 }
 
 /** The quiet footer of a board that declares where its data came from and when. Only the parts the board gave
- *  are shown. The absorbed source block is placed like any block — the reader's word, its own ask, the board's
- *  default — and it sits on its own full-width row, the same block-context column a board's own blocks fill:
+ *  are shown. The absorbed source block is placed like any block — its own ask, the board's default — and it
+ *  sits on its own full-width row, the same block-context column a board's own blocks fill:
  *  put inside the join line's flex row it would shrink-wrap and every word would land back at the left edge.
  *  The join line — each chart's `source` once in draw order, as_of · the badge — reads beside it. The badge
  *  carries its word, Live or Snapshot; colour only sits beside it. */
@@ -77,8 +97,8 @@ function Provenance({ source, chartSources, asOf, live }: {
   );
 }
 
-export function Blocks({ blocks, boardAlign, userAlign, boardAsOf, boardLive }: {
-  blocks: Block[]; boardAlign?: Align; userAlign?: Align; boardAsOf?: string; boardLive?: boolean;
+export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive }: {
+  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
 }) {
   const declared = boardAsOf !== undefined || boardLive !== undefined;
   let list = blocks;
@@ -101,7 +121,7 @@ export function Blocks({ blocks, boardAlign, userAlign, boardAsOf, boardLive }: 
     }
   }
   return (
-    <AlignScope.Provider value={{ board: boardAlign, user: userAlign }}>
+    <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
       <div className="hb-blocks">
         <FlowLightBoard>{drawAll(list)}</FlowLightBoard>
         {declared && <Provenance source={source} chartSources={chartSources} asOf={boardAsOf} live={boardLive} />}

@@ -113,6 +113,21 @@ def test_api_passes_the_boards_own_align(client, tmp_path):
     block_id = api.store.save(board, root=tmp_path)
     assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center"}
 
+
+def test_api_passes_the_boards_own_text_align(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "text_align": "right", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center",
+                                                      "text_align": "right"}
+
+
+def test_api_skips_a_text_align_that_was_never_text(client, tmp_path):
+    http, api = client
+    board = {"text_align": 7, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"]}
+
 def test_api_passes_the_boards_own_provenance(client, tmp_path):
     http, api = client
     board = {"as_of": "2026-11-18", "live": True, "blocks": [{"type": "text", "text": "hi"}]}

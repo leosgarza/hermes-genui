@@ -131,7 +131,7 @@ def _board_text(block_id: str, load) -> str:
         board = load(block_id)
     except Exception:  # an unreadable file must not stop the reply
         return NOT_SHOWN
-    # alignment and provenance are drawing concerns; text is just blocks
+    # placement, text alignment and provenance are drawing concerns; text is just blocks
     return blocks_as_text(store.blocks_of(board)) or NOT_SHOWN
 
 

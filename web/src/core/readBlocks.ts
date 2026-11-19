@@ -9,18 +9,19 @@ export const BLOCK_TYPES: string[] = Object.keys(REGISTRY);
 
 /**
  * Stored JSON → its blocks, notes on what was dropped, and the board's own words from the stored envelope: its
- * alignment default, and provenance — asOf (when the data is from, one short line) and live (true: the figures
- * update; false: a snapshot; undefined: the board didn't say). A lone block object is a list of one, and the
- * store's {blocks: [...]} envelope is unwrapped (it may say align, as_of or live beside blocks). Anything else
- * gives no blocks.
+ * alignment default (where the cards sit) and its text default (how the words inside them read), and provenance —
+ * asOf (when the data is from, one short line) and live (true: the figures update; false: a snapshot; undefined:
+ * the board didn't say). A lone block object is a list of one, and the store's {blocks: [...]} envelope is
+ * unwrapped (it may say align, text_align, as_of or live beside blocks). Anything else gives no blocks.
  *   [{type: "heading", text: "Day 1"}, {type: "weather"}]
  *   → {blocks: [{type: "heading", text: "Day 1"}], dropped: [{path: "1", why: 'unknown type "weather"'}]}
  */
 export function readBlocksNoted(data: unknown): {
-  blocks: Block[]; dropped: Diagnostic[]; align?: Align; asOf?: string; live?: boolean;
+  blocks: Block[]; dropped: Diagnostic[]; align?: Align; textAlign?: Align; asOf?: string; live?: boolean;
 } {
   let list: unknown = data;
   let board: Align | undefined;
+  let boardText: Align | undefined;
   let asOf: string | undefined;
   let live: boolean | undefined;
   if (isObject(list) && Array.isArray((list as any).blocks)) {
@@ -29,6 +30,7 @@ export function readBlocksNoted(data: unknown): {
     // its align is the block's own ask, not a board default, and its as_of is none of the board's business.
     if (typeof (list as any).type !== "string") {
       board = align((list as any).align);
+      boardText = align((list as any).text_align);  // the same three words; they move the reading, not the card
       asOf = str((list as any).as_of, 80);  // the date line, cut the way every shown string is; junk gives nothing
       live = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
     }
@@ -42,7 +44,7 @@ export function readBlocksNoted(data: unknown): {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, asOf, live };
+  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live };
 }
 
 /** Just the blocks to draw. */
@@ -54,6 +56,12 @@ export function readBlocks(data: unknown): Block[] {
  *  A drawing never reads it: placement is the board's business, kept off each block's props. */
 export function alignOf(block: Block): Align | undefined {
   return (block as { align?: Align }).align;
+}
+
+/** How a block's own spec asked its words to read (text_align, the same three words as align); undefined when it
+ *  didn't say. Like placement, only the board reads it — a drawing never does. */
+export function textAlignOf(block: Block): Align | undefined {
+  return (block as { text_align?: Align }).text_align;
 }
 
 function isObject(v: unknown): boolean {
@@ -76,9 +84,12 @@ function readOne(raw: unknown, here: Trail, depth: number): Block[] {
   const read = entry.read(raw, here, depth, readOne);
   if (!read) return [];
   const blocks = Array.isArray(read) ? read : [read];
-  // An align the drawing didn't ask for its own way belongs to it: a row drawn as a stack places every block of the
-  // stack where the row said. (Blocks drawn inside a container that survives are placed by the container, not here.)
+  // An ask the drawing didn't want for itself belongs to it: a row drawn as a stack places every block of the
+  // stack where the row said, and reads its words the way the row said. (Blocks drawn inside a container that
+  // survives are placed by the container, not here.)
   const asked = align((raw as any).align);
   if (asked) for (const block of blocks) if (alignOf(block) === undefined) Object.assign(block, { align: asked });
+  const askedText = align((raw as any).text_align);
+  if (askedText) for (const block of blocks) if (textAlignOf(block) === undefined) Object.assign(block, { text_align: askedText });
   return blocks;
 }

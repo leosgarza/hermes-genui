@@ -1,9 +1,9 @@
 // Where blocks sit in the board's column — or in the cell a container gave them: a block that asks with `align` is
-// placed, a board default from the stored envelope cascades to every block that didn't ask, wherever it sits, the
-// block's own word beats it, and the reader's own choice (user override) beats everything. Placement resolves
-// recursively: containers draw their children through the same path, so a nested block is placed inside its own
-// cell and the container keeps the layout it owns. A placed block is drawn inside a .hb-place wrapper; left is how
-// blocks sit already, so an unplaced board keeps the DOM exactly as it was.
+// placed, a board default from the stored envelope cascades to every block that didn't ask, wherever it sits, and
+// the block's own word beats it. The model's cascade is the whole rule: there is no reader override anywhere.
+// Placement resolves recursively: containers draw their children through the same path, so a nested block is
+// placed inside its own cell and the container keeps the layout it owns. A placed block is drawn inside a .hb-place
+// wrapper; left is how blocks sit already, so an unplaced board keeps the DOM exactly as it was.
 import { cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import catalog from "../../../core/catalog.json";
@@ -22,10 +22,13 @@ let unstyle: () => void;
 beforeAll(() => (unstyle = withStyles(tokens, shared, chartCss, tableCss, calcCss, formCss)));
 afterAll(() => unstyle());
 
-const draw = (data: unknown, opts: { boardAlign?: Align; userAlign?: Align } = {}) => {
+const draw = (data: unknown, opts: { boardAlign?: Align; boardTextAlign?: Align } = {}) => {
   const noted = readBlocksNoted(data);
   const blocks = noted.blocks;
-  return render(<Blocks blocks={blocks} boardAlign={opts.boardAlign ?? noted.align} userAlign={opts.userAlign} />).container;
+  return render(
+    <Blocks blocks={blocks} boardAlign={opts.boardAlign ?? noted.align}
+      boardTextAlign={opts.boardTextAlign ?? noted.textAlign} />,
+  ).container;
 };
 
 const TEXT = { type: "text", text: "Hi" };
@@ -72,12 +75,10 @@ describe("block placement", () => {
     expect(places.map((p) => p.getAttribute("data-align"))).toEqual(["right", "center"]);  // left block sits unplaced; right beats center
   });
 
-  it("puts the reader's choice above the model's and above the board's", () => {
-    const asked = { align: "center", blocks: [{ ...TEXT, align: "right" }] };
-    expect(draw(asked, { userAlign: "left" }).querySelector(".hb-place")).toBeNull();          // left is how it sits anyway
-    const centered = draw(asked, { userAlign: "center" }).querySelector(".hb-place")!;
-    expect(centered.getAttribute("data-align")).toBe("center");
-    expect(draw([TEXT, { ...CALC, align: "center" }], { userAlign: "right" }).querySelectorAll(".hb-place").length).toBe(2);
+  it("is the model's cascade alone: the block's word, then the board's, then left — nothing else", () => {
+    const root = draw({ align: "center", blocks: [{ ...TEXT, align: "right" }, TEXT, CALC] });
+    expect([...root.querySelectorAll(".hb-place")].map((p) => p.getAttribute("data-align"))).toEqual(["right", "center", "center"]);
+    expect(root.querySelectorAll("button").length).toBe(0);   // no control of any kind sits on the board
   });
 
   it("places a container itself, and reaches its children with the same rules", () => {
@@ -90,15 +91,6 @@ describe("block placement", () => {
     // the child that didn't ask takes the board default; the child that asked wins its own word inside its cell
     expect(cells[0].querySelector(":scope > .hb-place[data-align='center'] > .hb-text")).toBeTruthy();
     expect(cells[1].querySelector(":scope > .hb-place[data-align='right'] > .hb-calc")).toBeTruthy();
-  });
-
-  it("puts the reader's choice above nested blocks too", () => {
-    const nested = [{ type: "grid", children: [{ ...TEXT, align: "right" }, CALC] }];
-    const centered = draw(nested, { userAlign: "center" });
-    const places = [...centered.querySelectorAll(".hb-place")];
-    expect(places.length).toBe(3);                                          // the grid and both children
-    expect(places.every((p) => p.getAttribute("data-align") === "center")).toBe(true);
-    expect(draw(nested, { userAlign: "left" }).querySelector(".hb-place")).toBeNull();  // left is how they sit anyway
   });
 
   it("places nested blocks in every container shape: row, section, tabs", () => {
@@ -162,5 +154,96 @@ describe("placement within the column's widths", () => {
     const place = root.querySelector(".hb-place")!;
     expect(place.getAttribute("class")).toBe("hb-place hb-place-center");
     expect(place.firstElementChild!.classList.contains("hb-calc")).toBe(true);
+  });
+});
+describe("text alignment", () => {
+  // How the words inside a text block read: `text_align` per block, a board default from the stored envelope,
+  // and left when nobody says otherwise — the model's cascade again, exactly like placement. The voice lands on a
+  // class (and a data-text-align marker) on the block's wrapper, and only for blocks whose words it can move:
+  // heading, text, stat, callout. Chart, table, images, grid and the rest of the layout draw as they always did.
+  afterEach(cleanup);
+
+  const mark = (root: HTMLElement) => root.querySelector("[data-text-align]");
+
+  it("leaves the words as they read when nobody asks: no text class anywhere", () => {
+    const root = draw([TEXT, CALC]);
+    expect(mark(root)).toBeNull();
+    expect(root.querySelector(".hb-ta-center, .hb-ta-right")).toBeNull();
+  });
+
+  it("asks for left text the way words read anyway, so nothing is wrapped", () => {
+    const root = draw([{ ...TEXT, text_align: "left" }]);
+    expect(root.querySelector(".hb-place")).toBeNull();
+  });
+
+  it("keeps an align-only board byte-identical: places exist, the text voice never does", () => {
+    const root = draw({ align: "center", blocks: [TEXT, CALC] });
+    expect(root.querySelectorAll(".hb-place").length).toBe(2);
+    expect(mark(root)).toBeNull();
+    expect([...root.querySelectorAll(".hb-place")].every((p) => !p.className.includes("hb-ta"))).toBe(true);
+  });
+
+  it("centers a heading's words on the block's own ask", () => {
+    const root = draw([{ type: "heading", text: "Head", text_align: "center" }]);
+    const w = mark(root)!;
+    expect([w.className, w.getAttribute("data-text-align")]).toEqual(["hb-place hb-ta-center", "center"]);
+    expect(w.querySelector(".hb-heading")).toBeTruthy();
+    expect(w.hasAttribute("data-align")).toBe(false);  // the card still sits left
+  });
+
+  it("cascades the board's text default onto every block that didn't ask", () => {
+    const root = draw({ text_align: "right", blocks: [
+      TEXT, { type: "heading", text: "H" }, { type: "stat", label: "Seats", value: 12 },
+      { type: "callout", text: "Mind the gap" },
+    ] });
+    expect([...root.querySelectorAll("[data-text-align]")].map((n) => n.getAttribute("data-text-align")))
+      .toEqual(["right", "right", "right", "right"]);
+    expect(root.querySelectorAll(".hb-callout").length).toBe(1);
+  });
+
+  it("lets a block's own text word override the board's, and left asks sit unwrapped", () => {
+    const root = draw({ text_align: "center", blocks: [
+      { ...TEXT, text_align: "right" }, { type: "heading", text: "H", text_align: "left" },
+    ] });
+    const marks = [...root.querySelectorAll("[data-text-align]")];
+    expect(marks.length).toBe(1);                       // the left ask needs no voice of its own
+    expect(marks[0].getAttribute("data-text-align")).toBe("right");
+    expect(marks[0].querySelector(".hb-text")).toBeTruthy();
+  });
+
+  it("shares one wrapper between the position ask and the text voice", () => {
+    const root = draw([{ type: "heading", text: "H", align: "center", text_align: "right" }]);
+    const places = root.querySelectorAll(".hb-place");
+    expect(places.length).toBe(1);
+    expect(places[0].className).toBe("hb-place hb-place-center hb-ta-right");
+    expect([places[0].getAttribute("data-align"), places[0].getAttribute("data-text-align")])
+      .toEqual(["center", "right"]);
+  });
+
+  it("does not reach layout blocks: chart, table, images, kpis, grid and list draw exactly as without the ask", () => {
+    const example = (kind: string) => catalog.blocks.find((b) => b.kind === kind)!.example;
+    for (const kind of ["chart", "table", "images", "kpis", "grid", "list"]) {
+      const asked = draw({ ...example(kind), text_align: "center" });
+      expect([kind, asked.querySelector("[data-text-align]")]).toEqual([kind, null]);
+      expect(asked.querySelector(".hb-ta-center, .hb-ta-right")).toBeNull();
+      const plain = draw(example(kind));
+      expect([kind, asked.innerHTML]).toEqual([kind, plain.innerHTML]);
+    }
+  });
+
+  it("reaches nested text blocks with the same rules: the child's word inside the board's", () => {
+    const root = draw({ text_align: "right", blocks: [
+      { type: "grid", children: [{ type: "heading", text: "H", text_align: "center" }, TEXT] },
+    ] });
+    const cells = [...root.querySelectorAll(".hb-grid-cell")];
+    expect(cells[0].querySelector(":scope > .hb-place[data-text-align='center'] > .hb-heading")).toBeTruthy();
+    expect(cells[1].querySelector(":scope > .hb-place[data-text-align='right'] > .hb-text")).toBeTruthy();
+  });
+
+  it("carries a flattened row's text word onto the blocks drawn in its place", () => {
+    const root = draw([{ type: "row", text_align: "center", children: [TEXT, { ...CALC }] }]);
+    const marks = [...root.querySelectorAll("[data-text-align]")];
+    expect(marks.length).toBe(1);   // the text word belongs to the prose; a calculator keeps its own layout
+    expect(marks[0].querySelector(".hb-text")).toBeTruthy();
   });
 });

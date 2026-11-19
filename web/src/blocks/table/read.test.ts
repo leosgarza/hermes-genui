@@ -26,6 +26,14 @@ describe("table reader", () => {
     expect(r.blocks[0]).toEqual({ type: "table", columns: ["A", "B"], rows: [] });
     expect(r.dropped.map((d) => d.why)).toContain("table has no rows");
   });
+  it("keeps interactive only when it says true", () => {
+    const on = readBlocksNoted([{ type: "table", columns: ["A"], rows: [["x"]], interactive: true }]);
+    expect((on.blocks[0] as any).interactive).toBe(true);
+    for (const v of [false, "true", 1, null, undefined]) {
+      const off = readBlocksNoted([{ type: "table", columns: ["A"], rows: [["x"]], interactive: v }]);
+      expect(off.blocks[0]).toEqual({ type: "table", columns: ["A"], rows: [["x"]] });
+    }
+  });
 });
 
 describe("table sorting", () => {

@@ -186,6 +186,8 @@ def show_blocks(params: dict, **kwargs) -> str:
     envelope: dict = {}
     if (word := align_word(params.get("align"))) is not None:
         envelope["align"] = word
+    if (word := align_word(params.get("text_align"))) is not None:  # the same three words, for how the text reads
+        envelope["text_align"] = word
     if (as_of := as_of_line(params.get("as_of"))) is not None:
         envelope["as_of"] = as_of
     if (live := live_flag(params.get("live"))) is not None:
@@ -215,13 +217,23 @@ SHOW_BLOCKS_SCHEMA = {
             "blocks": {
                 "type": "array",
                 "items": {"type": "object"},
-                "description": "The blocks to draw, in order. Each has a `type`, and may ask for its place with "
-                "`align`: left | center | right.",
+                "description": "The blocks to draw, in order. Each has a `type`, may ask for its place with "
+                "`align`: left | center | right, and may say how its words read with `text_align`: left | center | "
+                "right. A table may also carry `interactive`: true, which lets the reader search its rows, tick "
+                "the rows that matter and send the picked ones back to the chat; without it a table draws static.",
             },
             "align": {
                 "type": "string",
                 "description": "Optional. Where the blocks of this whole board sit across the reply when a block "
-                "doesn't ask for itself: left (the default) | center | right. The reader can override it in the app.",
+                "doesn't ask for itself: left (the default) | center | right. Yours to decide; the reader has no "
+                "control.",
+            },
+            "text_align": {
+                "type": "string",
+                "description": "Optional. How the words inside this board's text blocks (heading, text, stat, "
+                "callout) read when a block doesn't ask for itself: left (the default) | center | right. Set it "
+                "adaptively — a centered headline or stat for emphasis, left for prose. Charts, tables, images "
+                "and layouts keep their own layout and ignore it.",
             },
             "as_of": {
                 "type": "string",

@@ -66,6 +66,18 @@ def test_schema_description_carries_the_catalog():
     assert "timeline" in description and "Paste the returned tag on its own line exactly as returned." in description
 
 
+def test_the_interactive_word_is_documented_where_the_model_reads_the_blocks(store_dir):
+    # The catalog budget pins describe(); the table's new word rides the blocks parameter instead.
+    desc = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]["blocks"]["description"]
+    assert "`interactive`: true" in desc
+
+
+def test_the_interactive_word_is_stored_verbatim(store_dir):
+    table = {"type": "table", "caption": "Phones", "columns": ["A"], "rows": [["x"]], "interactive": True}
+    result = tools.show_blocks({"blocks": [table]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [table]
+
+
 PHOTO = {"type": "images", "title": "Lisbon", "images": [{"url": "https://a.example/alfama.jpg", "caption": "Alfama"}]}
 
 
@@ -238,6 +250,23 @@ def test_including_a_board_keeps_its_blocks_and_not_its_align(store_dir):
     result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
     assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
 
+# --- text alignment: the same envelope ride, for how the words read inside the blocks -----------------------------
+
+def test_board_text_align_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "center"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"text_align": "center", "blocks": [TIMELINE]}
+
+
+def test_an_unknown_text_align_word_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "justify"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_block_may_ask_for_its_own_text_align(store_dir):
+    block = {"type": "heading", "text": "Big number", "text_align": "center"}
+    result = tools.show_blocks({"blocks": [block]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
+
 # --- provenance: the board's as_of and live ride in the same envelope as its align word -------------------------
 
 def test_board_provenance_is_stored_beside_the_blocks(store_dir):
@@ -250,6 +279,12 @@ def test_provenance_and_align_share_one_envelope(store_dir):
     result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "as_of": " Nov 18 ", "live": False})
     assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "as_of": "Nov 18",
                                                                     "live": False, "blocks": [TIMELINE]}
+
+
+def test_position_text_and_provenance_share_one_envelope(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "right", "text_align": "center", "as_of": "2026-11-18"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "right", "text_align": "center",
+                                                                    "as_of": "2026-11-18", "blocks": [TIMELINE]}
 
 
 def test_live_false_is_kept_as_a_word(store_dir):

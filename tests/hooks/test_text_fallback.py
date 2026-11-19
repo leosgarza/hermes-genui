@@ -546,10 +546,13 @@ def test_steps_without_a_flow_on_the_board_name_the_node_id():
 
 
 def test_replace_tags_reads_both_board_shapes():
-    # A stored board is either a plain list or an envelope carrying the board's own alignment; as text, both are
-    # just their blocks: alignment is a drawing concern.
+    # A stored board is either a plain list or an envelope carrying the board's own words; as text, both are
+    # just their blocks: placement, text alignment and provenance are drawing concerns.
     heading = EXAMPLES["heading"]
     plain = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [heading])
     wrapped = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: {"align": "right", "blocks": [heading]})
     assert wrapped == plain
+    voiced = tf.replace_tags('::blocks{id="7f3a09bc"}',
+                             load=lambda _: {"text_align": "center", "blocks": [heading]})
+    assert voiced == plain
     assert wrapped.strip() and wrapped != tf.NOT_SHOWN

@@ -1,8 +1,8 @@
 // Provenance: a board whose stored envelope declares `as_of` (when its data is from) or `live` (true: the figures
 // update; false: a snapshot) draws a quiet footer — source · as_of · a [Live] or [Snapshot] badge — reusing the
 // source block's line for the "where from" part. A top-level source block on such a board is drawn inside the
-// footer, not twice, and keeps its placement: it resolves through the very same path as any block (the reader's
-// word, then the block's own ask, then the board's default, then left), and it gets its OWN full-width row — a
+// footer, not twice, and keeps its placement: it resolves through the very same path as any block (the block's
+// own ask, then the board's default, then left — the model's cascade alone), and it gets its OWN full-width row — a
 // place box only shares out space in a block context, never as a flex child of the join line (the real geometry
 // is pinned in Chrome by tests/test_layout_alignment.py). The `source` a chart block carries joins the line
 // beside it — deduped, in draw order — while the chart keeps its own inline attribution. Anything that isn't
@@ -12,7 +12,6 @@ import { cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Blocks } from "./Blocks";
 import { readBlocksNoted } from "./readBlocks";
-import type { Align } from "./fields";
 import { withStyles } from "./testing";
 import tokens from "../styles/tokens.css?raw";
 import shared from "../styles/shared.css?raw";
@@ -32,10 +31,10 @@ const chart = (source?: string) => {
   return c;
 };
 
-const draw = (data: unknown, opts: { userAlign?: Align } = {}) => {
+const draw = (data: unknown) => {
   const noted = readBlocksNoted(data);
   return render(
-    <Blocks blocks={noted.blocks} boardAlign={noted.align} userAlign={opts.userAlign}
+    <Blocks blocks={noted.blocks} boardAlign={noted.align}
       boardAsOf={noted.asOf} boardLive={noted.live} />,
   ).container;
 };
@@ -174,11 +173,12 @@ describe("the footer source keeps its placement (rework of defect 1)", () => {
     expect(root.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("center");
   });
 
-  it("the reader's word outranks both: the chips still move the footer source", () => {
-    const auto = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "right" }] }, { userAlign: "left" });
-    expect(auto.querySelector(".hb-provenance .hb-place")).toBeNull();  // left is how it sits anyway
-    const forced = draw({ as_of: "d", blocks: [SRC] }, { userAlign: "right" });
-    expect(forced.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("right");
+  it("the model's word moves the footer source; nothing else can", () => {
+    const plain = draw({ as_of: "d", blocks: [SRC] });
+    expect(plain.querySelector(".hb-provenance .hb-place")).toBeNull();     // left is how it sits anyway
+    const asked = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "right" }] });
+    expect(asked.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("right");
+    expect(asked.querySelectorAll("button").length).toBe(0);                // no reader chips, not even beside a footer
   });
 
   it("the placed source sits beside the join line, never inside its flex row", () => {

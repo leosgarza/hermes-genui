@@ -38,16 +38,17 @@ def is_https(v: object) -> bool:
     return isinstance(v, str) and v.startswith("https://")
 
 
-# --- where a block sits in the column (the drawing side's concern, checked where it is drawn) ---------------------
+# --- where a block sits in the column, and how its words read (the drawing side's concern, checked where drawn) ---
 
 # The three words, on this side and the web's (core/fields.ts align): anything else a model wrote is ignored, and
-# the block sits left.
+# the block sits left (align) or reads left (text_align). Both fields share the one reader.
 ALIGN = ("left", "center", "right")
 
 
 def align_word(value: object) -> str | None:
     """One of the alignment words, trimmed and caseless the way models write; anything else gives None.
-    " Center " → "center";  "middle" → None."""
+    " Center " → "center";  "middle" → None. Used for `align` (where the card sits) and `text_align` (how its
+    words read) alike — the same three words, answered the same lenient way."""
     if isinstance(value, str):
         word = value.strip().lower()
         return word if word in ALIGN else None

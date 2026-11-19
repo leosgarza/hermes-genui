@@ -143,6 +143,14 @@ def test_table_limits():
     assert check_blocks([wide]) == ["0: a table holds at most 8 columns"]
 
 
+def test_table_interactive_word_draws_even_in_a_strange_shape():
+    # check_blocks refuses only what cannot be drawn. The interactive word, even miswritten,
+    # leaves a drawable table behind — the drawer then simply falls back to the static one.
+    table = {"type": "table", "columns": ["A"], "rows": [["x"]], "interactive": True}
+    assert check_blocks([table]) == []
+    assert check_blocks([{**table, "interactive": "yes please"}]) == []
+
+
 def test_columns_hold_two_or_three_wide_blocks():
     chart = {"type": "chart", "kind": "line", "x": ["a", "b"], "series": [{"data": [1, 2]}]}
     table = {"type": "table", "columns": ["A"], "rows": [["x"]]}

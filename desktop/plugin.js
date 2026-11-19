@@ -132,8 +132,7 @@ function actsBeforeTheModel(message) {
 }
 
 // src/host/actions.ts
-var BlockActions = createContext({ send: () => {
-}, fill: () => {
+var BlockActions = createContext({ send: async () => "nowhere", fill: () => {
 } });
 var MAX_SENT = 120;
 function composerActions(composer) {
@@ -144,30 +143,38 @@ function composerActions(composer) {
     insert(text).then(() => composer?.focus(null)).catch(() => {
     });
   };
+  const draft = async (text) => {
+    let taken = false;
+    try {
+      taken = await composer?.insertText(null, text, { mode: "block" }) === true;
+    } catch {
+      taken = false;
+    }
+    if (taken) composer?.focus(null);
+    return taken;
+  };
   return {
-    send(text) {
-      if (text.length > MAX_SENT || actsBeforeTheModel(text)) {
-        fill(text);
-        return;
+    async send(text, opts) {
+      if (!composer) return "nowhere";
+      const guarded = actsBeforeTheModel(text);
+      if (guarded || !opts?.force && text.length > MAX_SENT) {
+        return await draft(text) ? guarded ? "blocked" : "drafted" : "failed";
       }
       try {
-        if (composer?.submit(null, text)) return;
-        insert(text).catch(() => {
-        });
+        if (composer.submit(null, text)) return "sent";
       } catch {
-        insert(text).catch(() => {
-        });
       }
+      return await draft(text) ? "drafted" : "failed";
     },
     fill
   };
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext8, useEffect as useEffect9, useState as useState24 } from "react";
+import { useContext as useContext9, useEffect as useEffect9, useRef as useRef16, useState as useState24 } from "react";
 
 // src/core/Blocks.tsx
-import { createContext as createContext3, Fragment as Fragment12, useContext as useContext7 } from "react";
+import { createContext as createContext3, Fragment as Fragment12, useContext as useContext8 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -4434,7 +4441,8 @@ function readTable(raw, here) {
   const kept = keepFirst(rows, MAX_ROWS, here.at("rows"), "rows");
   const highlight = readHighlight(raw.highlight, columns, kept, here.at("highlight"));
   const caption = firstText([raw.caption, raw.title], 100);
-  return clean({ type: "table", columns, rows: kept, highlight, caption });
+  const interactive = raw.interactive === true ? true : void 0;
+  return clean({ type: "table", columns, rows: kept, highlight, caption, interactive });
 }
 function readColumns(list) {
   if (!list) return [];
@@ -4502,7 +4510,7 @@ function isIndex(n, length) {
 }
 
 // src/blocks/table/Table.tsx
-import { useState as useState22 } from "react";
+import { useContext as useContext6, useRef as useRef15, useState as useState22 } from "react";
 
 // src/blocks/table/sort.ts
 function cellNumber(cell) {
@@ -4575,12 +4583,38 @@ function bigNumber(cell) {
   return { short: plus + fmt(v, unit), full: plus + fmt(v, unit, { full: true }) };
 }
 
+// src/blocks/table/pick.ts
+function rowMatches(row, query) {
+  const wanted = query.trim().toLowerCase();
+  if (!wanted) return true;
+  return row.some((cell) => cell.toLowerCase().includes(wanted));
+}
+function pickedMessage(caption, columns, rows, picked) {
+  const line = (cells) => cells.join(" | ");
+  const order = [...picked].sort((a, b) => a - b);
+  return [`${caption ? `${caption}:` : "Table:"}`, line(columns), ...order.map((r) => line(rows[r]))].join("\n");
+}
+
 // src/blocks/table/Table.tsx
 import { jsx as jsx34, jsxs as jsxs30 } from "react/jsx-runtime";
 var MINI_BARS_FROM = 3;
-function Table({ columns, rows, highlight, caption }) {
+var SENT_WORDS = {
+  sent: "Sent to chat.",
+  drafted: "In the composer \u2014 press Send.",
+  blocked: "Blocked from sending \u2014 in the composer \u2014 press Send.",
+  failed: "Send failed \u2014 nothing was sent or kept.",
+  nowhere: "No chat here."
+};
+function Table({ columns, rows, highlight, caption, interactive }) {
   const [sort, setSort] = useState22(null);
+  const [query, setQuery] = useState22("");
+  const [picked, setPicked] = useState22([]);
+  const [sent, setSent] = useState22(null);
+  const taps = useRef15(0);
+  const { send } = useContext6(BlockActions);
   const order = sortedOrder(rows, sort);
+  const visible = interactive ? order.filter((r) => rowMatches(rows[r], query)) : order;
+  const message = pickedMessage(caption, columns, rows, picked);
   const bestRow = highlight && "row" in highlight ? highlight.row : -1;
   const bestColumn = highlight && "column" in highlight ? highlight.column : -1;
   const numeric = columns.map((_, c) => isNumberColumn(rows, c));
@@ -4596,23 +4630,82 @@ function Table({ columns, rows, highlight, caption }) {
   ].filter(Boolean).join(" ");
   return /* @__PURE__ */ jsxs30("div", { className: "hb-card hb-table-card", children: [
     caption && /* @__PURE__ */ jsx34("div", { className: "hb-chart-title hb-table-caption", children: /* @__PURE__ */ jsx34(InlineText, { text: caption }) }),
+    interactive && /* @__PURE__ */ jsxs30("div", { className: "hb-table-tools", children: [
+      /* @__PURE__ */ jsx34(
+        "input",
+        {
+          type: "search",
+          className: "hb-table-filter",
+          placeholder: "Filter rows",
+          "aria-label": "Filter rows",
+          value: query,
+          onChange: (e) => {
+            setQuery(e.target.value);
+            setSent(null);
+          }
+        }
+      ),
+      /* @__PURE__ */ jsxs30(
+        "button",
+        {
+          type: "button",
+          className: "hb-pill",
+          "aria-label": "Send selected rows as context",
+          title: picked.length ? message : void 0,
+          disabled: !picked.length,
+          onClick: () => {
+            const tap = ++taps.current;
+            send(message, { force: true }).then((where) => {
+              if (tap === taps.current) setSent(where);
+            });
+          },
+          children: [
+            /* @__PURE__ */ jsx34(Icon, { name: "spark", size: 14, stroke: 2.2 }),
+            /* @__PURE__ */ jsx34("span", { className: "hb-pill-label", children: "Send selected as context" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsx34("span", { className: "hb-table-sent", role: "status", "aria-live": "polite", children: sent ? SENT_WORDS[sent] : "" })
+    ] }),
     /* @__PURE__ */ jsx34("div", { className: "hb-table-scroll", children: /* @__PURE__ */ jsxs30("table", { className: columns.length >= 3 ? "hb-table hb-table-wide" : "hb-table", children: [
-      /* @__PURE__ */ jsx34("thead", { children: /* @__PURE__ */ jsx34("tr", { children: columns.map((name, c) => /* @__PURE__ */ jsx34("th", { "aria-sort": ariaSort(sort, c), className: cellClass(c, name, sort?.column === c ? "hb-sorted" : ""), children: /* @__PURE__ */ jsxs30("button", { type: "button", onClick: () => setSort(nextSort(sort, c)), children: [
-        /* @__PURE__ */ jsx34("span", { children: name }),
-        /* @__PURE__ */ jsx34("span", { className: "hb-sort", "aria-hidden": "true", children: sortMark(sort, c) }),
-        c === bestColumn && /* @__PURE__ */ jsx34("span", { className: "hb-chip hb-chip-soft", children: "Best" })
-      ] }) }, c)) }) }),
+      /* @__PURE__ */ jsx34("thead", { children: /* @__PURE__ */ jsxs30("tr", { children: [
+        interactive && /* @__PURE__ */ jsx34("th", { className: "hb-pick", "aria-label": "Selected rows" }),
+        columns.map((name, c) => /* @__PURE__ */ jsx34("th", { "aria-sort": ariaSort(sort, c), className: cellClass(c, name, sort?.column === c ? "hb-sorted" : ""), children: /* @__PURE__ */ jsxs30("button", { type: "button", onClick: () => setSort(nextSort(sort, c)), children: [
+          /* @__PURE__ */ jsx34("span", { children: name }),
+          /* @__PURE__ */ jsx34("span", { className: "hb-sort", "aria-hidden": "true", children: sortMark(sort, c) }),
+          c === bestColumn && /* @__PURE__ */ jsx34("span", { className: "hb-chip hb-chip-soft", children: "Best" })
+        ] }) }, c))
+      ] }) }),
       /* @__PURE__ */ jsxs30("tbody", { children: [
-        !rows.length && /* @__PURE__ */ jsx34("tr", { children: /* @__PURE__ */ jsx34("td", { className: "hb-table-empty", colSpan: columns.length, children: "No rows to show." }) }),
-        order.map((r) => /* @__PURE__ */ jsx34("tr", { className: r === bestRow ? "hb-best" : void 0, children: rows[r].map((cell, c) => {
-          const big = bigNumber(cell);
-          const direction = change[c] ? changeOf(cell) : null;
-          return /* @__PURE__ */ jsxs30("td", { className: cellClass(c, cell, direction ? `hb-${direction}` : ""), title: big?.full, children: [
-            change[c] && withBars && /* @__PURE__ */ jsx34(MiniBar, { value: cellNumber(cell) ?? 0, largest: largest[c] }),
-            big ? big.short : /* @__PURE__ */ jsx34(InlineText, { text: cell }),
-            c === 0 && r === bestRow && /* @__PURE__ */ jsx34("span", { className: "hb-chip hb-chip-soft", children: "Best" })
-          ] }, c);
-        }) }, r))
+        !rows.length && /* @__PURE__ */ jsx34("tr", { children: /* @__PURE__ */ jsx34("td", { className: "hb-table-empty", colSpan: interactive ? columns.length + 1 : columns.length, children: "No rows to show." }) }),
+        interactive && rows.length > 0 && visible.length === 0 && query.trim() && /* @__PURE__ */ jsx34("tr", { children: /* @__PURE__ */ jsxs30("td", { className: "hb-table-empty", colSpan: columns.length + 1, children: [
+          "Nothing matches \u201C",
+          query.trim(),
+          "\u201D."
+        ] }) }),
+        visible.map((r) => /* @__PURE__ */ jsxs30("tr", { className: r === bestRow ? "hb-best" : void 0, children: [
+          interactive && /* @__PURE__ */ jsx34("td", { className: "hb-pick", children: /* @__PURE__ */ jsx34(
+            "input",
+            {
+              type: "checkbox",
+              checked: picked.includes(r),
+              onChange: () => {
+                setPicked((p) => p.includes(r) ? p.filter((x) => x !== r) : [...p, r]);
+                setSent(null);
+              },
+              "aria-label": `Select row ${rows[r][0] || `#${r + 1}`}`
+            }
+          ) }),
+          rows[r].map((cell, c) => {
+            const big = bigNumber(cell);
+            const direction = change[c] ? changeOf(cell) : null;
+            return /* @__PURE__ */ jsxs30("td", { className: cellClass(c, cell, direction ? `hb-${direction}` : ""), title: big?.full, children: [
+              change[c] && withBars && /* @__PURE__ */ jsx34(MiniBar, { value: cellNumber(cell) ?? 0, largest: largest[c] }),
+              big ? big.short : /* @__PURE__ */ jsx34(InlineText, { text: cell }),
+              c === 0 && r === bestRow && /* @__PURE__ */ jsx34("span", { className: "hb-chip hb-chip-soft", children: "Best" })
+            ] }, c);
+          })
+        ] }, r))
       ] })
     ] }) })
   ] });
@@ -4681,7 +4774,7 @@ function readTile(item) {
 }
 
 // src/blocks/tiles/Tiles.tsx
-import { useContext as useContext6, useState as useState23 } from "react";
+import { useContext as useContext7, useState as useState23 } from "react";
 import { Fragment as Fragment11, jsx as jsx35, jsxs as jsxs31 } from "react/jsx-runtime";
 var WASHES = [1, 4, 8, 3, 6];
 function Tiles({ items }) {
@@ -4693,7 +4786,7 @@ function tapOf(tile, send, fill) {
   return void 0;
 }
 function Tile({ tile, wash }) {
-  const { send, fill } = useContext6(BlockActions);
+  const { send, fill } = useContext7(BlockActions);
   const [photoFailed, setPhotoFailed] = useState23(false);
   const tap = tapOf(tile, send, fill);
   const colour = `var(--hb-chart-${wash})`;
@@ -4835,11 +4928,13 @@ var BLOCK_TYPES = Object.keys(REGISTRY);
 function readBlocksNoted(data) {
   let list = data;
   let board;
+  let boardText;
   let asOf;
   let live;
   if (isObject(list) && Array.isArray(list.blocks)) {
     if (typeof list.type !== "string") {
       board = align(list.align);
+      boardText = align(list.text_align);
       asOf = str(list.as_of, 80);
       live = typeof list.live === "boolean" ? list.live : void 0;
     }
@@ -4853,10 +4948,13 @@ function readBlocksNoted(data) {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, asOf, live };
+  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live };
 }
 function alignOf(block) {
   return block.align;
+}
+function textAlignOf(block) {
+  return block.text_align;
 }
 function isObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -4879,12 +4977,17 @@ function readOne(raw, here, depth) {
   if (asked) {
     for (const block of blocks) if (alignOf(block) === void 0) Object.assign(block, { align: asked });
   }
+  const askedText = align(raw.text_align);
+  if (askedText) {
+    for (const block of blocks) if (textAlignOf(block) === void 0) Object.assign(block, { text_align: askedText });
+  }
   return blocks;
 }
 
 // src/core/Blocks.tsx
 import { jsx as jsx38, jsxs as jsxs33 } from "react/jsx-runtime";
-var AlignScope = createContext3({ board: void 0, user: void 0 });
+var AlignScope = createContext3({ board: void 0, text: void 0 });
+var TEXT_BEARING = /* @__PURE__ */ new Set(["heading", "text", "stat", "callout"]);
 function BlockView({ block }) {
   const entry = REGISTRY[block.type];
   if (!entry) return null;
@@ -4892,11 +4995,23 @@ function BlockView({ block }) {
   return /* @__PURE__ */ jsx38(Component, { block, draw: drawAll });
 }
 function Placed({ block }) {
-  const { board, user } = useContext7(AlignScope);
-  const at2 = user ?? alignOf(block) ?? board ?? "left";
+  const { board, text } = useContext8(AlignScope);
+  const at2 = alignOf(block) ?? board ?? "left";
+  const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
   const view = /* @__PURE__ */ jsx38(BlockView, { block });
-  if (at2 === "left") return view;
-  return /* @__PURE__ */ jsx38("div", { className: `hb-place hb-place-${at2}`, "data-align": at2, children: view });
+  if (at2 === "left" && ta === "left") return view;
+  const cls = ["hb-place"];
+  if (at2 !== "left") cls.push(`hb-place-${at2}`);
+  if (ta !== "left") cls.push(`hb-ta-${ta}`);
+  return /* @__PURE__ */ jsx38(
+    "div",
+    {
+      className: cls.join(" "),
+      ...at2 !== "left" ? { "data-align": at2 } : {},
+      ...ta !== "left" ? { "data-text-align": ta } : {},
+      children: view
+    }
+  );
 }
 function drawAll(blocks) {
   return blocks.map((b, i) => /* @__PURE__ */ jsx38(Placed, { block: b }, i));
@@ -4919,7 +5034,7 @@ function Provenance({ source, chartSources, asOf, live }) {
     /* @__PURE__ */ jsx38("div", { className: "hb-provenance-line", children: parts })
   ] });
 }
-function Blocks({ blocks, boardAlign, userAlign, boardAsOf, boardLive }) {
+function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive }) {
   const declared = boardAsOf !== void 0 || boardLive !== void 0;
   let list = blocks;
   let source;
@@ -4940,7 +5055,7 @@ function Blocks({ blocks, boardAlign, userAlign, boardAsOf, boardLive }) {
       }
     }
   }
-  return /* @__PURE__ */ jsx38(AlignScope.Provider, { value: { board: boardAlign, user: userAlign }, children: /* @__PURE__ */ jsxs33("div", { className: "hb-blocks", children: [
+  return /* @__PURE__ */ jsx38(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs33("div", { className: "hb-blocks", children: [
     /* @__PURE__ */ jsx38(FlowLightBoard, { children: drawAll(list) }),
     declared && /* @__PURE__ */ jsx38(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive })
   ] }) });
@@ -4951,16 +5066,18 @@ import { jsx as jsx39, jsxs as jsxs34 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext8(BlockActions);
+  const actions = useContext9(BlockActions);
   const [state, setState] = useState24({ kind: "loading" });
-  const [userAlign, setUserAlign] = useState24(() => validId ? readUserAlign(id) : void 0);
+  const [expanded, setExpanded] = useState24(false);
+  const hostRef = useRef16(null);
+  const expandRef = useRef16(null);
+  const closeRef = useRef16(null);
   useEffect9(() => {
-    setUserAlign(validId && !streaming ? readUserAlign(id) : void 0);
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
-      const { blocks, align: boardAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
-      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardAsOf, boardLive } : { kind: "failed" });
+      const { blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
+      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -4968,52 +5085,125 @@ function BlockTag({ id, streaming, load }) {
       live = false;
     };
   }, [id, streaming, validId]);
+  const close = () => {
+    setExpanded(false);
+    expandRef.current?.focus();
+  };
+  useEffect9(() => {
+    if (expanded) closeRef.current?.focus();
+  }, [expanded]);
+  useEffect9(() => {
+    if (!expanded) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        if (document.querySelector(".hb-photo-overlay")) return;
+        close();
+        return;
+      }
+      if (e.key !== "Tab" || !hostRef.current) return;
+      const items = tabbableIn(hostRef.current);
+      if (!items.length) return;
+      e.preventDefault();
+      const active = document.activeElement;
+      const at2 = active === null ? -1 : items.indexOf(active);
+      const step = e.shiftKey ? -1 : 1;
+      const next = at2 === -1 ? e.shiftKey ? items.length - 1 : 0 : (at2 + step + items.length) % items.length;
+      items[next].focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
   if (!validId && !streaming) return null;
   if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx39(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
-  const choose = (a) => {
-    const value = a === "auto" ? void 0 : a;
-    setUserAlign(value);
-    saveUserAlign(id, value);
-  };
-  return /* @__PURE__ */ jsxs34(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
-    /* @__PURE__ */ jsx39(AlignControl, { value: userAlign ?? "auto", onChoose: choose }),
+  const board = state;
+  return /* @__PURE__ */ jsx39(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs34("div", { className: "hb-tag", children: [
     /* @__PURE__ */ jsx39(
-      Blocks,
+      "button",
       {
-        blocks: state.blocks,
-        boardAlign: state.boardAlign,
-        userAlign,
-        boardAsOf: state.boardAsOf,
-        boardLive: state.boardLive
+        ref: expandRef,
+        type: "button",
+        className: "hb-expand",
+        "aria-label": "Expand board",
+        "aria-haspopup": "dialog",
+        onClick: () => setExpanded(true),
+        children: /* @__PURE__ */ jsx39(IconExpand, {})
+      }
+    ),
+    /* @__PURE__ */ jsxs34(
+      "div",
+      {
+        ref: hostRef,
+        className: expanded ? "hb-board-host hb-board-overlay" : "hb-board-host",
+        ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
+        onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
+        children: [
+          expanded && /* @__PURE__ */ jsx39(
+            "button",
+            {
+              ref: closeRef,
+              type: "button",
+              className: "hb-overlay-close",
+              "aria-label": "Close expanded board",
+              onClick: close,
+              children: /* @__PURE__ */ jsx39(IconClose, {})
+            }
+          ),
+          /* @__PURE__ */ jsx39(
+            Blocks,
+            {
+              blocks: board.blocks,
+              boardAlign: board.boardAlign,
+              boardTextAlign: board.boardTextAlign,
+              boardAsOf: board.boardAsOf,
+              boardLive: board.boardLive
+            }
+          )
+        ]
       }
     )
-  ] });
+  ] }) });
 }
-var CHOICES = ["auto", "left", "center", "right"];
-var LABEL2 = { auto: "Auto", left: "Left", center: "Center", right: "Right" };
-function userAlignKey(id) {
-  return `hermes-genui-align-${id}`;
-}
-function readUserAlign(id) {
-  try {
-    return align(localStorage.getItem(userAlignKey(id)) ?? "");
-  } catch {
-    return void 0;
-  }
-}
-function saveUserAlign(id, value) {
-  try {
-    if (value === void 0) localStorage.removeItem(userAlignKey(id));
-    else localStorage.setItem(userAlignKey(id), value);
-  } catch {
-  }
-}
-function AlignControl({ value, onChoose }) {
-  return /* @__PURE__ */ jsx39("div", { className: "hb-align", role: "group", "aria-label": "Alignment", children: CHOICES.map((a) => /* @__PURE__ */ jsx39("button", { type: "button", className: "hb-align-btn", "aria-pressed": a === value, onClick: () => onChoose(a), children: LABEL2[a] }, a)) });
+function tabbableIn(root) {
+  const laidOut = root.getClientRects().length > 0;
+  return [...root.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")].filter(
+    (el) => el.tabIndex >= 0 && el.getAttribute("type") !== "hidden" && el.disabled !== true && !el.closest("fieldset[disabled]") && !el.closest("[hidden]") && (!laidOut || el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible")
+  );
 }
 function Note({ text, pulse = false }) {
   return /* @__PURE__ */ jsx39("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+}
+function IconExpand() {
+  return /* @__PURE__ */ jsx39(
+    "svg",
+    {
+      width: "15",
+      height: "15",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx39("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+    }
+  );
+}
+function IconClose() {
+  return /* @__PURE__ */ jsx39(
+    "svg",
+    {
+      width: "16",
+      height: "16",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx39("path", { d: "M6 6l12 12M18 6L6 18" })
+    }
+  );
 }
 
 // src/styles/tokens.css
@@ -5081,6 +5271,23 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 .hb-place { display: flow-root; }
 .hb-place-center > * { margin-inline: auto; }
 .hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* Text voice: how the words inside a block read (the model's \`text_align\`, the block's word or the board's
+   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align
+   only moves words that sit in a line box filling the available width, so where a block keeps its words in
+   a shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put
+   it, and only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words
+   read anyway, so a board with no ask grows no class and no wrapper. */
+.hb-ta-center { text-align: center; }
+.hb-ta-right { text-align: right; }
+/* The line width a voice needs (round 5 of the review): text-align is no property of a shrink-wrapped flex
+   item \u2014 a body that hugs its words has no free line for the words to travel on. Every text-bearing kind is
+   audited against that rule, and Chrome measures it (tests/test_layout_alignment.py): heading and text are
+   block boxes that already fill their column; a lone stat card fills its column and its label, value and
+   change lines stretch across the card; only the callout sets its words in a non-growing body beside the
+   fixed icon, so where a voice asks, that body is opened to the row beside the icon. Scoped to the voice
+   classes on purpose: a callout nobody asked about keeps every rect it always had. A new text-bearing kind
+   joins TEXT_BEARING only once its words measure at their voice in the same Chrome probe. */
+.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }
 /* The provenance footer: the quiet lines a board grows when its envelope says as_of or live \u2014 the source on its
    own row, then the joined line: each chart's own source, the date \xB7 the word Live or Snapshot. The source row is
    a block column on purpose: placement through a .hb-place only shares out space a block context left over, and a
@@ -5122,45 +5329,7 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s, transform 0.1s;\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
 
 // src/host/blockTag.css
-var blockTag_default = `/* The block tag's own states */
-.hb-state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 0;
-  padding: 10px 14px;
-  max-width: 100%;
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);
-  color: var(--ui-text-tertiary, #6b7280);
-  font-size: 13px;
-}
-.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }
-/* The reader's own alignment line, above a drawn board: four quiet chips, the current one tinted. */
-.hb-align { display: flex; gap: 4px; margin: 8px 0 0; }
-.hb-align-btn {
-  padding: 2px 9px;
-  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--ui-text-tertiary, color-mix(in srgb, var(--foreground, #1f2328) 55%, transparent));
-  font-family: inherit;
-  font-size: 11.5px;
-  line-height: 18px;
-  cursor: pointer;
-}
-.hb-align-btn:hover { background: color-mix(in srgb, var(--foreground, #1f2328) 4%, transparent); }
-.hb-align-btn[aria-pressed="true"] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--theme-primary, #2f6fed) 14%, transparent);
-  color: color-mix(in srgb, var(--theme-primary, #2f6fed) 85%, var(--foreground, #1f2328));
-}
-.hb-align-btn:focus-visible { outline: 2px solid var(--theme-primary, #2f6fed); outline-offset: 2px; }
-@keyframes hb-pulse { 50% { opacity: 0.45; } }
-@media (prefers-reduced-motion: reduce) {
-  .hb-pulse { animation: none; }
-}
-`;
+var blockTag_default = "/* The block tag's own states */\n.hb-state {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  margin: 8px 0;\n  padding: 10px 14px;\n  max-width: 100%;\n  border-radius: 14px;\n  background: color-mix(in srgb, var(--foreground, #1f2328) 5%, transparent);\n  color: var(--ui-text-tertiary, #6b7280);\n  font-size: 13px;\n}\n.hb-pulse { animation: hb-pulse 1.2s ease-in-out infinite; }\n@keyframes hb-pulse { 50% { opacity: 0.45; } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pulse { animation: none; }\n}\n/* Expand / full-screen board (host/BlockTag.tsx): the images strip's full-size overlay pattern, raised to a\n   whole board \u2014 the photo scrim's own numbers (fixed, same z, same appear animation) and the same way of\n   closing (Escape, the scrim, a close control). One honest correction: a stateless photo may be re-drawn at\n   full size, a board may not \u2014 its blocks carry live state. So the host wrapper (.hb-board-host) is a plain\n   block container at rest, costing the inline board nothing, and IS the dialog while expanded: the ONE drawn\n   .hb-blocks is lifted into it, not duplicated, and settles back into flow on close. The control lives\n   OUTSIDE .hb-blocks and out of flow (absolute); it stays quiet until the pointer is on the board or the key\n   reaches it. Inside the dialog the board's 1100px reading cap lifts, so full-width blocks ride the wider\n   container, while every .hb-blocks > X cap (the 720px cards, the fit-content table) is the board's own rule\n   and keeps its number in both views. Chrome measures exactly that (tests/test_expand_fullscreen.py). */\n.hb-tag { position: relative; }\n.hb-expand {\n  position: absolute;\n  top: 6px;\n  right: 6px;\n  z-index: 1;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 28px;\n  height: 28px;\n  padding: 0;\n  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);\n  border-radius: 8px;\n  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);\n  color: var(--ui-text-tertiary, #6b7280);\n  cursor: pointer;\n  opacity: 0;\n}\n.hb-tag:hover .hb-expand, .hb-expand:focus-visible { opacity: 1; }\n@media (prefers-reduced-motion: reduce) {\n  .hb-expand { transition: none; }\n}\n.hb-board-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 2147483000;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  padding: 32px;\n  background: rgba(0, 0, 0, 0.82);\n  animation: hb-appear 0.18s ease-out;\n}\n/* The wider container, in the ONE shipped rule the swap experiment comments out: the expanded board box is a\n   single element now \u2014 it sheds the reading cap and margin (folded into the panel's own padding) and carries\n   the paper its old separate body used to draw. The caps are .hb-blocks > X rules, scoped to the board\n   itself \u2014 this selector reaches none of them. */\n.hb-board-overlay .hb-blocks {\n  box-sizing: border-box;\n  width: min(1600px, 100%);\n  max-width: none;\n  max-height: 100%;\n  overflow: auto;\n  margin: 0;\n  padding: 24px;\n  border-radius: 16px;\n  background: var(--background, Canvas);\n}\n.hb-overlay-close {\n  position: absolute;\n  top: 14px;\n  right: 14px;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  width: 32px;\n  height: 32px;\n  padding: 0;\n  border: 1px solid rgba(255, 255, 255, 0.35);\n  border-radius: 9px;\n  background: rgba(0, 0, 0, 0.45);\n  color: #fff;\n  cursor: pointer;\n}\n.hb-overlay-close:hover { background: rgba(0, 0, 0, 0.65); }\n";
 
 // src/blocks/atoms/atoms.css
 var atoms_default = "/* Small pieces: heading, text, divider, badge, link, image, bar */\n.hb-heading { font-size: 16px; line-height: 22px; font-weight: 700; letter-spacing: -0.01em; margin-top: 4px; }\n.hb-text { color: var(--hb-ink-2); }\n.hb-text strong { color: var(--hb-ink); font-weight: 650; }\n.hb-divider { height: 1px; background: var(--hb-line); margin: 2px 0; }\n\n.hb-badge { display: flex; align-items: center; }\n.hb-link a {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: 14px;\n  font-weight: 600;\n  color: var(--hb-accent-ink);\n  text-decoration: underline;\n  text-underline-offset: 2px;\n}\n.hb-image { margin: 0; display: flex; flex-direction: column; gap: 6px; }\n.hb-image img {\n  display: block;\n  width: 100%;\n  max-height: 300px;\n  object-fit: cover;\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  background: var(--hb-well);\n}\n.hb-image figcaption { padding: 0 4px; font-size: 12px; line-height: 16px; color: var(--hb-muted); }\n.hb-bar { display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 11px 14px; }\n.hb-bar-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 13px; }\n.hb-bar-label { flex: 1 0 auto; font-weight: 600; color: var(--hb-ink-2); }\n.hb-bar-amount { color: var(--hb-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-bar-track { height: 8px; border-radius: 999px; background: var(--hb-accent-soft); overflow: hidden; }\n.hb-bar-fill { display: block; height: 100%; border-radius: 999px; background: var(--hb-accent); }\n.hb-bar-fill { transform-origin: left; animation: hb-grow 0.9s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@media (prefers-reduced-motion: reduce) {\n  .hb-bar-fill { animation: none; }\n}\n";
@@ -5187,7 +5356,125 @@ var chart_default = "/* Charts are drawn at their real width and fill their plac
 var images_default = "/* Photos */\n.hb-photos { margin: 0; display: flex; flex-direction: column; gap: 8px; }\n.hb-photo-strip {\n  display: flex;\n  gap: 10px;\n  overflow-x: auto;\n  padding-bottom: 6px;\n  scroll-snap-type: x mandatory;\n  scrollbar-width: thin;\n}\n.hb-photo {\n  flex: 0 0 220px;\n  display: flex;\n  flex-direction: column;\n  justify-content: flex-start;\n  align-items: stretch;\n  height: auto;\n  margin: 0;\n  padding: 0;\n  overflow: hidden;\n  border: 1px solid var(--hb-line);\n  border-radius: 14px;\n  background: var(--hb-card);\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: zoom-in;\n  scroll-snap-align: start;\n}\n.hb-photo img { display: block; width: 100%; height: 150px; object-fit: cover; background: var(--hb-well); }\n.hb-photo-text { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px 10px; }\n.hb-photo-caption {\n  display: -webkit-box;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  overflow: hidden;\n  font-size: 13px;\n  line-height: 17px;\n  font-weight: 600;\n}\n.hb-photo-source { font-size: 11.5px; color: var(--hb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }\n.hb-photo-overlay {\n  position: fixed;\n  inset: 0;\n  z-index: 2147483000;\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  justify-content: center;\n  gap: 12px;\n  padding: 32px;\n  background: rgba(0, 0, 0, 0.82);\n  cursor: zoom-out;\n  animation: hb-appear 0.18s ease-out;\n}\n.hb-photo-overlay img { margin: 0; max-width: 100%; max-height: calc(100% - 48px); border-radius: 10px; object-fit: contain; }\n.hb-photo-overlay-text { max-width: 720px; text-align: center; font-size: 14px; color: rgba(255, 255, 255, 0.92); }\n.hb-photo-overlay-text span { color: rgba(255, 255, 255, 0.6); }\n";
 
 // src/blocks/table/table.css
-var table_default = "/* Tables */\n/* A table keeps its natural width (columns close together); the card hugs it. It scrolls inside the card: sideways\n   when wider than the chat, down past 520px with the header kept in view. */\n.hb-table-card { width: fit-content; max-width: 100%; padding: 4px 0 0; overflow: hidden; }\n.hb-table-caption { padding: 10px 16px 2px; }\n.hb-table-scroll { max-height: 520px; overflow: auto; overscroll-behavior: contain; }\n.hb-table {\n  border-collapse: separate;\n  border-spacing: 0;\n  font-size: 13.5px;\n  line-height: 20px;\n  font-variant-numeric: tabular-nums;\n}\n/* With 3 or more columns, a narrow chat scrolls the table rather than squeezing every column. */\n.hb-table-wide { min-width: 420px; }\n.hb-table th, .hb-table td {\n  height: 36px;\n  padding: 8px 12px;\n  border: 0;\n  border-bottom: 1px solid var(--hb-line);\n  background: none;\n  text-align: left;\n  vertical-align: middle;\n  white-space: nowrap;\n}\n/* The header stays in view as the rows scroll; it is painted like the card so rows don't show through. */\n.hb-table th {\n  position: sticky;\n  top: 0;\n  z-index: 1;\n  height: 34px;\n  padding: 0;\n  border-bottom-color: var(--hb-line-strong);\n  background: linear-gradient(var(--hb-card), var(--hb-card)), var(--hb-surface);\n}\n.hb-table th button {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  width: 100%;\n  height: 34px;\n  padding: 0 12px;\n  border: 0;\n  background: none;\n  color: var(--hb-muted);\n  font: inherit;\n  font-size: 11.5px;\n  font-weight: 600;\n  letter-spacing: 0.04em;\n  text-transform: uppercase;\n  white-space: nowrap;\n  cursor: pointer;\n}\n.hb-table th.hb-num button { justify-content: flex-end; }\n.hb-table .hb-first, .hb-table th.hb-first button { padding-left: 16px; }\n.hb-table td:last-child, .hb-table th:last-child button { padding-right: 16px; }\n.hb-table tbody tr:last-child td { border-bottom: 0; }\n.hb-table td.hb-first { font-weight: 600; }\n.hb-table td.hb-num { text-align: right; }\n.hb-table td.hb-wrap { min-width: 180px; white-space: normal; }\n/* Sorting: a faint \u2195 on the header under the pointer, \u2191 or \u2193 on the sorted one. */\n.hb-sort { opacity: 0; font-weight: 400; letter-spacing: 0; transition: opacity 0.12s; }\n.hb-table th:hover .hb-sort, .hb-table th button:focus-visible .hb-sort { opacity: 0.6; }\n.hb-table th.hb-sorted .hb-sort { opacity: 1; color: var(--hb-ink-2); }\n/* The best row: an accent edge on its first cell and a chip; the best column: an accent line under its header. */\n.hb-table tr.hb-best td.hb-first { box-shadow: inset 3px 0 0 var(--hb-accent); }\n.hb-table th.hb-best-col { box-shadow: inset 0 -2px 0 var(--hb-accent); }\n.hb-table .hb-chip { margin-left: 8px; vertical-align: 1px; padding: 0 7px; font-size: 11px; line-height: 16px; letter-spacing: 0; text-transform: none; }\n.hb-table th .hb-chip { margin-left: 4px; }\n/* Changes: green for a rise, orange for a fall, with a small bar growing from the middle. */\n.hb-table td.hb-up { color: var(--hb-good); }\n.hb-table td.hb-down { color: var(--hb-warn); }\n.hb-mini { display: inline-block; position: relative; width: 56px; height: 8px; margin-right: 8px; vertical-align: 0; }\n.hb-mini-zero { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 1px; background: var(--hb-line-strong); }\n.hb-mini-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: currentColor; }\n.hb-table td.hb-table-empty { color: var(--hb-muted); font-weight: 400; text-align: center; }\n@media (prefers-reduced-motion: reduce) { .hb-sort { transition: none; } }\n.hb-section .hb-table-card { background: none; border: 0; }\n";
+var table_default = `/* Tables */
+/* A table keeps its natural width (columns close together); the card hugs it. It scrolls inside the card: sideways
+   when wider than the chat, down past 520px with the header kept in view. */
+.hb-table-card { width: fit-content; max-width: 100%; padding: 4px 0 0; overflow: hidden; }
+.hb-table-caption { padding: 10px 16px 2px; }
+.hb-table-scroll { max-height: 520px; overflow: auto; overscroll-behavior: contain; }
+.hb-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+/* With 3 or more columns, a narrow chat scrolls the table rather than squeezing every column. */
+.hb-table-wide { min-width: 420px; }
+.hb-table th, .hb-table td {
+  height: 36px;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--hb-line);
+  background: none;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+/* The header stays in view as the rows scroll; it is painted like the card so rows don't show through. */
+.hb-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 34px;
+  padding: 0;
+  border-bottom-color: var(--hb-line-strong);
+  background: linear-gradient(var(--hb-card), var(--hb-card)), var(--hb-surface);
+}
+.hb-table th button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hb-table th.hb-num button { justify-content: flex-end; }
+.hb-table .hb-first, .hb-table th.hb-first button { padding-left: 16px; }
+.hb-table td:last-child, .hb-table th:last-child button { padding-right: 16px; }
+.hb-table tbody tr:last-child td { border-bottom: 0; }
+.hb-table td.hb-first { font-weight: 600; }
+.hb-table td.hb-num { text-align: right; }
+.hb-table td.hb-wrap { min-width: 180px; white-space: normal; }
+/* Sorting: a faint \u2195 on the header under the pointer, \u2191 or \u2193 on the sorted one. */
+.hb-sort { opacity: 0; font-weight: 400; letter-spacing: 0; transition: opacity 0.12s; }
+.hb-table th:hover .hb-sort, .hb-table th button:focus-visible .hb-sort { opacity: 0.6; }
+.hb-table th.hb-sorted .hb-sort { opacity: 1; color: var(--hb-ink-2); }
+/* The best row: an accent edge on its first cell and a chip; the best column: an accent line under its header. */
+.hb-table tr.hb-best td.hb-first { box-shadow: inset 3px 0 0 var(--hb-accent); }
+.hb-table th.hb-best-col { box-shadow: inset 0 -2px 0 var(--hb-accent); }
+.hb-table .hb-chip { margin-left: 8px; vertical-align: 1px; padding: 0 7px; font-size: 11px; line-height: 16px; letter-spacing: 0; text-transform: none; }
+.hb-table th .hb-chip { margin-left: 4px; }
+/* Changes: green for a rise, orange for a fall, with a small bar growing from the middle. */
+.hb-table td.hb-up { color: var(--hb-good); }
+.hb-table td.hb-down { color: var(--hb-warn); }
+.hb-mini { display: inline-block; position: relative; width: 56px; height: 8px; margin-right: 8px; vertical-align: 0; }
+.hb-mini-zero { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 1px; background: var(--hb-line-strong); }
+.hb-mini-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: currentColor; }
+.hb-table td.hb-table-empty { color: var(--hb-muted); font-weight: 400; text-align: center; }
+/* Interactive tables (interactive: true): a quiet search line above the rows and a tick on each row.
+   The tools row is width:0 + min-width:100% on purpose: it fills the card without ever contributing its
+   own width to the fit-content hug \u2014 the card keeps hugging the columns, not the controls. */
+.hb-table-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 16px 8px;
+}
+.hb-table-filter {
+  flex: 1 1 90px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hb-line-strong);
+  border-radius: 999px;
+  background: var(--hb-surface);
+  color: var(--hb-ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.hb-table-filter::placeholder { color: var(--hb-muted); }
+.hb-table-filter:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 1px; }
+.hb-table-tools .hb-pill { flex: 0 1 auto; min-width: 0; height: 28px; font-size: 12px; }
+/* A card that hugs a narrow table gives the pill less room than its words; they wrap inside the pill \u2014
+   the button never clips them, and its accessible name and title carry them whole regardless. */
+.hb-table-tools .hb-pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Where the last tap went. The tools row is width:0 inside a fit-content card, so these words can never
+   widen the table they talk about \u2014 and they WRAP rather than clip: the recovery instructions are the whole
+   point of the word, so no card is too narrow to read it. A narrow hug grows the card TALLER, never wider. */
+.hb-table-sent { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+  font-size: 12px; color: var(--hb-muted); }
+/* The tick column hugs its checkbox and carries the left indent; the data columns keep their own padding,
+   so the whole cost of opting in is exactly the width of this one column \u2014 never anything from the tools. */
+.hb-table th.hb-pick, .hb-table td.hb-pick { width: 1%; padding: 0 2px 0 16px; }
+.hb-table .hb-pick input[type="checkbox"] { margin: 0; width: 15px; height: 15px; accent-color: var(--hb-accent); }
+@media (prefers-reduced-motion: reduce) { .hb-sort { transition: none; } }
+.hb-section .hb-table-card { background: none; border: 0; }
+`;
 
 // src/blocks/list/list.css
 var list_default = "/* List */\n.hb-list { padding: 4px 0; overflow: hidden; }\n.hb-list-heading { padding: 8px 16px 2px; font-size: 13px; font-weight: 700; color: var(--hb-muted); }\n.hb-list-row {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  padding: 10px 16px;\n  border-top: 1px solid var(--hb-line);\n  color: inherit;\n  text-decoration: none;\n}\n.hb-list > .hb-list-row:first-child, .hb-list-heading + .hb-list-row { border-top: 0; }\n.hb-list-link { cursor: pointer; transition: background 0.15s; }\n.hb-list-link:hover { background: var(--hb-well); }\n.hb-list-rank {\n  flex: none;\n  display: grid;\n  place-items: center;\n  width: 28px;\n  height: 28px;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font-size: 13px;\n  font-weight: 700;\n  font-variant-numeric: tabular-nums;\n}\n.hb-list-photo { flex: none; width: 44px; height: 44px; border-radius: 12px; object-fit: cover; background: var(--hb-well); }\n.hb-list-icon {\n  flex: none;\n  display: grid;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  border-radius: 12px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n}\n.hb-list-initial {\n  flex: none;\n  display: grid;\n  place-items: center;\n  width: 36px;\n  height: 36px;\n  border-radius: 999px;\n  color: #fff;\n  font-size: 15px;\n  font-weight: 700;\n}\n.hb-list-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }\n.hb-list-title { font-size: 14.5px; line-height: 20px; font-weight: 600; overflow-wrap: anywhere; }\n.hb-list-subtitle {\n  display: -webkit-box;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  overflow: hidden;\n  margin-top: 1px;\n  font-size: 13px;\n  line-height: 18px;\n  color: var(--hb-muted);\n}\n.hb-list-value { flex: none; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-list-chevron { flex: none; color: var(--hb-muted); }\n.hb-section .hb-list { padding: 0; }\n\n/* List rows that send a message when tapped */\n.hb-list-button {\n  width: 100%;\n  margin: 0;\n  border: 0;\n  border-top: 1px solid var(--hb-line);\n  background: none;\n  font: inherit;\n  text-align: left;\n}\n.hb-list-button:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: -2px; }\n";
@@ -5398,7 +5685,7 @@ var plugin_default = {
     injectStyles();
     const load = (blockId) => ctx.rest(`/blocks/${blockId}`);
     const rest = (path, init) => ctx.rest(path, init);
-    const send = (text) => composerActions(host?.composer).send(text);
+    const send = (text, opts) => composerActions(host?.composer).send(text, opts);
     const fill = (text) => composerActions(host?.composer).fill(text);
     ctx.register({
       id: "hermes-genui-tag",

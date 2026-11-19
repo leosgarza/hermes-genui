@@ -15,7 +15,7 @@ Baseline: `5f223c2` · Branch: `combined-candidate` · Owner of this build: leos
 | 2 | images: draw tool-generated local files | `956d9dd` | `35078bf` (local-only) | candidate PR for the direction discussed in [issue #11](https://github.com/sagarmainkar/hermes-genui/issues/11) |
 | 3 | BlockTag: hide a block that cannot load | `10b8d52` | same commit (new) | new proposal — see trade-off below |
 | — | rebuilt bundle for all three | `d49c5da` | — | rebuild after taking any subset |
-| 4 | alignment: per-block and per-board placement, with a reader override | branch `alignment` @ `3fe1783` (off the combined three) | this card, test-first | proposal — see section 4 |
+| 4 | alignment: AI-decided card position and text alignment (manual reader chips removed) | branch `alignment` @ `3fe1783` (off the combined three) | this card, test-first | proposal — see section 4 |
 | 5 | provenance footer: `as_of` and a Live/Snapshot word beside the source line | branch `feat/provenance-footer` (off the alignment tree) | this card, test-first | proposal — see section 5 |
 
 ---
@@ -109,61 +109,97 @@ send whichever you prefer as a PR; this one is a proposal, no PR opened yet.
 
 ---
 
-## 4. alignment — per-block left/center/right, a board default, and the reader's own override
+## 4. alignment — AI-decided: card position AND text alignment, no manual control
 
 **What & why.** Every block sat at the left of the chat column. A capped card (a lone calculator, a form, a
-chart) could not center itself beside prose, a whole board could not ask to sit centered, and a reader who
-wanted things elsewhere had no say at all. Owner's ask (2026-11-18): general placement control, model-side and
-manual-side.
+chart) could not center itself beside prose, and a board could not ask to sit centered. Owner's ask
+(2026-11-18, v1): general placement control, model-side and manual-side. **Owner's revision (2026-11-18, v2,
+"just do the auto for both"): the AI decides both where each card sits across the reply and how the words
+inside it read, adaptively from the content — and the manual reader chips are removed.** The reader has no
+alignment control anywhere; there is nothing to override.
 
-**Mechanism.** One semantic field, three voices, one resolution order — reader, then block, then board, then left:
-- `align: "left" | "center" | "right"` on any block spec. Read once, centrally, by `core/readBlocks.ts`
-  (`web/src/core/fields.ts` adds the word reader): trimmed and caseless, anything else ignored — the block still
-  draws, sitting left, exactly as an unknown callout tone becomes "info". No type's own reader or drawing was
-  touched; the word rides beside the block, never into its props-to-DOM path.
-- A board-level default in the stored envelope: `{"align": "center", "blocks": [...]}`. A board saved without a
-  word stays a plain list — the existing file shape is untouched, and old boards read exactly as before. The REST
-  route passes the word through (`{"blocks": [...], "align": "center"}`), includes and the text half take just the
-  blocks (`core/store.py` gains `blocks_of` / `align_of`, both shapes, lenient as everywhere else).
-- Placement draws a non-left block inside a `.hb-place` box — `display: flow-root`, filling the column or cell
-  exactly as the block did — and shifts it with `margin-inline` across the free space. Block layout inside is the
-  point: the block sizes as it sized unwrapped (a capped card stays its 720px cap; a `fit-content` table keeps
-  hugging; prose, a long line and other full-width blocks have no free space and shift by nothing), and the auto
-  margin only shares out what the block left over. Never auto-margin a block directly in a flex column: the margin
-  stops the stretch and the block collapses to its content (a real Chrome regression in `tests/` pins this).
-  Placement resolves recursively — `core/Blocks.tsx` hands containers the same drawing path, so a child's own word,
-  the board's default and the reader's override all reach nested blocks, each placed within the cell the container
-  already gave it (`layout.css` grows the cell rules so a placed card still fills and stretches as its unwrapped
-  siblings do). A board with no ask anywhere draws the DOM it always did: no wrappers, no new nodes,
+**Mechanism.** Two semantic fields, the same three words, the same single resolution order — block, then
+board, then left:
+- `align: "left" | "center" | "right"` on any block spec says **where the card sits**;
+  `text_align: "left" | "center" | "right"` says **how its words read**. Both are read once, centrally, by
+  `core/readBlocks.ts` (`web/src/core/fields.ts`'s word reader serves both): trimmed and caseless, anything
+  else ignored — the block still draws, sitting and reading left, exactly as an unknown callout tone becomes
+  "info". No type's own reader or drawing was touched; the words ride beside the block, never into its
+  props-to-DOM path.
+- Board defaults in the stored envelope: `{"align": "center", "text_align": "right", "blocks": [...]}`.
+  A board saved without words stays a plain list — the existing file shape is untouched, and old boards read
+  exactly as before. `show_blocks` takes both words as optional parameters riding the same envelope as
+  `as_of`/`live`; the REST route passes them through, includes and the text half take just the blocks
+  (`core/store.py` gains `blocks_of` / `align_of` / `text_align_of`, both shapes, lenient as everywhere
+  else).
+- Placement draws a non-left block inside a `.hb-place` box — `display: flow-root`, filling the column or
+  cell exactly as the block did — and shifts it with `margin-inline` across the free space. Block layout
+  inside is the point: the block sizes as it sized unwrapped (a capped card stays its 720px cap; a
+  `fit-content` table keeps hugging; prose, a long line and other full-width blocks have no free space and
+  shift by nothing), and the auto margin only shares out what the block left over. Never auto-margin a
+  block directly in a flex column: the margin stops the stretch and the block collapses to its content (a
+  real Chrome regression in `tests/` pins this). Placement resolves recursively — `core/Blocks.tsx` hands
+  containers the same drawing path, so a child's own word and the board's default both reach nested blocks,
+  each placed within the cell the container already gave it (`layout.css` grows the cell rules so a placed
+  card still fills and stretches as its unwrapped siblings do).
+- The text voice is one class on the same wrapper (`.hb-ta-center` / `.hb-ta-right` in `tokens.css`;
+  `data-text-align` marks it): `text-align` reaches the words by inheritance and moves no box. It is drawn
+  **only for the four blocks whose whole draw is words — heading, text, stat, callout** (`TEXT_BEARING` in
+  `core/Blocks.tsx`); charts, tables, images, layouts and containers ignore the ask completely, so no
+  layout block can gain a node, a class or a reflow. A block asked for both voices gets the one wrapper
+  carrying both. A board with no ask anywhere draws the DOM it always did: no wrappers, no new nodes,
   `widths.test.tsx` unchanged and passing.
-- The reader's override is host-side: a small chip line above every drawn board (`host/BlockTag.tsx`) —
-  **Auto | Left | Center | Right** — remembered per board on this device (`localStorage`), Auto gives the choice
-  back to the model. It outranks every ask, model or board, at every depth, because it is what this reader wants
-  to see now.
+- **A voice needs a line box (review round 2).** `text-align` only moves words that sit in a line box filling
+  the available width — it is no property of a shrink-wrapped flex item. Every `TEXT_BEARING` kind is audited
+  against that rule and measured at real word position in Chrome: heading and text are block boxes that
+  already fill their column; a lone stat card fills its column and its label/value/change lines stretch
+  across the card; only the callout kept its words in a non-growing body beside the fixed icon, and there a
+  scoped rule (`.hb-ta-center .hb-callout-body`, `.hb-ta-right .hb-callout-body` → `flex: 1 1 auto`) opens
+  that body to the row **only when a voice asks** — a callout nobody asked about keeps every rect it always
+  had (hugging its words, exactly the old drawing). The icon never moves and the box never resizes; a
+  centered callout centers its words in the line beside the icon, which is where the words live. A new
+  text-bearing kind joins `TEXT_BEARING` only once its words measure at their voice in the same probe.
+- **Removed in v2 (the manual path):** the host chip line above every drawn board (Auto | Left | Center |
+  Right), its `localStorage` per-board override and its reader-beats-all resolution rank. `host/BlockTag.tsx`
+  and `blockTag.css` lost the control, its styles and its storage reader/writer; `Blocks.tsx` lost the
+  `userAlign` prop and the `user` voice from the placement context. No manual alignment control exists
+  anywhere in the tree. A stale `hermes-genui-align-<id>` key left on a device by v1 is never read (pinned
+  by a host test).
 
-**What did not change.** Max-widths, light/dark theming, container geometry (grids, rows, columns, sections and
-tabs keep every cell they had; only the blocks inside them gain a place), the text fallback's words, the
-`catalog.json`/`describe()` budget (the field is documented in the `show_blocks` parameter descriptions, not the
-pinned catalog text), `check_blocks` (only undrawable things are refused, house rule — a wrong word is a layout
-default, not a broken block).
+**What did not change.** Max-widths, light/dark theming, container geometry (grids, rows, columns, sections
+and tabs keep every cell they had; only the blocks inside them gain a place or a voice), the text fallback's
+words (placement, text alignment and provenance are drawing concerns — text is just blocks), the
+`catalog.json`/`describe()` budget (both fields are documented in the `show_blocks` parameter descriptions,
+not the pinned catalog text), `check_blocks` (only undrawable things are refused, house rule — a wrong word
+is a layout default, not a broken block), the provenance footer's behavior.
 
-**Tests** (behavior in vitest, real pixels in Chrome): vitest **529 passed / 71 files** — 28 over baseline,
-covering the word and its lenience, the envelope default, cascade, block-beats-board, reader-beats-all, caps
-under a place, full-width blocks unshifted, nested placement in a surviving grid/row/section/tabs (child's word,
-board default cascading in, reader override reaching in), the host chips and their remembering. pytest **691
-passed** — 9 new behavior tests across both board shapes end to end (save → include → REST → text), plus 6 new
-real-browser layout regressions (`tests/test_layout_alignment.py`, Chrome headless): measured rects prove a
-placed capped card stays exactly 720px at center and right (190px/380px offsets), full-width prose and wide
-charts stay at the 1100px column (and 360px in a narrow container, unshifted and unshrunk), a `fit-content`
-table keeps its hugging width while moving, nested grid cards match their unplaced twins cell for cell, and a
-placed row cell stretches to the same height as its plain sibling. `ruff` and `tsc --noEmit` clean; bundle
-`desktop/plugin.js` built twice byte-identical.
+**Tests** (behavior in vitest, real pixels in Chrome): vitest **572 passed / 72 files**, covering the two
+words and their lenience, the envelope defaults, cascade (block beats board, board beats left, nothing else),
+the four text-bearing types drawing the voice, layout types provably byte-identical under a `text_align`
+ask, one wrapper shared between position and voice, nested resolution, and a host test that no alignment
+control renders and no remembered key is read. pytest **726 passed** — behavior tests across both board
+shapes end to end (save → include → REST → text) for each word, plus **20** real-browser layout regressions
+(`tests/test_layout_alignment.py`, Chrome headless; the probe now feeds Chrome every stylesheet a text-bearing
+block ships, callout/atoms/kpis included): measured rects prove a placed capped card stays exactly
+720px at center and right, full-width prose and wide charts stay at the column width at every word, a
+`fit-content` table keeps hugging while moving, nested grid cards match their unplaced twins, a row cell
+stretches through a place; the `TestTextVoice` class pins the computed voice (center/right, box unmoved and
+unresized; a plain placement never implies a voice), and the `TestVoiceWords` class measures the WORDS —
+the first-line Range rect of every text-bearing kind at left/center/right with short words (the callout body
+opens 55.9px → 745px beside its untouched 17px icon, its words travel 41.0 → 385.6 → 730.1px on an 800px
+board; heading, text and stat words land at their voice's edge of a full-width line box), a wrapped long
+note centered line by line, a no-ask callout measured against the pre-fix shape, and **three negative
+controls**: the old flex-row shrink-wrap still measures broken; a `data-text-align` attribute without its
+class still computes the left default; and the shipped callout under a scoped NOT-shipped hug still computes
+"center" while its words do not move one pixel — the defect this round fixed, kept measurable forever.
+`ruff` and `tsc --noEmit` clean; bundle `desktop/plugin.js` built twice byte-identical.
 
-**Disclosed trade-offs.** (1) The reader's choice lives in `localStorage`, not the board's server-side state: it
-is a way of looking, not content, and reading it is synchronous — no reflow flash after the board draws.
-(2) The chip line shows on every drawn board, deliberately quiet (11.5px chips at the theme's tertiary text
-color); a hover-only affordance is a one-line CSS change if you prefer it. (3) A word on a flattened container
-(a row drawn as a stack) becomes the word of every block in the stack unless a block asks otherwise.
+**Disclosed trade-offs.** (1) The reader can no longer restyle a board the model aligned badly — the fix for
+a wrong ask is the model's next call, by owner's explicit decision ("just do the auto for both").
+(2) A word on a flattened container (a row drawn as a stack) becomes the word of every block in the stack
+unless a block asks otherwise — for both fields, same rule. (3) `text_align` reaches only the four blocks
+whose draw is words; that boundary is the point — a chart's or a table's internal typography is its own
+drawing's business, and the ask must not grow a wrapper around layout blocks.
 
 ---
 
@@ -189,7 +225,7 @@ the same on Sunday. Owner's ask (2026-11-18): a quiet provenance footer — sour
 - `web/src/core/Blocks.tsx` draws the footer **only when a board declared one**: a quiet column under the
   blocks with only the parts given. The board's first top-level `source` block is absorbed — said once, not
   twice — and it gets its **own full-width row**, drawn **through `Placed`, the very same path as any block**
-  (reader override → block's own `align` → board default → left). The row is a block context on purpose: a
+  (block's own `align` → board default → left). The row is a block context on purpose: a
   `.hb-place` only shares out the space a block context leaves over, so the same box squeezed as a child of
   the join line's flex row shrink-wraps to its content and every word lands back at the left edge (measured
   in Chrome: [8, 29.09] where an 800px board gives [8, 808]). As its own row the footer's source measures
@@ -211,7 +247,8 @@ alignment behaviour and max-widths; the text fallback's words; the `catalog.json
 align, `live:false` kept as a word, junk ignored, over-long cut, section-that-spells-blocks gate, footer
 render order source · as_of · badge, Live vs Snapshot words, parts-only, link dropped to text, only the
 first source absorbed, no-declaration DOM unchanged; plus the review reworks: the footer source keeps
-its per-block / board / reader-placement — the reviewer's `align:"right"` probe and its no-provenance
+its per-block / board placement (the reader-voice tests retired with the chips) — the reviewer's
+`align:"right"` probe and its no-provenance
 control — the placed row sits **beside** the join line, never inside its flex row, and chart sources join
 deduped in draw order while the inline line stays). pytest **708 passed** — 13 new across the whole ride
 (store shapes and leniency, `show_blocks` envelope with/without align, blank and junk words ignored,
@@ -219,7 +256,7 @@ deduped in draw order while the inline line stays). pytest **708 passed** — 13
 RED on the old code. And the real-browser bar the second review round set: `tests/test_layout_alignment.py`
 grew `TestProvenancePlacement` (4 tests) — headless Chrome, the shipped stylesheets, the renderer's exact
 footer DOM at the reviewer's 800px width — asserting every placed footer row spans the row and measures
-word-for-word like the same asks on a no-provenance board, a reader's Right chip landing at Right, and a
+word-for-word like the same asks on a no-provenance board (the reader-chip fixture retired with the chips), and a
 **negative control** scoped to the fixture that re-measures the flex-row shrink-wrap ([8, 29.09]) the
 defect produced, so the probe provably reads geometry, not classes. `ruff` and `tsc --noEmit` clean;
 bundle `desktop/plugin.js` built twice byte-identical.
@@ -233,6 +270,233 @@ line, matching how every other model word is treated. (3) `live` is a claim by t
 nothing re-checks it later — the badge records what the board said, and a board that didn't say gets no
 badge. (4) Dedupe of joined chart sources is exact-text, in draw order: "BLS" and "Bureau of Labor
 Statistics" are two truthful lines, not one.
+
+---
+
+## 6. expand — a full-screen view of the board (the reader's view, not a model word)
+
+**What & why.** A board is drawn at a reading width inside a reply; sometimes the reader wants the whole
+canvas — a wide chart, a long table, a dense plan. Owner's ask (2026-11-18, enhancement wave #2): an expand
+control on every drawn board that opens the SAME board full-screen in a wider container, with Escape and a
+close control back out. Deliberately **not** a stored word: the model still owns what the board says and
+where cards sit (section 4); this is purely the reader's view, and it reuses the one overlay the plugin
+already ships — the images strip's full-size photo dialog (`blocks/images/Images.tsx`) — raised to the board.
+No new modal system, no new dependency, no network, no host/app change.
+
+**Mechanism — one instance, moved not re-drawn.** `web/src/host/BlockTag.tsx` draws a loaded board inside a
+`position:relative` `.hb-tag` shell carrying exactly one real `<button type="button">` (`.hb-expand`,
+`aria-label="Expand board"`, `aria-haspopup="dialog"`), absolutely positioned at the corner and therefore
+**out of flow**; the board itself sits in a `.hb-board-host` wrapper — a **plain block container at rest**,
+so the inline `.hb-blocks` subtree stays byte-identical to what `<Blocks>` draws alone (a vitest equality on
+`outerHTML` pins it; Chrome pins every rect). Expanding is a **layout state of that same element**: the
+wrapper gains the `hb-board-overlay` class (the photo overlay's own numbers — fixed `inset:0`, same z-index,
+same `hb-appear` animation, the scrim's 82% black) and the dialog attributes (`role="dialog"`,
+`aria-modal="true"`, a label), and a close button mounts in front of the board. The board is **never
+re-instantiated**: the blocks were already mounted, so a calculator's sliders, an unsent form draft, a lit
+flow and every other live state survive open, close and reopen **in both directions** — the dialog shows the
+inline board's state, an edit made in the dialog returns with it, and nothing is ever a second copy to fall
+out of sync. (A stateless photo may be re-drawn at full size, as the images strip does; a stateful board
+may not — that is the one honest correction the images pattern needed when it was raised to the board.)
+The panel is the board's own box: one shipped rule — `.hb-board-overlay .hb-blocks` — lifts the 1100px
+reading cap **inside the dialog only** and carries the themed paper (`min(1600px, 100%)`, 24px padding,
+`var(--background)`), so full-width blocks ride the wider column (measured 1552px at a 2000px viewport)
+while every `.hb-blocks > X` cap (the 720px cards, the `fit-content` table) is the board's own selector and
+keeps its number in both views. Keyboard: opening moves focus into the dialog (the close button) and Tab is
+trapped — but the trap walks the **eligible tabbable set**, recomputed per keypress: the focusable selectors
+minus anything disabled (own `disabled` or a disabled `fieldset` — Steps/Layers end on a spent Next, a sent
+form's Send sits behind its fieldset), minus negative-tabindex and hidden controls, minus (where layout is
+real) zero-rect and invisible ones. Wrap lands on the real first/last control, so focus can never sit on a
+dead end or leak out of the dialog; Escape closes — a photo opened from inside the dialog answers the
+topmost layer first — and closing hands focus back to the expand control. The control sits quiet
+(`opacity:0`) until the pointer is over the board or the key reaches it (`:focus-visible`).
+
+**What did not change.** The inline `.hb-blocks` DOM and every inline rect (byte equality in vitest, paired
+rect equality in Chrome — including the new plain wrapper, which measures the bare board); the stored
+envelope, `show_blocks`, `catalog.json`, `describe()` — zero Python source change, this feature adds no
+model word; the reader chips stay removed (section 4: placement remains the model's alone — the expand
+control is a view, not an alignment ask, and the "no alignment control" test asserts every host button
+except the expand control is still forbidden); boards that are never expanded render exactly what they
+rendered before; theming (host vars with the same fallbacks the host states already use), a11y, provenance
+behavior, alignment width semantics.
+
+**Tests.** vitest **588 passed / 72 files** — 16 in the expand suites. Structural: the control is a real
+button outside `.hb-blocks`; no control while streaming or on a failed board; inline byte-identity against
+a bare `<Blocks>` draw; the dialog holds **the same element** (identity assertions, exactly one
+`.hb-blocks` in the document); close and Escape return to inline with focus handed back; Tab wraps at both
+ends; scrim clicks close while board clicks do not; placement, voice and the provenance footer all survive
+expanded; the photo layer answers Escape first. Behavioral (the review round-1 contracts): a calculator
+moved 40→70 inline shows **70** in the dialog on the same input node, an edit to 90 in the dialog shows 90
+inline after close and **after reopen**; an unsent form draft survives the same round trip; the trap with a
+disabled final button, a disabled-fieldset Send, a negative-tabindex input and a hidden button wraps
+forward and reverse on the real ends and never lands focus on a dead control. The cascade itself: the same
+board element computes `max-width: 1100px` inline, `none` while the dialog is open and 1100px again after
+close, with the 720px card cap identical in all three states. pytest **738 passed** — 12 in
+`tests/test_expand_fullscreen.py`: real headless Chrome (2000×1400, shipped stylesheets including
+`blockTag.css`, renderer-equivalent DOM): every rect inside the wrapped board measures word-for-word what
+the same blocks measure unwrapped and the plain wrapper itself fills the tag exactly as a bare div would,
+and those numbers are the accepted alignment probe's own (1100 board, 720 caps, prose at the cap); the ONE
+expanded board element measures the 1600px paper box with prose and the wide chart riding its 1552px column,
+capped cards staying 720 and landing exactly centered/right in the wider column, the `fit-content` table
+still hugging its old width, the provenance place spanning the whole wider row, and the close control
+holding the viewport corner. **Two negative controls**, each scoped rules that are NOT shipped CSS, keep
+both wrong implementations measurable forever: an overlay that forgot to lift the cap reads inline widths
+in "full screen" (1100, prose never travels), and a widening that also loosened the caps inflates cards to
+the full column — the shipped dialog matches neither shape. A swap experiment (the single shipped rule
+commented out) turned the four expanded geometry tests **and** both negative-control comparisons RED while
+all four inline-unchanged tests stayed GREEN. `ruff` and `tsc --noEmit` clean; bundle `desktop/plugin.js`
+built twice byte-identical (`fbd222073f10…`). Truthful rendered evidence (program requirement):
+`before.png` — the base tree drawing the board through the shared capture tool; `after.png` — the candidate
+inline (control at its keyboard focus state; byte-identical to the accepted frame — the wrapper costs the
+inline view nothing) beside the expanded dialog, which now honestly shows the inline slot emptied while the
+one board rides the wider panel.
+
+**Disclosed trade-offs.** (1) While expanded the wrapper is out of flow, so the inline slot is empty behind
+the scrim (the images pattern's own behaviour, now for real: the board moved, it did not stay and duplicate)
+— the scrim covers the page anyway and close restores the element to flow with its state intact. (2) The
+tabbable filter's layout half (rects, visibility) only counts where layout is real; jsdom reports a zero
+rect for every element, so there the attribute shape (`disabled`, `tabindex`, `hidden`, `fieldset`) governs
+and Chrome plus the shipped renderers pin the rest. (3) The 1600px panel and the 1100px inline cap are
+design numbers, pinned by the Chrome probe rather than by viewport math; a narrower viewport simply gives
+the dialog its full `100%` minus scrim padding, and the board fills whatever it gets.
+
+---
+
+## 7. table — `interactive`: search the rows, tick them, send them to the chat (a model word)
+
+**What & why.** Owner's ask (2026-11-18, enhancement wave #3): make the drawn table a work surface — a quiet
+search that narrows the rows, the header sorting that already shipped ordering the survivors, checkboxes on
+the rows, and one tap that posts the picked rows back into the conversation as context. Unlike expand
+(section 6), this IS a model word: a table with `interactive: true` gets the controls. Every table without
+it — and every board stored before this change — draws exactly what it drew before.
+
+**Mechanism — the same table, with controls on top.** Nothing is rebuilt. `readTable`
+(`web/src/blocks/table/read.ts`) keeps `interactive` only when it says exactly `true`, the same strict
+convention as `collapsed` or `numbered`. `Table.tsx` then adds:
+
+- a tools row (`.hb-table-tools`) between the caption and the rows: a `type=search` input
+  (`aria-label="Filter rows"`), one shipped `.hb-pill` button, and a `role="status"` line that tells
+  where the last tap went. The button reuses the plugin's tap-to-send mechanism — the one submit
+  implementation in `host/actions.ts`, not a second one — with `force: true`: a picked selection is
+  the reader's own message, written by ticking rows, so the length convention that holds a suggestion
+  tap under `MAX_SENT` does not hold this one; the message is submitted to the chat whatever its
+  length. The command/file guard holds either way (`actsBeforeTheModel` — text is about trust, not
+  about who typed it): a pick that starts like a command or carries an `@-reference` is never
+  auto-submitted; it lands in the composer for the user to read and send, as it always did. A submit
+  the host refuses falls back to a draft the same way. And a word is only ever said AFTER the host
+  has answered: `insertText` is a promise that can resolve false (no mounted surface took the text)
+  or reject (the call died), and neither is a draft — the `role="status"` line names exactly what
+  happened and nothing more. `Sent to chat.` (submit said yes), `In the composer — press Send.`
+  (an acknowledged draft), `Blocked from sending — in the composer — press Send.` (the guard held an
+  explicit send back and the composer acknowledged keeping it — the real reason, out loud, never a
+  bare assumption of a draft), `Send failed — nothing was sent or kept.` (the insert refused or
+  died: nothing is claimed, and the ticks stay put so the tap can be retried), `No chat here.` (no
+  app composer around). A late answer from an older tap is dropped — only the last tap may label the
+  row. The button's `title` shows the full message before the tap, the same hover-truth the action
+  buttons already keep. And the word is written to be READ on any card: `white-space: normal` with
+  `overflow-wrap: anywhere` lets it WRAP — no nowrap, no ellipsis, nothing that truncates — so a card
+  hugging a narrow table grows taller rather than ever cutting off the recovery instructions; the
+  region is `role="status"` plus an explicit `aria-live="polite"` — announced as well as shown.
+- the seam (`web/src/host/actions.ts`) grows in place: `send(text, opts?)` now answers
+  `Promise<"sent" | "drafted" | "blocked" | "failed" | "nowhere">` — and never rejects, so ignoring
+  it stays safe. `"drafted"` and `"blocked"` are answered only once the insert has acknowledged
+  (resolved true); a refused or dead insert answers `"failed"`. `opts.force` waives only the length
+  convention, never the guard. Every existing caller keeps its exact behavior (one argument, return
+  ignored — long suggestion taps still draft); the app wiring in `plugin.tsx` forwards the options
+  so a block's `force` is not lost at the host seam.
+- filtering: `rowMatches` (`table/pick.ts`) is a case-insensitive substring over any cell of the row's
+  stored text. The visible rows are the shipped `sortedOrder(rows, sort)` narrowed by the query, so
+  header clicks — up, down, back to as-written, with `aria-sort` — keep ordering whatever survived.
+- selection: one added column (`.hb-pick`) with a checkbox labelled `Select row {first cell}` per row.
+  Picks are keyed by the original row index, so ticks survive sorting and filtering; a tick on a row
+  hidden by the query stays ticked when it returns.
+- the message: `pickedMessage(caption, columns, rows, picked)` — `{caption}:` (or `Table:`), the column
+  names once, then each picked row joined with ` | `, in table order. The names once are what let the
+  chat tell a price from a rating; the shape follows the form block's sent-answer.
+- the empty states: the shipped “No rows to show.” row for an empty table, and a clear
+  `Nothing matches “{query}”.` row when a query excluded every row.
+
+**fit-content, preserved by construction.** The card still hugs its table: the tools row is
+`width: 0; min-width: 100%`, so it fills the card without ever contributing its own intrinsic width —
+the only width opting in adds is the checkbox column itself. A dedicated real-Chrome regression
+(`tests/test_table_interactive_width.py`, 19 tests, 2000×1400) measures it: the plain card equals its
+table plus the border to 0.01px; the interactive card minus the plain card equals the tick column to
+0.5px; the tools row measures exactly the card's content width and neither control crosses the card
+edge; a one-row filtered table hugs just the same; and on that narrowest card with the status line
+filled to its longest word (the after-tap state), the card still measures exactly what it measured in
+silence — spoken feedback costs zero width. The same suite reads the words themselves: for every
+shipped outcome (sent, drafted, blocked, failed) on the narrowest hugging card the span must have no
+horizontal overflow AND every word's own laid-out range rect must sit fully inside the span's box —
+layout truth, not markup (review round 3 caught `Blocked…` clipped to 174px of a 274px sentence, at
+exactly the width the geometry tests had been calling perfect). Two negative controls keep both defect
+shapes measurable forever: the same DOM with a NOT-shipped `width: auto` tools row inflates the card
+~150px past the table it should hug, and the same narrow DOM restyled to the OLD clip rule truncates
+mid-sentence while still hugging — proving the readability probes detect, not decorate.
+
+**What did not change.** A table without the word draws the identical tree — no input, no tick column,
+no send control; its only buttons are the header sorts (vitest guards both the absence and the always-
+shipped sort cycle; the static default grows no status line either). `send` for callers that do not
+pass `force` keeps the same host calls in the same order — the length convention, the guard, the
+draft-on-refusal are all intact — with one honesty difference: the draft's caret now follows only an
+acknowledged insert, and the result is a promise that never rejects, so a caller ignoring it is
+unaffected. The new CSS is scoped to the new classes; `widths.test.tsx` passes untouched.
+Python is untouched in behaviour: `check_table` refuses only undrawable things, and a miswritten
+`interactive` is neither undrawable nor fatal — the drawer just falls back to static. `store.save`
+keeps the word verbatim; old stored boards have none. The text fallback (`text_table`) is unchanged.
+
+**How the model learns the word.** Not through the catalog: `describe()` sits at 12,985 of a pinned
+13,000-character budget, so every byte of `catalog.json` is load-bearing. The `interactive` sentence
+rides the `blocks` parameter description of `show_blocks` instead, and a schema test pins that it is
+there (the same route proven by `align`, `text_align`, `as_of` and `live`).
+
+**Tests.** vitest **624 passed / 75 files** (+36 over the accepted base: the strict reader word, 4
+pure-helper cases, 8 component tests — filter narrows, sorting orders the survivors, the no-matches
+row, selection sends the exact message, ticks survive the round trip through sort and filter, a11y
+names on every added control, two old-table guards; 11 seam cases — the force path plus the honest
+answers (an acknowledged draft, an insert that resolves false → `failed`, an insert that rejects →
+`failed` without rejecting the send, guard-held ack → `blocked`, refused-but-acked fallback →
+`drafted`); and 13 integration cases wiring `Table.tsx` to the REAL `composerActions` on a fake app
+composer — a short pick submits, the 122-character three-row pick submits (the exact case review
+round 1 caught silently drafting), a guarded pick is never submitted and the acked hold is NAMED as
+blocked, a refused submit that lands in an acked draft says so, a draft the surface REFUSED or whose
+insert REJECTED says `Send failed — nothing was sent or kept.` and keeps the ticks for a retry, a
+late answer from an older tap cannot overwrite the newest word, no composer does nothing without
+throwing, the word clears when the pick changes and a second tap posts afresh, and the status region
+is pinned as an explicit polite live region. pytest **760 passed** (+22: 19 real-Chrome width tests —
+the spoken-feedback test fills the live region with the LONGEST shipped word and the clip probe reads
+every word's own laid-out rect on the narrowest card, across all four outcome words, with the old
+clip rule restyled as the second negative control — checker tolerance, stored-verbatim, schema
+documentation). `tsc --noEmit` and ruff clean; the Desktop bundle builds twice byte-identical.
+
+**Disclosed trade-offs.** (1) On a very narrow hug the BUTTON's words wrap onto more lines inside the
+pill (never clipped; the full name rides the accessible name and hover title too) — and the OUTCOME
+words (what happened, what to do) wrap likewise: the card grows taller, never wider, and nothing the
+reader needs to recover is ever cut off (review round 3). (2) The query and the ticks are per-render
+view state, not stored: reopen the chat and the board is interactive again but freshly unfiltered, in
+line with the rest of the plugin (no new persistence). (3) The filter matches the stored cell text, not
+the displayed abbreviation: `44999` does not match a `₹44,999` cell (the comma is real), though it
+matches `₹44,999` typed whole; a `44.9K` display shortening is display-only. (4) There is no
+select-all: the wave asked for row ticks and one send, and an all-rows toggle raises "all visible or
+all rows?" questions the smallest change should not answer. (5) The forced send adds no length cap of
+its own — deliberate: a picked selection is the user's own message and the host's `submit` is the
+authority. If it refuses, the text is drafted, and the word waits for the composer's acknowledgment —
+an insert the surface refused or that died is said as a failure, never dropped and never faked. (6) A
+pick that carries a command or file reference is never auto-submitted — the guard cannot tell "my row
+happened to contain `@file:`" from "this is a command" — and when the composer acknowledges holding
+it, the status line names the real reason: `Blocked from sending`. If the composer does NOT
+acknowledge, it says the text was saved nowhere instead of claiming a draft. (7) The review of the
+first cut caught that the plain `send` path silently drafted the ordinary three-row pick (122 chars >
+`MAX_SENT`); the force path plus the real-seam integration tests are that fix, and the mocked unit
+test that missed it is kept beside them, pinning the exact message, not the outcome. The review of
+the second cut caught the deeper lie: `"drafted"` was answered the moment insertText was CALLED,
+discarding the SDK's `Promise<boolean>` — a surface that answers false (nothing mounted) or rejects
+was still told "In the composer — press Send." Acknowledged-only answers, the explicit `blocked`
+and `failed` words, and the last-tap guard against stale overwrites are that fix, pinned branch by
+branch on the real seam. (8) The review of the third cut caught that even a truthful word can be
+unreadable: the narrowest hugging card CLIPPED `Blocked from sending…` mid-recovery-instruction under
+a nowrap/ellipsis style, at a width the geometry tests had been certifying as a perfect hug. Words
+that wrap instead of clip, the explicit polite live region, and the real-Chrome per-word rect probe
+with the old clip rule as a standing negative control are that fix — and the general rule they pin:
+outcome text never truncates, at any card width.
 
 ---
 
@@ -250,6 +514,10 @@ Statistics" are two truthful lines, not one.
   the combined bundle with a partial source tree.
 - The alignment change (section 4) is on branch `alignment`, off the combined candidate (`3fe1783`), with its
   own rebuilt bundle; it assumes the combined three are in place and was tested there.
+- The provenance change (section 5) and the AI-decided alignment rework (section 4's round 2) are stacked on
+  that line; the expand change (section 6) sits on the accepted auto-alignment tree (`6a296f1`, tree
+  `53a14b8e`) on branch `fullscreen-board`, with its own rebuilt bundle
+  (`9c2c1010aee2…`); it assumes everything above it and was tested there.
 - No new runtime dependency (the build still bundles only `web/src`), no new network call, no Hermes
   host/app change, no new block type, no `catalog.json`/prompt-size change (`tests/fixtures/describe.txt`
   untouched; the description-budget test passes).

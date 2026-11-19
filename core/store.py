@@ -176,6 +176,16 @@ def align_of(board: object) -> str | None:
     return word if isinstance(word, str) else None
 
 
+def text_align_of(board: object) -> str | None:
+    """The text-alignment word a stored envelope carries for the whole board (how the words inside the blocks
+    read), or None. Like the align word it is checked where it is drawn; the store keeps any text as written.
+
+    text_align_of({"text_align": "center", "blocks": [x]}) → "center";  text_align_of([x]) → None
+    """
+    word = board.get("text_align") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
 def as_of_of(board: object) -> str | None:
     """The date line a stored envelope carries for the whole board, or None. Like the align word it is checked
     where it is drawn; here only what was never text (or is empty) is refused.
