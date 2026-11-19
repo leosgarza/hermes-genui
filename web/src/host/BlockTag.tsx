@@ -14,11 +14,14 @@
 // inline view and the element settles back into flow; state survives open, close and reopen in both directions
 // because the blocks were never unmounted. Focus lands in the dialog on open, stays inside it while open, and
 // lands back on the control on close; the trap wraps Tab on the eligible tabbable controls (see tabbableIn),
-// never on disabled, negative-tabindex or hidden ones. A board that is not expanded draws exactly the markup
+// never on disabled, negative-tabindex or hidden ones — and only while the board is the TOP of the overlay
+// stack: a chart detail or a photo opened from inside it answers the keys first, and one Escape steps the
+// reader down exactly one layer (core/overlays.ts). A board that is not expanded draws exactly the markup
 // it always drew: the control lives outside the board wrapper, and the wrapper takes no part in layout.
 import { useContext, useEffect, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
 import { readBlocksNoted } from "../core/readBlocks";
+import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
@@ -77,14 +80,18 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
 
   useEffect(() => {
     if (!expanded) return;
+    const layer = pushLayer();  // the board holds the keys until something opens over it
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // A photo opened from inside this dialog sits above it; the key answers the topmost layer first.
-        if (document.querySelector(".hb-photo-overlay")) return;
+        // A detail or a photo opened from inside this dialog sits above it; the key answers the topmost layer
+        // first — the board only closes when it IS the topmost one (core/overlays.ts).
+        if (!isTopLayer(layer)) return;
+        e.stopImmediatePropagation();  // one keypress steps down exactly one layer
         close();
         return;
       }
       if (e.key !== "Tab" || !hostRef.current) return;
+      if (!isTopLayer(layer)) return;  // the focus trap belongs to the topmost dialog alone
       const items = tabbableIn(hostRef.current);  // the DOM can change while open: recompute per keypress
       if (!items.length) return;
       e.preventDefault();  // the dialog owns the keyboard: Tab steps only through its own eligible controls
@@ -95,7 +102,10 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
       items[next].focus();
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popLayer(layer);
+    };
   }, [expanded]);
 
   if (!validId && !streaming) return null;

@@ -220,7 +220,10 @@ SHOW_BLOCKS_SCHEMA = {
                 "description": "The blocks to draw, in order. Each has a `type`, may ask for its place with "
                 "`align`: left | center | right, and may say how its words read with `text_align`: left | center | "
                 "right. A table may also carry `interactive`: true, which lets the reader search its rows, tick "
-                "the rows that matter and send the picked ones back to the chat; without it a table draws static.",
+                "the rows that matter and send the picked ones back to the chat; without it a table draws static. "
+                'A chart may also carry `kind`: "scatter" (a dot at each x/y pair; x labels that are all numbers '
+                'place the dots by value) or "histogram" (one series of the raw values themselves — no x needed: '
+                'it counts them into about six round bins).',
             },
             "align": {
                 "type": "string",

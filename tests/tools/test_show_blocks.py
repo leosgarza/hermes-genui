@@ -72,6 +72,13 @@ def test_the_interactive_word_is_documented_where_the_model_reads_the_blocks(sto
     assert "`interactive`: true" in desc
 
 
+def test_the_new_chart_kinds_are_documented_where_the_model_reads_the_blocks(store_dir):
+    # Same seam as the interactive word: describe() is pinned at its cap, so scatter and histogram are
+    # documented in the blocks parameter the model reads beside it.
+    desc = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]["blocks"]["description"]
+    assert '"scatter"' in desc and '"histogram"' in desc
+
+
 def test_the_interactive_word_is_stored_verbatim(store_dir):
     table = {"type": "table", "caption": "Phones", "columns": ["A"], "rows": [["x"]], "interactive": True}
     result = tools.show_blocks({"blocks": [table]})

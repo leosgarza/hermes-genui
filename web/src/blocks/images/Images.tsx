@@ -3,6 +3,7 @@
 // generated local path asks the desktop host to read the file (blocks/images/localImage.ts) and shows nothing until
 // that answers; a failed read hides it, like a dead link.
 import { useEffect, useRef, useState } from "react";
+import { isTopLayer, popLayer, pushLayer } from "../../core/overlays";
 import type { ImagesBlock, Photo } from "./read";
 import { isGeneratedImagePath, readGeneratedImageDataUrl } from "./localImage";
 
@@ -63,9 +64,17 @@ export function Images({ block }: { block: ImagesBlock }) {
  *  or Escape closes it. */
 function Overlay({ shown, onClose }: { shown: Shown; onClose: () => void }) {
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const layer = pushLayer();  // the photo is the topmost thing a key can answer while it is up
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || !isTopLayer(layer)) return;  // (core/overlays.ts)
+      e.stopImmediatePropagation();  // one keypress steps down exactly one layer
+      onClose();
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popLayer(layer);
+    };
   }, [onClose]);
   const { photo, src } = shown;
   return (

@@ -103,6 +103,40 @@ def test_chart_tone_is_change_on_a_line_chart_only():
     assert check_blocks([{**chart_with(two), "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
 
 
+# --- chart: the new kinds ---------------------------------------------------------------------------
+
+def test_scatter_is_a_kind_checked_like_a_line():
+    assert check_blocks([chart_with([{"data": [3, 4]}], kind="scatter", x=["1", "2"])]) == []
+    assert check_blocks([chart_with([{"data": [3]}], kind="scatter", x=["1", "2"])]) == [
+        "0.series.0: data has 1 values but x has 2 labels"]
+
+
+def test_a_histogram_bins_one_series_and_never_asks_for_x():
+    hist = {"type": "chart", "kind": "histogram", "series": [{"name": "Scores", "data": [5, None, 61]}]}
+    assert check_blocks([hist]) == []
+    assert check_blocks([{**hist, "kind": "hist"}]) == []
+    assert check_blocks([{**hist, "x": ["ignored"] }]) == []  # any x a writer leaves is ignored, not an error
+
+
+def test_a_histogram_without_values_or_with_two_series_is_not_drawable():
+    hist = {"type": "chart", "kind": "histogram"}
+    assert check_blocks([hist]) == ["0: chart needs 1-6 series"]
+    assert check_blocks([{**hist, "series": [{"name": "A", "data": []}]}]) == ["0: chart needs at least one number"]
+    two = {"type": "chart", "kind": "histogram",
+           "series": [{"name": "A", "data": [1]}, {"name": "B", "data": [2]}]}
+    assert check_blocks([two]) == ["0: a histogram bins the values of one series"]
+    words = {"type": "chart", "kind": "histogram", "series": [{"data": ["cold", "warm"]}]}
+    assert check_blocks([words]) == ["0.series.0: data must be numbers (null for a gap)"]
+    mixed = {"type": "chart", "kind": "histogram", "series": [{"data": ["cold", 2]}]}
+    assert check_blocks([mixed]) == ["0.series.0: data must be numbers (null for a gap)"]
+
+
+def test_a_histogram_tone_is_still_line_only():
+    hist = {"type": "chart", "kind": "histogram", "series": [{"data": [1, 2]}]}
+    assert check_blocks([{**hist, "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
+    assert check_blocks([{**hist, "tone": "green"}]) == ['0: tone can only be "change"']
+
+
 def test_kpi_trend_is_2_to_60_numbers():
     def kpis(trend: object) -> dict:
         return {"type": "kpis", "items": [{"label": "Close", "value": 3100},

@@ -326,6 +326,62 @@ describe("BlockTag expand / full-screen", () => {
   });
 });
 
+describe("BlockTag nested overlays — the chart detail inside the expanded board", () => {
+  // A drill-down can open over an expanded board: a chart, expanded, drilled. The keyboard then belongs to the
+  // topmost layer alone — the first Escape closes the detail (the board stays expanded, focus returns to the
+  // drawing, its pick kept) and only a second Escape closes the board (focus back on the expand control). The
+  // board's Tab trap must not reach past the dialog above it (core/overlays.ts is the stack).
+  const line = { type: "chart", kind: "line", title: "Temps", x: ["Jun", "Jul"], series: [{ name: "°C", data: [20, 30] }] };
+
+  const openDrill = async () => {
+    const view = await openExpanded([line]);
+    const svg = document.querySelector<SVGSVGElement>(".hb-board-overlay svg.hb-chart-svg")!;
+    svg.focus();
+    fireEvent.keyDown(svg, { key: "ArrowRight" });   // pick Jun
+    fireEvent.keyDown(svg, { key: "Enter" });        // drill into it
+    await waitFor(() => expect(document.querySelector(".hb-chart-detail")).toBeTruthy());
+    return { ...view, svg };
+  };
+
+  it("the first Escape closes the detail ONLY — the board stays expanded, focus back on the drawing", async () => {
+    const { container, svg } = await openDrill();
+    const dialog = document.querySelector<HTMLElement>(".hb-chart-detail")!;
+    const button = dialog.querySelector("button")!;
+    expect(document.activeElement).toBe(button);                        // the dialog owns the keyboard
+    fireEvent.keyDown(button, { key: "Escape" });
+    expect(document.querySelector(".hb-chart-detail")).toBeNull();      // the detail answered the key…
+    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();   // …and nothing under it did
+    expect(document.activeElement).toBe(svg);                           // back to the drawing it opened from
+    expect(container.querySelector("svg.hb-chart-svg")).toBe(svg);      // the ONE chart, never re-mounted
+    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("Jun");  // its pick survived the round trip
+  });
+
+  it("a second Escape then closes the board itself, focus back on the expand control", async () => {
+    const { button: expand, svg } = await openDrill();
+    fireEvent.keyDown(document.querySelector(".hb-chart-detail button")!, { key: "Escape" });  // the detail first
+    fireEvent.keyDown(svg, { key: "Escape" });                                                 // then the board
+    expect(document.querySelector(".hb-chart-detail")).toBeNull();
+    expect(document.querySelector(".hb-board-overlay")).toBeNull();
+    expect(document.activeElement).toBe(expand);
+  });
+
+  it("Tab belongs to the topmost dialog only; the board's trap resumes when it closes", async () => {
+    const { svg } = await openDrill();
+    const dialog = document.querySelector<HTMLElement>(".hb-chart-detail")!;
+    const close = dialog.querySelector("button")!;
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(close, { key: "Tab" });
+    expect(document.activeElement).toBe(close);                    // the dialog's own trap, not the board's
+    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(close);                    // wrapping both ways
+    fireEvent.keyDown(close, { key: "Escape" });                   // close the detail
+    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();
+    fireEvent.keyDown(svg, { key: "Tab" });                        // the board's trap owns the keys again
+    const host = document.querySelector(".hb-board-overlay")!;
+    expect(host.contains(document.activeElement)).toBe(true);
+  });
+});
+
 describe("BlockTag expand width semantics", () => {
   // jsdom cannot lay out, but it does resolve the cascade: the board keeps the 1100px reading cap inline, and
   // the ONE shipped dialog rule opens that same element — and only its cap — to the wider container while every

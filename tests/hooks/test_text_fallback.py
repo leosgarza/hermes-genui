@@ -140,6 +140,18 @@ def test_pie_shows_top_slices_with_shares():
     assert render(pie) == "**Mix**: A 50%, B 20%, C 15%, D 10%, +1 more"
 
 
+def test_histogram_reads_its_values_not_its_bins():
+    hist = {"type": "chart", "kind": "histogram", "title": "Scores", "unit": "pts",
+            "series": [{"name": "Students", "data": [3, 40, 40, 70, None]}]}
+    assert render(hist) == "**Scores** (pts): 4 values, 3 → 70, median 40"
+
+
+def test_scatter_reads_its_spread_per_series():
+    scat = {"type": "chart", "kind": "scatter", "title": "Size vs price", "x": ["1", "2", "4"], "unit": "kg",
+            "series": [{"name": "Samples", "data": [10, 14, 12]}]}
+    assert render(scat) == "**Size vs price** (kg): Samples 3 points, y 10 → 14"
+
+
 # --- tables ---------------------------------------------------------------------------------------
 
 def test_table_is_markdown():

@@ -500,6 +500,159 @@ outcome text never truncates, at any card width.
 
 ---
 
+## 8. chart — drill-down on every drawing, plus scatter and histogram (enhancement #4, this card)
+
+**What & why.** A chart could already be *looked at* (hover card, keyboard stepping) but not *read closely*: the
+card fades with the pointer, its numbers share a 12.5 px line, and a model that wanted a point cloud or a value
+distribution had no kind to ask for — `scatter` silently drew a line, and a histogram had no shape at all (no x
+labels: refused; faked x labels: drawn as a line). This section stacks two small things on the accepted table
+tree (`8fbe668a`): clicking a datum opens it, focused, over the window; and two chart kinds join the renderer
+through its existing scales, axes and theming.
+
+**Mechanism** (the existing chart block extended, not rebuilt):
+- `chartData.ts` / `blocks/chart.py` — `scatter` and `histogram` join `CHART_KINDS` (alias `hist`); a histogram
+  takes one series. `histogramBins(values)` counts the values into about six bins at round edges — the drawing's
+  own `niceTicks` makes the edges, so bins land on numbers a reader can say out loud (`50–60`, `60–70`…).
+- `read.ts` — a histogram's bins become its x labels and its counts its bars; any x left on it is ignored; the
+  unit belongs to the values, so the count axis carries none. Everything else reads exactly as before.
+- `layout.ts` — a scatter whose x labels are all numbers places dots by value (a real x scale); words space them
+  evenly like a line. Its x labels thin by their real positions (crowds collapse, ends always show). Histogram
+  bars stand on the zero baseline and write their counts, like any column chart.
+- `ChartDetail.tsx` + `chart.css` — the drill-down: the images strip's full-size overlay (same scrim, same z,
+  same host close control) showing one datum — its label, each series's FULL value, a note (a slice's share, a
+  bin's count of the values, a line's change since its start) and the chart's own source. It mounts as the
+  drawing's SIBLING, never inside the card: Chrome measures that a card which transforms or contains its own box
+  (every entrance animation does) shrinks a fixed overlay mounted within it to the card. One dialog instance at
+  a time; the chart behind is never re-instantiated, so its pick survives open, close and reopen.
+- Open: a click that did not drag (8px), Enter/Space on the focused drawing (`pickKeys` gained `activate`), or a
+  click on a slice/legend row/hbar row. Close: Escape (a photo above answers first, as the host's dialog already
+  defers), the close control, the scrim. Focus lands on the close control, Tab stays there, and returns to the
+  drawing on close; the dialog is `role="dialog"` `aria-modal`, and every drawing now says `aria-haspopup`.
+- `blocks/chart.py` — a histogram needs no x (any x is ignored, not refused); its data must be numbers or null
+  gaps, at least one number, one series; tone stays line-only. `text_chart` says a histogram's spread
+  (`4 values, 3 → 70, median 40`) and a scatter's range (`Samples 3 points, y 10 → 14`).
+- `tools/show_blocks.py` — the new kinds are documented in the blocks-parameter description, NOT in
+  `catalog.json`: `describe()` sits 15 characters under its pinned cap, and the `interactive` table word already
+  established this seam (and its test).
+
+**Tests.** vitest **672 passed / 77 files** (+48, incl. the round-1 and round-2 review fixes below): scatter dots and no line; histogram bins (pure sums, reader,
+drawing, headline of values); drill-down opens/closes and PRESERVES STATE — the same svg node object before,
+during and after, the picked column still lit after close, the same datum on reopen; drag-scrub does not open;
+a11y (dialog roles, focus in/out, Tab trap, `aria-haspopup`); pie slice and hbar row clicks. The old 624 all
+pass untouched, and the stored-shape guard is kept: `chartKind("scatter")` used to fall back to line — the
+change is the opt-in, and every old kind's drawing is asserted unchanged. pytest **782 passed** (+22: 7 checker
+and text-fallback and schema-word tests, and 9 REAL-CHROME layout tests in
+`tests/test_chart_drilldown_overlay.py` — with the dialog mounted the board measures its undrilled self
+word-for-word (720 caps, the fit-content table hug, the pie, the board box), the dialog itself measures the
+measured viewport (never an assumed `--window-size`), its card centres at the shipped `min(440px, 100%)`, the
+close control holds the corner — and two NOT-shipped defect shapes stay measurable: a dialog that never left
+the flow (band, board grows) and a dialog mounted inside a transformed card (shrinks to the card). The
+reduced-motion gate on the dialog's own entrance is what lets the corner be read at rest, and the probe proves
+it), plus 6 REAL-POINTER Chrome tests in `tests/test_chart_scatter_cluster_chrome.py` (round 2, below)). `tsc`
+and ruff clean; the Desktop bundle builds twice byte-identical
+(`b947269b…`). Truthful before/after PNGs (`captures/`): old bar chart pixel-identical (byte-identical PNGs,
+sha `394375b5…` both sides); scatter before drew a line with a change chip, after draws dots; histogram before
+drew NOTHING (the block was refused), after draws its bins; the drill frame shows the dialog over the board.
+
+**Disclosed trade-offs.** (1) Old stored charts draw exactly as before — the DOM diff on a stored bar chart is
+one added attribute, `aria-haspopup="dialog"` (invisible; the PNGs are byte-identical). (2) A pie slice's click
+now opens its detail instead of toggling the fade; the fade itself still works on hover and the arrow keys, and
+Escape still steps down — the card asked for segment clicks to drill, and a second click to unselect had a
+wider use than a detail view never took away. (3) `kind: "scatter"` previously drew a line; a stored scatter
+chart therefore changes appearance — that is the opt-in working, and the only stored-kind behaviour change.
+(4) Histogram bins are the reader's call, not the model's: ~6 bins at round edges (niceTicks), always the same
+for the same values; no bin controls, per the AI-decides rule. (5) A scatter with one repeated x value centres
+its dots (a zero-width axis would put them all at the left edge); words as x labels fall back to even spacing.
+(6) The dialog reuses the host's `.hb-overlay-close` styling (blockTag.css) — the capture frames therefore join
+the host sheet, as the app ships it. (7) Two charts on one board can each hold a drill state; only one dialog
+is ever on screen because the first covers the board — a second cannot be clicked through, and Tab stays in the
+open dialog.
+
+**Review corrections (round 1).** Two integration probes against the real components — the reviewer's, and the
+tests this pass adds — pinned defects the unit view could not see:
+
+- **One Escape collapsed two layers when nested.** The expanded board, the chart detail over it and the photo
+  over both each listened on the window on its own; the board sniffed for an open photo and stood aside, and
+  the detail sniffed the same — but nothing sniffed the detail. Escape on a detail opened inside an expanded
+  board therefore closed the detail AND the board together, losing the view the reader had just come from.
+  `core/overlays.ts` gives all three one LAYERED stack: an open layer takes the top, keys answer the topmost
+  layer alone (it stops the event where it stands — one keypress steps the reader down exactly one layer, never
+  two), and a closing layer hands focus back to what opened it: the detail returns it to the drawing it drilled
+  from, pick intact; the board returns it to the expand control. The board's Tab trap sleeps while anything
+  rides above it. Vitest now exercises the actual `BlockTag`: expand a board → drill a chart → Esc closes the
+  detail only (board still up, focus and the picked point back on the drawing) → Esc closes the board (focus on
+  the control); Tab and Shift+Tab wrap inside the topmost dialog alone, and the board's own trap demonstrably
+  resumes underneath. The photo-above-board behaviour the accept phase shipped is now the stack answering the
+  same key, unchanged from the reader's side.
+- **A scatter with a repeated x drilled the wrong datum.** Two points sharing an x are drawn AT the same pixel
+  (a value axis of width zero centres them), and the pick kept the LOWEST index on that tie — clicking the
+  second of x `[1, 1]`, y `[10, 90]` opened Point 1 and said 10 where the reader aimed at 90. Wrong numbers,
+  not wrong pixels. Each scatter dot now carries its own point index (`data-pt`) and the pick reads it from the
+  element under the pointer: the detail is resolved from the clicked mark's identity, never from an x re-lookup
+  (a pointer not on a dot still falls back to the nearest x label, as everywhere else; hovering a dot says that
+  dot too). The detail also names the ordinal — "Point 2 of 2" — so even exact duplicates open their own, one
+  each. Regression tests: a repeated x opens the SECOND point's value; exact duplicates each open their own; a
+  repeated x across two series opens the clicked point's pair; an ordinary distinct-x control still opens the
+  clicked point; and a negative control pins the wrongness the identity replaces — `nearestXIndex` on the same
+  tie still returns the first point.
+
+The refreeze rebuilt everything on these fixes: vitest 664/77 (+13 here), pytest 776 unchanged (the python side
+and the Chrome geometry are untouched), `tsc`/ruff clean, the byte-identical bundle above, and captures drawn
+again from the corrected tree — the old bar-chart pair is byte-identical still (dots carry their index; columns
+never grew an attribute).
+
+**Review corrections (round 2).** The round-1 identity fix keyed the pick off the dot under the pointer — true
+of every point, except one shape the synthetic tests could not see: points that coincide EXACTLY (same x and
+same y — duplicates, or two series crossing at one value) draw at one pixel, and SVG hit testing returns only
+the last-painted circle. The reviewer proved it in a real browser: every coordinate over the spot hit the
+topmost `data-pt` and never the point beneath, so that point simply had no way to be opened. `fireEvent` on a
+held element reference bypasses the browser's own hit testing and could never have caught this — so round 2 is
+pinned in real Chrome, and the mechanism follows from it:
+
+- **A spot of several points is one cluster, walked one click at a time.** `dotSpots` groups the dots by their
+  exact drawn position (equal labels and equal values compute equal floats, so coincidence is decided by the
+  drawing itself, not by value comparison). A real click at the spot opens its FIRST point; each successive
+  click at the same spot opens the next (wrapping); a click anywhere else resets it. The dots never move — no
+  jitter, no re-stacking, the chart reads exactly as the data says — and the spot wears a small `×n` badge
+  (`pointer-events: none`) so the reader can see several points live there. Hovering the spot previews exactly
+  what a click commits: the point lit under the pointer is the one the NEXT click opens (during a cycle that is
+  the dot beneath, not necessarily the one painted topmost — pinned in vitest). The detail names the position at
+  the spot: "Point 2 of 5 — 1st of 2 here". Keyboard readers reach every coincident point one step at a time
+  anyway (each has its own index; arrows + Enter open each own detail) — now verified with REAL key events.
+- **A dialog's own close could no longer eat the pick.** The cycle must survive open→close→reopen, but in a
+  real browser removing the dialog makes Chrome fire a delayed blur at the drawing a beat AFTER focus has been
+  handed back, with nothing in `relatedTarget` — the old `pickKeys.onBlur` treated it as "left the drawing"
+  and cleared the pick (and the cycle position) exactly then. That event does not exist in jsdom. A blur that
+  hands focus somewhere still clears (real leaving); a blur with no target does not. Pinned both ways: in
+  vitest and with real Chrome events (after Escape, the lit dot is still the lit dot).
+- **Six REAL-POINTER regressions, no new dependencies.** `tests/test_chart_scatter_cluster_chrome.py` drives
+  headless Chrome over the DevTools Protocol with a stdlib websocket client: real `Input.dispatchMouseEvent`
+  clicks at measured coordinates against the checkout's own components (esbuild-bundled, nothing written into
+  the tree), real `Input.dispatchKeyEvent` for the keyboard. The premise is pinned as the standing negative
+  control — every coordinate over a twin spot (centre, four neighbours, four corners) returns ONLY the
+  topmost dot, so a handler trusting the hit alone can never open the point beneath. Then: successive real
+  clicks at ONE coordinate open "1st of 2 here", then "2nd of 2 here", then wrap — closing each dialog by
+  really clicking its own close control; a coincident pair across two series opens each series's own values in
+  turn; the real keyboard opens each point and keeps its pick across the close; and a control chart with no
+  coincident dots shows no badge and never cycles (a second click reopens the same datum, as before).
+  Vitest adds the same matrix at unit level (cycle, wrap, reset-elsewhere, cross-series pairs, the ordinal
+  wording, badge presence/absence, the dot grouping itself) — 5 of its cluster tests and the blur pin were
+  confirmed to FAIL against the reviewed bytes before the fix went in.
+
+Only scatter drawings where two points share one exact pixel gain ink (the `×n` badge); every other chart's DOM
+and pixels are untouched — the four existing capture frames were re-rendered from this tree byte-identical to
+the reviewed set, and the old bar-chart pair still matches itself. The new cluster frames are truthful both
+ways: BEFORE is the round-1 tree (no badge; a real click at the spot can only ever open the topmost point, and
+its dialog frame shows exactly that), AFTER is this tree (badge, and a real click opening the spot's first
+datum).
+
+The refreeze rebuilt everything on these fixes: vitest **672/77 (+8 here — the 7 plus a pin that the cluster
+hover PREVIEW equals what the next click commits: RED on the first round-2 cut, which lit the last-opened
+datum instead)**, pytest 782 (+6 real-pointer), `tsc`/
+ruff clean, the byte-identical bundle above, and all captures re-drawn from the corrected tree.
+
+---
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

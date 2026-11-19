@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { readBlocks } from "../../core/readBlocks";
-import { changePct, chartKind, isOrderedLabel, kindToDraw, pieSlices, type ChartKind, type ChartSpec } from "./chartData";
+import { changePct, chartKind, histogramBins, maxSeries, isOrderedLabel, kindToDraw, pieSlices, type ChartKind, type ChartSpec } from "./chartData";
 
 describe("chart reading", () => {
   it("maps kind names and aliases, anything else is a line", () => {
     expect(chartKind("Donut")).toBe("donut");
     expect(chartKind("stacked_bar")).toBe("stacked");
-    expect(chartKind("scatter")).toBe("line");
+    expect(chartKind("scatter")).toBe("scatter");
+    expect(chartKind("histogram")).toBe("histogram");
+    expect(chartKind("Hist")).toBe("histogram");
     expect(chartKind(undefined)).toBe("line");
   });
   it("keeps positive pie slices and merges past 8 into Other", () => {
@@ -91,5 +93,42 @@ describe("changePct", () => {
     expect(changePct([100, null, 110])).toBeCloseTo(10);
     expect(changePct([0, 5])).toBeNull();
     expect(changePct([5])).toBeNull();
+  });
+});
+
+describe("scatter and histogram kinds", () => {
+  it("never change the drawing of other kinds and take their series", () => {
+    expect(kindToDraw({ type: "histogram", x: ["a", "b"], series: [{ data: [1, 2] }] } as ChartSpec)).toBe("histogram");
+    expect(kindToDraw({ type: "scatter", x: ["a", "b"], series: [{ data: [1, 2] }] } as ChartSpec)).toBe("scatter");
+    expect(maxSeries("histogram")).toBe(1);
+    expect(maxSeries("scatter")).toBe(3);
+  });
+});
+
+describe("histogramBins", () => {
+  it("bins values at round edges and counts them, every value in exactly one bin", () => {
+    const { labels, counts } = histogramBins([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(10);
+    expect(labels[0]).toBe("0–2");
+    expect(labels[labels.length - 1]).toContain("8–10");
+    expect(counts).toEqual([2, 2, 2, 2, 2]);
+  });
+  it("closes the last bin at the top edge", () => {
+    const { labels, counts } = histogramBins([1, 5, 5, 9]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(4);
+    expect(labels.indexOf("8–10")).toBeGreaterThanOrEqual(0);
+    expect(counts[labels.length - 1]).toBe(1);
+  });
+  it("keeps negatives and a spread-out set counted", () => {
+    const { counts } = histogramBins([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(11);
+  });
+  it("opens a single repeated value into bins around it", () => {
+    const { labels, counts } = histogramBins([5, 5]);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(2);
+    expect(labels).toHaveLength(4);
+  });
+  it("has nothing to bin from no values", () => {
+    expect(histogramBins([])).toEqual({ labels: [], counts: [] });
   });
 });
