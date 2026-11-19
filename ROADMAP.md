@@ -30,8 +30,8 @@ upstream, it still lives here and works for us.
 | 5 | Follow-up suggestions strip | One tap continues the conversation | ✅ done | not yet offered |
 | — | AI-decided alignment | The model places text for best effect; no reader fiddling | ✅ done | not yet offered |
 | 6 | Export PNG / CSV / Markdown | The bridge from chat to decks, reports and messages | ✅ done | not yet offered |
-| 7 | AI-adaptive density / palette / motion | The model tunes presentation to content & audience — no reader panel | 📋 queued (after #8) | — |
-| 8 | Pin / save boards to a Library | Reuse dashboards as durable assets | 🔨 building | — |
+| 7 | AI-adaptive density / palette / motion | The model tunes presentation to content & audience — no reader panel | 🔨 building | — |
+| 8 | Pin / save boards to a Library | Reuse dashboards as durable assets | ✅ done | not yet offered |
 | 9 | Refresh / stale indicator | Know when data is old | 📋 planned | — |
 | 10 | Motion + form-validation polish | Accessibility and feel | 📋 planned | — |
 
