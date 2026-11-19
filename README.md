@@ -22,6 +22,9 @@ https://github.com/user-attachments/assets/5b274da9-b756-4bb6-be72-9a5427fadc0d
 A one-minute demo with sound: a Yosemite trip plan, a stock comparison, an explainer and a 401(k) what-if.
 **[▶ Also on YouTube](https://youtu.be/jknqytZrXAw)**
 
+> 🗺️ **Fork roadmap:** this is a friendly fork that builds enhancements and offers them upstream.
+> See **[ROADMAP.md](ROADMAP.md)** for what we're working on, why, and what's already merged or offered.
+
 ---
 
 ## ✨ What it looks like
