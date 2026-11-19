@@ -175,7 +175,7 @@ describe("the board menu — Markdown and JSON from the page's own memory", () =
     expect(await files[0].blob.text()).toBe(
       "**Plan**\n\n**Revenue**: Ads 4,000 → 5,800 (▲ 45%)\n\n**Kyoto trip**\n| Item | Cost |\n| --- | --- |\n"
       + "| Ryokan | ¥120,000 |\n| Train, early | ¥3,000 |\n\n---\n\nFinance board · as of 2026-11-18 · Snapshot\n");
-    expect(door.calls).toEqual([]);                             // ZERO asks. The promise, pinned.
+    expect(door.calls.filter((c) => c !== "/library")).toEqual([]);  // #8's mount shelf read is the one ask; exports themselves still ask NOTHING                             // ZERO asks. The promise, pinned.
   });
   it("JSON is the stored envelope, whole — unknown words and all, no second read", async () => {
     const files = watchDownloads();
@@ -192,7 +192,7 @@ describe("the board menu — Markdown and JSON from the page's own memory", () =
     expect(JSON.parse(await files[0].blob.text())).toEqual({
       ...ENVELOPE, model_note: "kept verbatim", blocks: [HEAD, TABLE],
     });
-    expect(door.calls).toEqual([]);
+    expect(door.calls.filter((c) => c !== "/library")).toEqual([]);  // #8's mount shelf read is the one ask; exports themselves still ask NOTHING
   });
   it("Escape closes it; a click outside closes it; nothing was asked of anyone on the way", async () => {
     const door = refusingDoor();
@@ -205,7 +205,7 @@ describe("the board menu — Markdown and JSON from the page's own memory", () =
     await waitFor(() => expect(t.tag.querySelector('[role="menu"]')).toBeTruthy());
     fireEvent(t.board, new Event("pointerdown", { bubbles: true }));
     await waitFor(() => expect(t.tag.querySelector('[role="menu"]')).toBeNull());
-    expect(door.calls).toEqual([]);
+    expect(door.calls.filter((c) => c !== "/library")).toEqual([]);  // #8's mount shelf read is the one ask; exports themselves still ask NOTHING
   });
 });
 
@@ -251,7 +251,7 @@ describe("an export never costs a model turn", () => {
     await waitFor(() => expect(files.length).toBe(3));
     expect(send).not.toHaveBeenCalled();
     expect(fill).not.toHaveBeenCalled();
-    expect(door.calls).toEqual([]);
+    expect(door.calls.filter((c) => c !== "/library")).toEqual([]);  // #8's mount shelf read is the one ask; exports themselves still ask NOTHING
   });
 });
 

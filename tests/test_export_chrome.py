@@ -374,7 +374,11 @@ def set_prov(cdp: CDP) -> None:
 
 
 def rest_calls(cdp: CDP) -> list:
-    return json.loads(cdp.js("JSON.stringify(window.__rest)"))
+    """Door calls asking for BLOCK DATA — the claim every caller pins. The Library chrome reads
+    GET /library once at mount to know its pressed state (host chrome state, not block data);
+    its request budget is owned and pinned by test_library_chrome.py's __net witness."""
+    return [p for p in json.loads(cdp.js("JSON.stringify(window.__rest)"))
+            if p == "/blocks/7f3a09bc" or not p.startswith("/library")]
 
 
 DIAG = (

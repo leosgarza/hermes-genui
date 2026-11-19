@@ -7,6 +7,7 @@ and the Desktop half fetches the JSON by that id. Blocks are never deleted, so o
 import json
 import re
 import secrets
+from datetime import UTC, datetime
 from pathlib import Path
 
 # 8 lowercase hex characters, e.g. "7f3a09bc". Anything else is refused before touching the disk.
@@ -280,3 +281,164 @@ def save_state(block_id: str, state: dict, root: Path | None = None) -> None:
     if len(text.encode("utf-8")) > STATE_LIMIT:
         raise StateTooBig(block_id)
     _write_whole((root or default_root()) / f"{block_id}.state.json", text)
+
+
+# --- the Library shelf ------------------------------------------------------------------
+# A pin is a note, not a copy: one small JSON file, in this profile's store folder, holding
+# {board id: {title, folder, favorite, pinned, saved_at}}. The boards themselves stay exactly where
+# they have always stayed and are never touched by a shelf edit — removing a pin removes only the
+# note (the store has no delete at all), so an unpinned board still loads and still draws wherever
+# its tag was quoted. Nothing here reaches the network: the shelf is a local file, read and written
+# like every other piece of the store.
+
+LIBRARY_FILE = "library.json"
+LIBRARY_LIMIT = 64 * 1024
+TITLE_LIMIT = 60  # a shelf label, not a document; rename says whatever you want, this is only the auto title
+
+# The words a board can title itself with, in order: what a heading says, what a chart or table is
+# called, what a bare text block opens with. Checked where it is read, like every model word.
+TITLE_WORDS = ("title", "caption", "text", "label")
+
+
+class LibraryTooBig(ValueError):
+    """The shelf note file grew over LIBRARY_LIMIT bytes."""
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def title_of(board: object) -> str:
+    """The board's own first words, as a shelf label: depth first through the blocks (a heading inside a
+    section titles the board just as well as one at the top), collapsing whitespace and bounded at
+    TITLE_LIMIT with an ellipsis. "Board" when the board says nothing anywhere.
+
+    title_of([{"type": "heading", "text": "Kyoto trip planner"}]) → "Kyoto trip planner"
+    title_of({"blocks": [{"type": "chart", "spec": {"title": "Q3 sales"}}]}) → "Q3 sales"
+    title_of([{"type": "divider"}]) → "Board"
+    """
+    stack = list(blocks_of(board))
+    while stack:
+        block = stack.pop(0)
+        if isinstance(block, dict):
+            spec = block.get("spec")
+            for value in (block.get(w) for w in TITLE_WORDS):
+                if isinstance(value, str) and value.strip():
+                    return _label(value)
+            spec_title = spec.get("title") if isinstance(spec, dict) else None
+            if isinstance(spec_title, str) and spec_title.strip():
+                return _label(spec_title)
+            if isinstance(block.get("children"), list):
+                stack = block["children"] + stack
+            tabs = block.get("tabs")
+            if isinstance(tabs, list):
+                kids = [
+                    c for t in tabs
+                    if isinstance(t, dict) and isinstance(t.get("children"), list) for c in t["children"]
+                ]
+                stack = kids + stack
+    return "Board"
+
+
+def _label(value: str) -> str:
+    """One readable line out of whatever words a block said."""
+    collapsed = " ".join(value.split())
+    if len(collapsed) <= TITLE_LIMIT:
+        return collapsed
+    return collapsed[: TITLE_LIMIT - 1].rstrip() + "…"
+
+
+def _shelf(root: Path | None = None) -> Path:
+    folder = root or default_root()
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def _board_of(block_id: str, root: Path | None) -> object:
+    """The stored board a shelf note needs: this folder's first, then (only when no folder was given)
+    every other profile's — the same doors find_root already opens, so no new lookup exists here."""
+    board = load(block_id, root)
+    if board is None and root is None:
+        found = find_root(block_id)
+        board = load(block_id, found) if found else None
+    return board
+
+
+def load_library(root: Path | None = None) -> dict:
+    """Every pin note, {board id: entry}; {} when the shelf is empty, missing or unreadable — a damaged
+    note file is treated as no notes, exactly like a damaged board file."""
+    notes = _read_json((root or default_root()) / LIBRARY_FILE)
+    return notes if isinstance(notes, dict) else {}
+
+
+def save_library(entries: dict, root: Path | None = None) -> None:
+    """Replace the whole shelf note file, written whole so a reader sees the old one or the new one.
+    Refused over LIBRARY_LIMIT bytes, with nothing written."""
+    text = json.dumps(entries, ensure_ascii=False)
+    if len(text.encode("utf-8")) > LIBRARY_LIMIT:
+        raise LibraryTooBig(f"{len(text.encode('utf-8'))} bytes")
+    _write_whole(_shelf(root) / LIBRARY_FILE, text)
+
+
+def pin(block_id: str, title: str | None = None, root: Path | None = None) -> dict:
+    """Mark a board saved. The board must really be stored (NoSuchBlock otherwise — a note without a
+    board is a lie the Library would reopen as a broken link). The label comes from the board's own
+    words unless one was given. Re-pinning keeps the note's edits (title, folder, favorite, saved_at);
+    it is the same board being saved, not a new save."""
+    board = _board_of(block_id, root)
+    if board is None:
+        raise NoSuchBlock(block_id)
+    notes = load_library(root)
+    entry = notes.get(block_id)
+    if not isinstance(entry, dict):
+        entry = {"title": None, "folder": None, "favorite": False, "saved_at": _now()}
+    entry["pinned"] = True
+    if title is not None and title.strip():
+        entry["title"] = _label(title)
+    elif not entry.get("title"):
+        entry["title"] = title_of(board)
+    notes[block_id] = entry
+    save_library(notes, root)
+    return entry
+
+
+def update_entry(block_id: str, words: dict, root: Path | None = None) -> dict:
+    """Organize one note: rename, move to folder, favorite. Only the words present in the call change;
+    an empty title means the board's own words again, an empty folder means the shelf with no folder.
+    An id with no note yet is a pin: put away first, organize second — and only a stored board may be."""
+    if not isinstance(words, dict):
+        raise ValueError("words must be an object")
+    board = _board_of(block_id, root)
+    if board is None:
+        raise NoSuchBlock(block_id)
+    notes = load_library(root)
+    entry = notes.get(block_id)
+    if not isinstance(entry, dict):
+        entry = pin(block_id, root=root)
+    if "title" in words:
+        line = words["title"]
+        entry["title"] = _label(line) if isinstance(line, str) and line.strip() else title_of(board)
+    if "folder" in words:
+        line = words["folder"]
+        entry["folder"] = _label(line) if isinstance(line, str) and line.strip() else None
+    if "favorite" in words:
+        entry["favorite"] = bool(words["favorite"])
+    entry["pinned"] = True
+    notes[block_id] = entry
+    save_library(notes, root)
+    return entry
+
+
+def unpin(block_id: str, root: Path | None = None) -> bool:
+    """Take a board off the shelf: the NOTE goes, the board stays. This is the whole of the remove
+    semantics — the store never deletes boards, so unpinning cannot destroy anything a chat still
+    quotes; the tag keeps drawing, only the Library stops listing it. True when a note was there.
+
+    unpin("7f3a09bc") → False afterwards: the note;  and 7f3a09bc.json still loads its board.
+    """
+    notes = load_library(root)
+    if block_id not in notes:
+        return False
+    del notes[block_id]
+    save_library(notes, root)
+    return True

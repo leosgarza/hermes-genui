@@ -1,5 +1,5 @@
 // src/plugin.tsx
-import { host, TRANSCRIPT_DIRECTIVE_AREA } from "@hermes/plugin-sdk";
+import { host, CHAT_EMPTY_AREA, TRANSCRIPT_DIRECTIVE_AREA } from "@hermes/plugin-sdk";
 
 // src/host/actions.ts
 import { createContext } from "react";
@@ -178,7 +178,7 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext11, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
+import { useContext as useContext12, useEffect as useEffect12, useRef as useRef20, useState as useState27 } from "react";
 
 // src/core/Blocks.tsx
 import { createContext as createContext3, Fragment as Fragment14, useContext as useContext9 } from "react";
@@ -1244,17 +1244,17 @@ function lineEndTexts(spec) {
   });
 }
 function xyTip(spec, i, layout) {
-  const rows = [];
+  const rows2 = [];
   let y = layout.base;
   let pile = 0;
   spec.series.forEach((s, k) => {
     const v = s.data[i] ?? null;
     if (v === null) return;
-    rows.push({ colour: valueColour(spec, k, v), name: seriesName(spec.series, k), value: fmt(v, unitOf(spec, s), { full: true }) });
+    rows2.push({ colour: valueColour(spec, k, v), name: seriesName(spec.series, k), value: fmt(v, unitOf(spec, s), { full: true }) });
     pile += Math.max(v, 0);
     y = Math.min(y, layout.yOf(s)(spec.type === "stacked" || spec.type === "area" ? pile : v));
   });
-  return { x: layout.xAt(i), y, title: String(spec.x[i]), rows, note: tipNote(spec, i) };
+  return { x: layout.xAt(i), y, title: String(spec.x[i]), rows: rows2, note: tipNote(spec, i) };
 }
 function tipNote(spec, i) {
   if (spec.series.length !== 1 || spec.type !== "line") return void 0;
@@ -1285,15 +1285,15 @@ function useWidth(ref) {
 }
 
 // src/blocks/chart/pick.ts
-function stepPick(at2, key, n, rows = false) {
-  const next = key === "ArrowRight" || rows && key === "ArrowDown";
-  const back = key === "ArrowLeft" || rows && key === "ArrowUp";
+function stepPick(at2, key, n, rows2 = false) {
+  const next = key === "ArrowRight" || rows2 && key === "ArrowDown";
+  const back = key === "ArrowLeft" || rows2 && key === "ArrowUp";
   if (key === "Escape") return null;
   if (next) return at2 === null ? 0 : Math.min(n - 1, at2 + 1);
   if (back) return at2 === null ? n - 1 : Math.max(0, at2 - 1);
   return void 0;
 }
-function pickKeys(n, at2, pick2, rows = false, activate) {
+function pickKeys(n, at2, pick2, rows2 = false, activate) {
   return {
     tabIndex: 0,
     "aria-haspopup": "dialog",
@@ -1303,7 +1303,7 @@ function pickKeys(n, at2, pick2, rows = false, activate) {
         activate();
         return;
       }
-      const next = stepPick(at2, e.key, n, rows);
+      const next = stepPick(at2, e.key, n, rows2);
       if (next === void 0) return;
       e.preventDefault();
       pick2(next);
@@ -1712,13 +1712,13 @@ function HBarChart({ spec }) {
   const unitOf2 = (k) => spec.series[k].unit ?? spec.unit;
   const barOf = (v) => hbarBarOf(v, span, zeroAt);
   function rowsAt(i) {
-    const rows = [];
+    const rows2 = [];
     spec.series.forEach((s, k) => {
       const v = s.data[i] ?? null;
       if (v === null) return;
-      rows.push({ colour: colourOf2(k, v), name: seriesName(spec.series, k), value: fmt(v, unitOf2(k), { full: true }) });
+      rows2.push({ colour: colourOf2(k, v), name: seriesName(spec.series, k), value: fmt(v, unitOf2(k), { full: true }) });
     });
-    return rows;
+    return rows2;
   }
   function pick2(i) {
     setPicked(i);
@@ -3291,7 +3291,7 @@ function cellText(value, unit) {
 // src/blocks/heatmap/Heatmap.tsx
 import { jsx as jsx22, jsxs as jsxs19 } from "react/jsx-runtime";
 var SHOW_NUMBERS_UP_TO = 6;
-function Heatmap({ title, rows, cols, values, unit, scale }) {
+function Heatmap({ title, rows: rows2, cols, values, unit, scale }) {
   const [picked, setPicked] = useState13(null);
   const range = rangeOf(values);
   const numbersInCells = cols.length <= SHOW_NUMBERS_UP_TO;
@@ -3307,7 +3307,7 @@ function Heatmap({ title, rows, cols, values, unit, scale }) {
         children: [
           /* @__PURE__ */ jsx22("span", {}),
           cols.map((c, j) => /* @__PURE__ */ jsx22("span", { className: "hb-heat-col", role: "columnheader", children: c }, j)),
-          rows.map((r, i) => /* @__PURE__ */ jsxs19(Fragment9, { children: [
+          rows2.map((r, i) => /* @__PURE__ */ jsxs19(Fragment9, { children: [
             /* @__PURE__ */ jsx22("span", { className: "hb-heat-row", role: "rowheader", children: r }),
             cols.map((c, j) => {
               const v = values[i][j];
@@ -3329,7 +3329,7 @@ function Heatmap({ title, rows, cols, values, unit, scale }) {
       }
     ),
     picked && /* @__PURE__ */ jsxs19("div", { className: "hb-heat-picked", children: [
-      rows[picked.row],
+      rows2[picked.row],
       " \xB7 ",
       cols[picked.col],
       ": ",
@@ -3346,7 +3346,7 @@ function readHeatmap(raw, here) {
   const rawValues = Array.isArray(raw.values) ? raw.values : [];
   if (!cols.length || !rowLabels.length || !rawValues.length) return here.drop("heatmap needs rows, cols and values");
   const keptCols = keepFirst(cols, MAX_SIDE, here, "cols");
-  const rows = [];
+  const rows2 = [];
   const values = [];
   rowLabels.forEach((label, i) => {
     const cells = rawValues[i];
@@ -3358,11 +3358,11 @@ function readHeatmap(raw, here) {
       here.at("values").at(i).drop(`row "${label}" has ${cells.length} values, the heatmap has ${keptCols.length} columns`);
       return;
     }
-    rows.push(label);
+    rows2.push(label);
     values.push(keptCols.map((_, j) => num(cells[j])));
   });
-  if (!rows.length) return here.drop("heatmap has no usable row");
-  const keptRows = keepFirst(rows, MAX_SIDE, here, "rows");
+  if (!rows2.length) return here.drop("heatmap has no usable row");
+  const keptRows = keepFirst(rows2, MAX_SIDE, here, "rows");
   const keptValues = values.slice(0, keptRows.length);
   return clean({
     type: "heatmap",
@@ -4799,13 +4799,13 @@ function readTable(raw, here) {
   }
   if (!columns.length) return here.drop("table needs columns");
   columns = keepFirst(columns, MAX_COLUMNS2, here.at("columns"), "columns");
-  const rows = [];
+  const rows2 = [];
   rowsToRead.forEach((row, i) => {
     const cells = readRow(row, columns, here.at("rows").at(i));
-    if (cells) rows.push(cells);
+    if (cells) rows2.push(cells);
   });
-  if (!rows.length) here.drop("table has no rows");
-  const kept = keepFirst(rows, MAX_ROWS, here.at("rows"), "rows");
+  if (!rows2.length) here.drop("table has no rows");
+  const kept = keepFirst(rows2, MAX_ROWS, here.at("rows"), "rows");
   const highlight = readHighlight(raw.highlight, columns, kept, here.at("highlight"));
   const caption = firstText([raw.caption, raw.title], 100);
   const interactive = raw.interactive === true ? true : void 0;
@@ -4841,13 +4841,13 @@ function cellText2(v) {
   if (v === false) return "No";
   return textOrNumber(v, 120) ?? "";
 }
-function readHighlight(v, columns, rows, here) {
+function readHighlight(v, columns, rows2, here) {
   if (v === void 0 || v === null) return void 0;
   let found;
   if (num(v) !== null) {
     found = { row: v };
   } else if (typeof v === "string") {
-    found = highlightByName(v, columns, rows);
+    found = highlightByName(v, columns, rows2);
   } else if (typeof v === "object") {
     if (num(v.row) !== null) found = { row: v.row };
     const column = num(v.column) ?? num(v.col);
@@ -4857,16 +4857,16 @@ function readHighlight(v, columns, rows, here) {
     here.drop("highlight should be {row: n} or {column: n}");
     return void 0;
   }
-  const inRange = "row" in found ? isIndex(found.row, rows.length) : isIndex(found.column, columns.length);
+  const inRange = "row" in found ? isIndex(found.row, rows2.length) : isIndex(found.column, columns.length);
   if (!inRange) {
     here.drop("highlight is outside the table");
     return void 0;
   }
   return found;
 }
-function highlightByName(name, columns, rows) {
+function highlightByName(name, columns, rows2) {
   const wanted = str(name)?.toLowerCase();
-  const row = rows.findIndex((r) => r[0].toLowerCase() === wanted);
+  const row = rows2.findIndex((r) => r[0].toLowerCase() === wanted);
   if (row >= 0) return { row };
   const column = columns.findIndex((c) => c.toLowerCase() === wanted);
   if (column >= 0) return { column };
@@ -4887,13 +4887,13 @@ function cellNumber(cell) {
   const n = Number(m[2]);
   return m[1] === "-" ? -n : n;
 }
-function sortedOrder(rows, sort) {
-  const order = rows.map((_, i) => i);
+function sortedOrder(rows2, sort) {
+  const order = rows2.map((_, i) => i);
   if (!sort) return order;
   const sign = sort.direction === "up" ? 1 : -1;
   return order.sort((a, b) => {
-    const left = rows[a][sort.column] ?? "";
-    const right = rows[b][sort.column] ?? "";
+    const left = rows2[a][sort.column] ?? "";
+    const right = rows2[b][sort.column] ?? "";
     if (!left || !right) return blanksLast(left, right);
     return sign * compareCells(left, right);
   });
@@ -4914,15 +4914,15 @@ function nextSort(sort, column) {
   if (sort.direction === "up") return { column, direction: "down" };
   return null;
 }
-function isNumberColumn(rows, column) {
-  const filled = rows.map((r) => r[column]).filter((cell) => cell);
+function isNumberColumn(rows2, column) {
+  const filled = rows2.map((r) => r[column]).filter((cell) => cell);
   return filled.length > 0 && filled.every((cell) => cellNumber(cell) !== null);
 }
 
 // src/blocks/table/cells.ts
-function isChangeColumn(rows, column) {
-  if (!isNumberColumn(rows, column) || !rows.some((r) => /^[-+−]/.test(r[column] ?? ""))) return false;
-  const filled = rows.map((r) => (r[column] ?? "").trim()).filter(Boolean);
+function isChangeColumn(rows2, column) {
+  if (!isNumberColumn(rows2, column) || !rows2.some((r) => /^[-+−]/.test(r[column] ?? ""))) return false;
+  const filled = rows2.map((r) => (r[column] ?? "").trim()).filter(Boolean);
   const allPercent = filled.every((cell) => cell.endsWith("%"));
   const allSigned = filled.every((cell) => /^[-+−]/.test(cell) || cellNumber(cell) === 0);
   return allPercent || allSigned;
@@ -4956,31 +4956,31 @@ function rowMatches(row, query) {
   if (!wanted) return true;
   return row.some((cell) => cell.toLowerCase().includes(wanted));
 }
-function pickedMessage(caption, columns, rows, picked) {
+function pickedMessage(caption, columns, rows2, picked) {
   const line = (cells) => cells.join(" | ");
   const order = [...picked].sort((a, b) => a - b);
-  return [`${caption ? `${caption}:` : "Table:"}`, line(columns), ...order.map((r) => line(rows[r]))].join("\n");
+  return [`${caption ? `${caption}:` : "Table:"}`, line(columns), ...order.map((r) => line(rows2[r]))].join("\n");
 }
 
 // src/blocks/table/Table.tsx
 import { jsx as jsx36, jsxs as jsxs32 } from "react/jsx-runtime";
 var MINI_BARS_FROM = 3;
-function Table({ columns, rows, highlight, caption, interactive }) {
+function Table({ columns, rows: rows2, highlight, caption, interactive }) {
   const [sort, setSort] = useState22(null);
   const [query, setQuery] = useState22("");
   const [picked, setPicked] = useState22([]);
   const [sent, setSent] = useState22(null);
   const taps = useRef16(0);
   const { send } = useContext6(BlockActions);
-  const order = sortedOrder(rows, sort);
-  const visible = interactive ? order.filter((r) => rowMatches(rows[r], query)) : order;
-  const message = pickedMessage(caption, columns, rows, picked);
+  const order = sortedOrder(rows2, sort);
+  const visible = interactive ? order.filter((r) => rowMatches(rows2[r], query)) : order;
+  const message = pickedMessage(caption, columns, rows2, picked);
   const bestRow = highlight && "row" in highlight ? highlight.row : -1;
   const bestColumn = highlight && "column" in highlight ? highlight.column : -1;
-  const numeric = columns.map((_, c) => isNumberColumn(rows, c));
-  const change = columns.map((_, c) => isChangeColumn(rows, c));
-  const largest = columns.map((_, c) => change[c] ? largestChange(rows, c) : 0);
-  const withBars = rows.length >= MINI_BARS_FROM;
+  const numeric = columns.map((_, c) => isNumberColumn(rows2, c));
+  const change = columns.map((_, c) => isChangeColumn(rows2, c));
+  const largest = columns.map((_, c) => change[c] ? largestChange(rows2, c) : 0);
+  const withBars = rows2.length >= MINI_BARS_FROM;
   const cellClass = (c, text, extra = "") => [
     numeric[c] ? "hb-num" : "",
     c === 0 ? "hb-first" : "",
@@ -5037,8 +5037,8 @@ function Table({ columns, rows, highlight, caption, interactive }) {
         ] }) }, c))
       ] }) }),
       /* @__PURE__ */ jsxs32("tbody", { children: [
-        !rows.length && /* @__PURE__ */ jsx36("tr", { children: /* @__PURE__ */ jsx36("td", { className: "hb-table-empty", colSpan: interactive ? columns.length + 1 : columns.length, children: "No rows to show." }) }),
-        interactive && rows.length > 0 && visible.length === 0 && query.trim() && /* @__PURE__ */ jsx36("tr", { children: /* @__PURE__ */ jsxs32("td", { className: "hb-table-empty", colSpan: columns.length + 1, children: [
+        !rows2.length && /* @__PURE__ */ jsx36("tr", { children: /* @__PURE__ */ jsx36("td", { className: "hb-table-empty", colSpan: interactive ? columns.length + 1 : columns.length, children: "No rows to show." }) }),
+        interactive && rows2.length > 0 && visible.length === 0 && query.trim() && /* @__PURE__ */ jsx36("tr", { children: /* @__PURE__ */ jsxs32("td", { className: "hb-table-empty", colSpan: columns.length + 1, children: [
           "Nothing matches \u201C",
           query.trim(),
           "\u201D."
@@ -5053,10 +5053,10 @@ function Table({ columns, rows, highlight, caption, interactive }) {
                 setPicked((p) => p.includes(r) ? p.filter((x) => x !== r) : [...p, r]);
                 setSent(null);
               },
-              "aria-label": `Select row ${rows[r][0] || `#${r + 1}`}`
+              "aria-label": `Select row ${rows2[r][0] || `#${r + 1}`}`
             }
           ) }),
-          rows[r].map((cell, c) => {
+          rows2[r].map((cell, c) => {
             const big = bigNumber(cell);
             const direction = change[c] ? changeOf(cell) : null;
             return /* @__PURE__ */ jsxs32("td", { className: cellClass(c, cell, direction ? `hb-${direction}` : ""), title: big?.full, children: [
@@ -5077,8 +5077,8 @@ function MiniBar({ value, largest }) {
     /* @__PURE__ */ jsx36("span", { className: "hb-mini-bar", style: { left: `${left}%`, width: `${width}%` } })
   ] });
 }
-function largestChange(rows, column) {
-  return Math.max(0, ...rows.map((r) => Math.abs(cellNumber(r[column]) ?? 0)));
+function largestChange(rows2, column) {
+  return Math.max(0, ...rows2.map((r) => Math.abs(cellNumber(r[column]) ?? 0)));
 }
 function sortMark(sort, column) {
   if (!sort || sort.column !== column) return "\u2195";
@@ -5499,8 +5499,8 @@ import { useContext as useContext10, useEffect as useEffect10, useLayoutEffect a
 function csvCell(value) {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
-function csvOf(headers, rows) {
-  return [headers, ...rows].map((line) => line.map(csvCell).join(",") + "\r\n").join("");
+function csvOf(headers, rows2) {
+  return [headers, ...rows2].map((line) => line.map(csvCell).join(",") + "\r\n").join("");
 }
 
 // src/lib/export.ts
@@ -5603,11 +5603,11 @@ function hbarSvg(figure2, spec) {
   const box = figure2.querySelector(".hb-hbar-box");
   const grid = box?.querySelector(".hb-hbar-grid");
   if (!box || !grid) return null;
-  const rows = spec.x.map(String);
+  const rows2 = spec.x.map(String);
   const labelEls = [...grid.querySelectorAll(".hb-hbar-label")];
   const trackEls = [...grid.querySelectorAll(".hb-hbar-tracks")];
   const valueEls = [...grid.querySelectorAll(".hb-hbar-values")];
-  if (!labelEls.length || labelEls.length !== rows.length || trackEls.length !== rows.length || valueEls.length !== rows.length) return null;
+  if (!labelEls.length || labelEls.length !== rows2.length || trackEls.length !== rows2.length || valueEls.length !== rows2.length) return null;
   const base = box.getBoundingClientRect();
   if (base.width < 2 || base.height < 2) return null;
   const rel = (el) => {
@@ -5636,10 +5636,10 @@ function hbarSvg(figure2, spec) {
     };
   };
   const parts = [];
-  rows.forEach((_row, i) => {
+  rows2.forEach((_row, i) => {
     const lr = rel(labelEls[i]);
     const lf = look(labelEls[i], "#222");
-    const labelWord = (labelEls[i].textContent ?? "").trim() || rows[i];
+    const labelWord = (labelEls[i].textContent ?? "").trim() || rows2[i];
     parts.push(`<text data-label="${i}" x="${lr.x.toFixed(1)}" y="${(lr.y + lr.h / 2).toFixed(1)}" dominant-baseline="central" font-family="${esc(lf.family)}" font-size="${esc(lf.size)}" fill="${esc(lf.ink)}">${esc(labelWord)}</text>`);
     const tracks = [...trackEls[i].querySelectorAll(".hb-hbar-track")];
     tracks.forEach((track, k) => {
@@ -5792,10 +5792,10 @@ async function chartPng(figure2, opts = {}) {
   ctx.drawImage(img, PNG_PAD, PNG_PAD + textHeight, svgWidth, svgHeight);
   return canvasPng(canvas);
 }
-function csvBlob(columns, rows, provenance = "") {
+function csvBlob(columns, rows2, provenance = "") {
   const head = provenance.trim() ? `# ${provenance.trim()}\r
 ` : "";
-  return new Blob([`\uFEFF${head}${csvOf(columns, rows)}`], { type: "text/csv;charset=utf-8" });
+  return new Blob([`\uFEFF${head}${csvOf(columns, rows2)}`], { type: "text/csv;charset=utf-8" });
 }
 function markdownFile(body, provenance) {
   const parts = [];
@@ -5995,10 +5995,10 @@ function outOf(label, value, goal, unit) {
 function tableCell(value) {
   return safeText(value, MAX_CELL).replaceAll("|", "\\|");
 }
-function mdTable(header, rows) {
+function mdTable(header, rows2) {
   const width = header.length;
   const lines = ["| " + header.join(" | ") + " |", "| " + Array(width).fill("---").join(" | ") + " |"];
-  for (const row of rows) {
+  for (const row of rows2) {
     lines.push("| " + [...row, ...Array(Math.max(0, width - row.length)).fill("")].slice(0, width).join(" | ") + " |");
   }
   return lines;
@@ -6077,12 +6077,12 @@ function textSource(block) {
 }
 var MAX_TABLE_ROWS = 12;
 function textTable(block) {
-  const names = block.columns, rows = block.rows;
-  if (!isList(names) || !names.length || !isList(rows) || !rows.length) return "";
+  const names = block.columns, rows2 = block.rows;
+  if (!isList(names) || !names.length || !isList(rows2) || !rows2.length) return "";
   const headerNames = names.slice(0, 8);
   const columns = headerNames.map(tableCell);
   const cells = [];
-  for (const row of rows.slice(0, MAX_TABLE_ROWS)) {
+  for (const row of rows2.slice(0, MAX_TABLE_ROWS)) {
     if (isDict(row)) {
       cells.push(headerNames.map((name) => isStr(name) ? tableCell(row[name]) : ""));
     } else if (isList(row)) {
@@ -6091,7 +6091,7 @@ function textTable(block) {
   }
   const caption = safeText(orField(block, "caption", "title"));
   const lines = (caption ? [`**${caption}**`] : []).concat(mdTable(columns, cells));
-  if (rows.length > MAX_TABLE_ROWS) lines.push(`_(${rows.length - MAX_TABLE_ROWS} more rows)_`);
+  if (rows2.length > MAX_TABLE_ROWS) lines.push(`_(${rows2.length - MAX_TABLE_ROWS} more rows)_`);
   return lines.join("\n");
 }
 function textListBlock(block) {
@@ -6331,11 +6331,11 @@ function textTimeline(block) {
   return lines.length > (title ? 1 : 0) ? lines.join("\n") : "";
 }
 function textHeatmap(block) {
-  const rows = block.rows, cols = block.cols, values = block.values;
-  if (!isList(rows) || !rows.length || !isList(cols) || !cols.length || !isList(values) || !values.length) return "";
+  const rows2 = block.rows, cols = block.cols, values = block.values;
+  if (!isList(rows2) || !rows2.length || !isList(cols) || !cols.length || !isList(values) || !values.length) return "";
   const columns = cols.slice(0, 12);
   const body = [];
-  rows.slice(0, 12).forEach((label, i) => {
+  rows2.slice(0, 12).forEach((label, i) => {
     const line = isList(values[i]) ? values[i].slice(0, columns.length) : [];
     body.push([tableCell(label), ...line.map(tableCell)]);
   });
@@ -6515,7 +6515,7 @@ function textSimulate(block) {
     shown.push(`${firstOf(it, "label", "name", "id")} ${value}`);
   }
   const unit = safeText(block.unit, SIM_UNIT);
-  const rows = [];
+  const rows2 = [];
   for (const when of timesOf2(to, step)) {
     const withTime = new Map(names);
     withTime.set(t.name, when);
@@ -6523,12 +6523,12 @@ function textSimulate(block) {
       const v = arithmetic(F(p).formula, withTime, true);
       return v === null ? "\u2013" : withUnit(amount(v), unit);
     });
-    rows.push([fmtNum(when), ...cells]);
+    rows2.push([fmtNum(when), ...cells]);
   }
   const header = [tableCell(t.unit) || t.name, ...piles.map((p) => tableCell(F(p).name))];
   const title = safeText(block.title, SIM_TITLE);
   const lead = (title ? [`**${title}**`] : []).concat(shown.length ? [`With ${shown.join(", ")}:`] : []);
-  return lead.concat(mdTable(header, rows)).join("\n");
+  return lead.concat(mdTable(header, rows2)).join("\n");
 }
 var FORM_NOTE = 80;
 var FORM_GROUP = 40;
@@ -6899,22 +6899,465 @@ function IconDownload() {
   );
 }
 
-// src/host/BlockTag.tsx
-import { jsx as jsx43, jsxs as jsxs38 } from "react/jsx-runtime";
+// src/host/LibraryChrome.tsx
+import { useCallback as useCallback2, useContext as useContext11, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
+
+// src/host/tabbable.ts
+function tabbableIn(root) {
+  const laidOut = root.getClientRects().length > 0;
+  return [...root.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")].filter(
+    (el) => el.tabIndex >= 0 && el.getAttribute("type") !== "hidden" && el.disabled !== true && !el.closest("fieldset[disabled]") && !el.closest("[hidden]") && (!laidOut || el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible")
+  );
+}
+function dialogKeys(root, layer, onEscape) {
+  return (e) => {
+    if (e.key === "Escape") {
+      if (!isTopLayer(layer)) return;
+      e.stopImmediatePropagation();
+      onEscape();
+      return;
+    }
+    if (e.key !== "Tab") return;
+    if (!isTopLayer(layer)) return;
+    const items = tabbableIn(root);
+    if (!items.length) return;
+    e.preventDefault();
+    const active = document.activeElement;
+    const at2 = active === null ? -1 : items.indexOf(active);
+    const step = e.shiftKey ? -1 : 1;
+    const next = at2 === -1 ? e.shiftKey ? items.length - 1 : 0 : (at2 + step + items.length) % items.length;
+    items[next].focus();
+  };
+}
+
+// src/host/LibraryChrome.tsx
+import { Fragment as Fragment16, jsx as jsx43, jsxs as jsxs38 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
+function LibraryEntry() {
+  const library = useLibraryChrome({ standalone: true, drawn: false, expanded: false });
+  return /* @__PURE__ */ jsxs38(Fragment16, { children: [
+    library.controls,
+    library.dialog
+  ] });
+}
+function attachText(title, id) {
+  return `Saved board \u201C${title}\u201D:
+::blocks{id="${id}"}`;
+}
+function rows(data) {
+  const list = data?.entries;
+  if (!Array.isArray(list)) return null;
+  return list.filter((e) => {
+    const id = e?.id;
+    return typeof id === "string" && ID_PATTERN.test(id);
+  }).map((e) => ({
+    id: String(e.id),
+    title: typeof e.title === "string" ? e.title : "Board",
+    folder: typeof e.folder === "string" && e.folder ? e.folder : null,
+    favorite: e.favorite === true,
+    pinned: e.pinned !== false,
+    saved_at: typeof e.saved_at === "string" ? e.saved_at : "",
+    exists: e.exists !== false
+  }));
+}
+function useLibraryChrome(args) {
+  const actions = useContext11(BlockActions);
+  const rest = actions.rest;
+  const valid = typeof args.id === "string" && ID_PATTERN.test(args.id);
+  const [entries, setEntries] = useState26(null);
+  const [pinned, setPinned] = useState26(false);
+  const [said, setSaid] = useState26(null);
+  const [open, setOpen] = useState26(false);
+  const [view, setView] = useState26({ kind: "list" });
+  const [opened, setOpened] = useState26(null);
+  const [openedSaid, setOpenedSaid] = useState26(null);
+  const [editing, setEditing] = useState26(null);
+  const [draft, setDraft] = useState26("");
+  const [attached, setAttached] = useState26(null);
+  const pinRef = useRef19(null);
+  const askedOnce = useRef19(false);
+  const libRef = useRef19(null);
+  const closeRef = useRef19(null);
+  const dialogRef = useRef19(null);
+  const ask = (path, init) => {
+    if (!rest) return null;
+    try {
+      return rest(path, init);
+    } catch {
+      return Promise.reject(new Error("the door did not answer"));
+    }
+  };
+  const refresh = useCallback2(() => {
+    const answer = rest ? ask("/library") : null;
+    if (!answer) return Promise.resolve(false);
+    return answer.then((data) => {
+      const list2 = rows(data);
+      setEntries(list2 ?? []);
+      setPinned(Boolean(list2?.some((e) => e.id === args.id)));
+      return true;
+    }).catch(() => false);
+  }, [rest, ask, args.id]);
+  useEffect11(() => {
+    if (valid && args.drawn && !askedOnce.current) {
+      askedOnce.current = true;
+      void refresh();
+    }
+  }, [valid, args.drawn, refresh]);
+  const togglePin = () => {
+    const was = pinned;
+    const done = args.id ? ask(`/library/${args.id}`, { method: was ? "DELETE" : "PUT", body: was ? void 0 : {} }) : null;
+    if (!done) return;
+    done.then(() => {
+      setSaid(was ? "Removed from Library \u2014 the board itself was never deleted." : "Saved to Library \u2014 on this machine only.");
+      return refresh();
+    }).catch(() => setSaid("The Library did not answer."));
+  };
+  const putWords = (id, words) => {
+    const done = ask(`/library/${id}`, { method: "PUT", body: words });
+    if (!done) return;
+    done.then(refresh).catch(() => setSaid("The Library did not answer."));
+  };
+  const removeRow = (e) => {
+    const gone = ask(`/library/${e.id}`, { method: "DELETE" });
+    if (!gone) return;
+    gone.then(() => {
+      setSaid(`\u201C${e.title}\u201D is off the shelf \u2014 the board itself was never deleted.`);
+      return refresh();
+    }).catch(() => setSaid("The Library did not answer."));
+  };
+  const reattach = (e) => {
+    void actions.send(attachText(e.title || "Board", e.id), { force: true }).then((r) => setAttached({ id: e.id, word: SENT_WORDS[r] }));
+  };
+  const openBoard = (e) => {
+    const answer = ask(`/blocks/${e.id}`);
+    if (!answer) return;
+    setOpened(e.id);
+    setOpenedSaid(null);
+    answer.then((data) => {
+      const { blocks, align: align2, textAlign, asOf, live, followUps } = readBlocksNoted(data);
+      if (!blocks.length) {
+        setOpenedSaid("This board could not be reopened.");
+        return;
+      }
+      setView({
+        kind: "board",
+        id: e.id,
+        title: e.title,
+        board: { blocks, boardAlign: align2, boardTextAlign: textAlign, boardAsOf: asOf, boardLive: live, boardFollowUps: followUps }
+      });
+    }).catch(() => setOpenedSaid("This board could not be reopened.")).finally(() => setOpened(null));
+  };
+  const openLibrary = () => {
+    setOpen(true);
+    setView({ kind: "list" });
+    setEditing(null);
+    void refresh();
+  };
+  const closeLibrary = () => {
+    setOpen(false);
+    libRef.current?.focus();
+  };
+  useEffect11(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
+  useEffect11(() => {
+    if (!open) return;
+    const layer = pushLayer();
+    const onKey = (e) => {
+      if (e.key === "Escape" && isTopLayer(layer) && view.kind === "board") {
+        e.stopImmediatePropagation();
+        setView({ kind: "list" });
+        return;
+      }
+      dialogKeys(dialogRef.current, layer, closeLibrary)(e);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      popLayer(layer);
+    };
+  }, [open, view.kind]);
+  if (!valid && !args.standalone) return { controls: null, dialog: null };
+  const libButton = /* @__PURE__ */ jsxs38(
+    "button",
+    {
+      ref: libRef,
+      type: "button",
+      className: args.standalone ? "hb-lib hb-lib-entry" : "hb-lib",
+      "aria-haspopup": "dialog",
+      "aria-label": "Open Library",
+      "aria-disabled": !rest,
+      onClick: openLibrary,
+      children: [
+        /* @__PURE__ */ jsx43(IconShelf, {}),
+        args.standalone && /* @__PURE__ */ jsx43("span", { className: "hb-lib-entry-label", children: "Library" })
+      ]
+    }
+  );
+  const saidWord = said !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-said", role: "status", "aria-live": "polite", children: said });
+  const controls = args.expanded ? null : args.standalone ? (
+    // The new-chat entry is always visible and in flow: a quiet pill standing where the empty chat
+    // invites the first move — not a hover-revealed corner over a board that is not here.
+    /* @__PURE__ */ jsxs38("span", { className: "hb-library-entry", children: [
+      libButton,
+      saidWord
+    ] })
+  ) : /* @__PURE__ */ jsxs38(Fragment16, { children: [
+    /* @__PURE__ */ jsx43(
+      "button",
+      {
+        ref: pinRef,
+        type: "button",
+        className: "hb-pin",
+        "aria-pressed": pinned,
+        "aria-label": pinned ? "Remove from Library" : "Save to Library",
+        "aria-disabled": !rest,
+        title: rest ? void 0 : "Nothing to save here",
+        onClick: togglePin,
+        children: /* @__PURE__ */ jsx43(IconPin, { filled: pinned })
+      }
+    ),
+    libButton,
+    saidWord
+  ] });
+  if (!open) return { controls, dialog: null };
+  const groups = [];
+  const list = entries ?? [];
+  const favorites = list.filter((e) => e.favorite);
+  if (favorites.length) groups.push({ head: "Favorites", items: favorites });
+  const shelf = list.filter((e) => !e.favorite);
+  const names = [...new Set(shelf.map((e) => e.folder).filter((f) => !!f))].sort((a, b) => a.localeCompare(b));
+  for (const name of names) groups.push({ head: name, items: shelf.filter((e) => e.folder === name) });
+  const unfiled = shelf.filter((e) => !e.folder);
+  if (unfiled.length) groups.push({ head: "Unfiled", items: unfiled });
+  const row = (e) => {
+    const editor = editing && editing.id === e.id && /* @__PURE__ */ jsxs38("span", { className: "hb-library-edit", children: [
+      /* @__PURE__ */ jsx43(
+        "input",
+        {
+          type: "text",
+          autoFocus: true,
+          onFocus: (ev) => ev.target.select(),
+          "aria-label": editing.field === "title" ? `New title for \u201C${e.title}\u201D` : `Folder for \u201C${e.title}\u201D`,
+          value: draft,
+          onChange: (ev) => setDraft(ev.target.value),
+          onKeyDown: (ev) => {
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              putWords(e.id, { [editing.field]: draft });
+              setEditing(null);
+            }
+            if (ev.key === "Escape") ev.stopPropagation();
+          }
+        }
+      ),
+      /* @__PURE__ */ jsx43("button", { type: "button", onClick: () => {
+        putWords(e.id, { [editing.field]: draft });
+        setEditing(null);
+      }, children: "Save" }),
+      /* @__PURE__ */ jsx43("button", { type: "button", onClick: () => setEditing(null), children: "Cancel" })
+    ] });
+    return /* @__PURE__ */ jsxs38("div", { className: "hb-library-row", "data-board": e.id, children: [
+      /* @__PURE__ */ jsxs38(
+        "button",
+        {
+          type: "button",
+          className: "hb-library-open",
+          onClick: () => openBoard(e),
+          disabled: !e.exists,
+          title: e.exists ? "Reopen this saved board" : "This board is not on this machine",
+          children: [
+            /* @__PURE__ */ jsx43("span", { className: "hb-library-name", children: e.title || "Board" }),
+            !e.exists && /* @__PURE__ */ jsx43("span", { className: "hb-library-missing", children: " \u2014 not on this machine" }),
+            e.id === args.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-here", children: " \u2014 this board" })
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxs38("span", { className: "hb-library-tools", children: [
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-pressed": e.favorite,
+            "aria-label": e.favorite ? `Unfavorite \u201C${e.title}\u201D` : `Favorite \u201C${e.title}\u201D`,
+            onClick: () => putWords(e.id, { favorite: !e.favorite }),
+            children: "\u2605"
+          }
+        ),
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": `Rename \u201C${e.title}\u201D`,
+            onClick: () => {
+              setEditing({ id: e.id, field: "title" });
+              setDraft(e.title);
+            },
+            children: "Rename"
+          }
+        ),
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": `Move \u201C${e.title}\u201D to a folder`,
+            onClick: () => {
+              setEditing({ id: e.id, field: "folder" });
+              setDraft(e.folder ?? "");
+            },
+            children: "Folder"
+          }
+        ),
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": `Add \u201C${e.title}\u201D to chat`,
+            disabled: !e.exists,
+            onClick: () => reattach(e),
+            children: "Add to chat"
+          }
+        ),
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": `Remove \u201C${e.title}\u201D from Library`,
+            onClick: () => removeRow(e),
+            children: "Remove"
+          }
+        )
+      ] }),
+      attached?.id === e.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word }),
+      editor
+    ] }, e.id);
+  };
+  const dialog = /* @__PURE__ */ jsx43("div", { className: "hb-library-overlay", onClick: (e) => e.target === e.currentTarget && closeLibrary(), children: /* @__PURE__ */ jsxs38("div", { ref: dialogRef, className: "hb-library-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Board Library", children: [
+    /* @__PURE__ */ jsx43(
+      "button",
+      {
+        ref: closeRef,
+        type: "button",
+        className: "hb-overlay-close hb-library-close",
+        "aria-label": "Close Library",
+        onClick: closeLibrary,
+        children: /* @__PURE__ */ jsx43(IconClose, {})
+      }
+    ),
+    view.kind === "board" ? /* @__PURE__ */ jsxs38("div", { className: "hb-library-board", "data-board": view.id, children: [
+      /* @__PURE__ */ jsxs38("div", { className: "hb-library-boardhead", children: [
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": "Back to Library",
+            onClick: () => setView({ kind: "list" }),
+            children: "\u2190 Library"
+          }
+        ),
+        /* @__PURE__ */ jsx43("span", { className: "hb-library-boardtitle", children: view.title || "Board" }),
+        /* @__PURE__ */ jsx43(
+          "button",
+          {
+            type: "button",
+            "aria-label": `Add \u201C${view.title}\u201D to chat`,
+            onClick: () => reattach({ ...view, folder: null, favorite: false, pinned: true, saved_at: "", exists: true }),
+            children: "Add to chat"
+          }
+        ),
+        attached?.id === view.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word })
+      ] }),
+      /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { ...actions, blockId: view.id }, children: /* @__PURE__ */ jsx43(
+        Blocks,
+        {
+          blocks: view.board.blocks,
+          boardAlign: view.board.boardAlign,
+          boardTextAlign: view.board.boardTextAlign,
+          boardAsOf: view.board.boardAsOf,
+          boardLive: view.board.boardLive,
+          boardFollowUps: view.board.boardFollowUps
+        }
+      ) })
+    ] }) : /* @__PURE__ */ jsxs38("div", { className: "hb-library-list", children: [
+      /* @__PURE__ */ jsx43("div", { className: "hb-library-title", children: "Library" }),
+      entries === null ? /* @__PURE__ */ jsx43("div", { className: "hb-library-note", children: "The Library did not answer." }) : !list.length ? /* @__PURE__ */ jsx43("div", { className: "hb-library-note", children: "Nothing saved yet. Save a board with the pin beside it \u2014 it stays on this machine." }) : groups.map((g) => /* @__PURE__ */ jsxs38("div", { className: "hb-library-group", children: [
+        /* @__PURE__ */ jsx43("div", { className: "hb-library-head", children: g.head }),
+        g.items.map(row)
+      ] }, g.head)),
+      opened !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: "Reopening\u2026" }),
+      openedSaid !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: openedSaid }),
+      said !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: said })
+    ] })
+  ] }) });
+  return { controls, dialog };
+}
+function IconPin({ filled }) {
+  return /* @__PURE__ */ jsx43(
+    "svg",
+    {
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: filled ? "currentColor" : "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx43("path", { d: "M6 3h12v18l-6-4-6 4z" })
+    }
+  );
+}
+function IconShelf() {
+  return /* @__PURE__ */ jsx43(
+    "svg",
+    {
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx43("path", { d: "M4 19h16M6 19V9m6 10V5m6 14v-6" })
+    }
+  );
+}
+function IconClose() {
+  return /* @__PURE__ */ jsx43(
+    "svg",
+    {
+      width: "16",
+      height: "16",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      "aria-hidden": "true",
+      children: /* @__PURE__ */ jsx43("path", { d: "M6 6l12 12M18 6L6 18" })
+    }
+  );
+}
+
+// src/host/BlockTag.tsx
+import { jsx as jsx44, jsxs as jsxs39 } from "react/jsx-runtime";
+var ID_PATTERN2 = /^[0-9a-f]{8}$/;
 function isEnvelopeCarrying(data) {
   return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
 }
 var NO_BLOCKS = [];
 function BlockTag({ id, streaming, load }) {
-  const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext11(BlockActions);
-  const [state, setState] = useState26({ kind: "loading" });
-  const [expanded, setExpanded] = useState26(false);
-  const hostRef = useRef19(null);
-  const expandRef = useRef19(null);
-  const closeRef = useRef19(null);
-  useEffect11(() => {
+  const validId = typeof id === "string" && ID_PATTERN2.test(id);
+  const actions = useContext12(BlockActions);
+  const [state, setState] = useState27({ kind: "loading" });
+  const [expanded, setExpanded] = useState27(false);
+  const hostRef = useRef20(null);
+  const expandRef = useRef20(null);
+  const closeRef = useRef20(null);
+  useEffect12(() => {
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
@@ -6948,30 +7391,20 @@ function BlockTag({ id, streaming, load }) {
     getBoard: () => hostRef.current?.querySelector(".hb-blocks") ?? null,
     getHost: () => hostRef.current
   });
-  useEffect11(() => {
+  const library = useLibraryChrome({
+    id,
+    drawn: state.kind === "drawn",
+    expanded
+  });
+  useEffect12(() => {
     if (expanded) closeRef.current?.focus();
   }, [expanded]);
-  useEffect11(() => {
+  useEffect12(() => {
     if (!expanded) return;
+    const root = hostRef.current;
+    if (!root) return;
     const layer = pushLayer();
-    const onKey = (e) => {
-      if (e.key === "Escape") {
-        if (!isTopLayer(layer)) return;
-        e.stopImmediatePropagation();
-        close();
-        return;
-      }
-      if (e.key !== "Tab" || !hostRef.current) return;
-      if (!isTopLayer(layer)) return;
-      const items = tabbableIn(hostRef.current);
-      if (!items.length) return;
-      e.preventDefault();
-      const active = document.activeElement;
-      const at2 = active === null ? -1 : items.indexOf(active);
-      const step = e.shiftKey ? -1 : 1;
-      const next = at2 === -1 ? e.shiftKey ? items.length - 1 : 0 : (at2 + step + items.length) % items.length;
-      items[next].focus();
-    };
+    const onKey = dialogKeys(root, layer, close);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -6979,11 +7412,11 @@ function BlockTag({ id, streaming, load }) {
     };
   }, [expanded]);
   if (!validId && !streaming) return null;
-  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx43(Note, { text: "drawing\u2026", pulse: true });
+  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx44(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
   const board = state;
-  return /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs38("div", { className: "hb-tag", ...chrome.bind, children: [
-    /* @__PURE__ */ jsx43(
+  return /* @__PURE__ */ jsx44(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs39("div", { className: "hb-tag", ...chrome.bind, children: [
+    /* @__PURE__ */ jsx44(
       "button",
       {
         ref: expandRef,
@@ -6992,11 +7425,12 @@ function BlockTag({ id, streaming, load }) {
         "aria-label": "Expand board",
         "aria-haspopup": "dialog",
         onClick: () => setExpanded(true),
-        children: /* @__PURE__ */ jsx43(IconExpand, {})
+        children: /* @__PURE__ */ jsx44(IconExpand, {})
       }
     ),
     chrome.menu,
-    /* @__PURE__ */ jsxs38(
+    library.controls,
+    /* @__PURE__ */ jsxs39(
       "div",
       {
         ref: hostRef,
@@ -7004,7 +7438,7 @@ function BlockTag({ id, streaming, load }) {
         ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
         onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
         children: [
-          expanded && /* @__PURE__ */ jsx43(
+          expanded && /* @__PURE__ */ jsx44(
             "button",
             {
               ref: closeRef,
@@ -7012,11 +7446,11 @@ function BlockTag({ id, streaming, load }) {
               className: "hb-overlay-close",
               "aria-label": "Close expanded board",
               onClick: close,
-              children: /* @__PURE__ */ jsx43(IconClose, {})
+              children: /* @__PURE__ */ jsx44(IconClose2, {})
             }
           ),
           chrome.dialogMenu,
-          /* @__PURE__ */ jsx43(
+          /* @__PURE__ */ jsx44(
             Blocks,
             {
               blocks: board.blocks,
@@ -7030,20 +7464,15 @@ function BlockTag({ id, streaming, load }) {
           chrome.layer
         ]
       }
-    )
+    ),
+    library.dialog
   ] }) });
 }
-function tabbableIn(root) {
-  const laidOut = root.getClientRects().length > 0;
-  return [...root.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")].filter(
-    (el) => el.tabIndex >= 0 && el.getAttribute("type") !== "hidden" && el.disabled !== true && !el.closest("fieldset[disabled]") && !el.closest("[hidden]") && (!laidOut || el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible")
-  );
-}
 function Note({ text, pulse = false }) {
-  return /* @__PURE__ */ jsx43("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+  return /* @__PURE__ */ jsx44("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
 }
 function IconExpand() {
-  return /* @__PURE__ */ jsx43(
+  return /* @__PURE__ */ jsx44(
     "svg",
     {
       width: "15",
@@ -7054,12 +7483,12 @@ function IconExpand() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx43("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+      children: /* @__PURE__ */ jsx44("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
     }
   );
 }
-function IconClose() {
-  return /* @__PURE__ */ jsx43(
+function IconClose2() {
+  return /* @__PURE__ */ jsx44(
     "svg",
     {
       width: "16",
@@ -7070,7 +7499,7 @@ function IconClose() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx43("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx44("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
@@ -7444,6 +7873,227 @@ var blockTag_default = `/* The block tag's own states */
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* --- the Library (enhancement #8) --------------------------------------------------------------
+   The two new chrome controls stand beside the expand/export pair, quiet until the pointer or the
+   keyboard reaches them \u2014 and a SAVED board keeps its pin lit at all times, because the pressed
+   state is the file's truth, not the pointer's. The dialog is the one window-covering pattern of
+   this host (the expand overlay's shape: fixed inset, dark field, centered sheet), so it shares
+   .hb-overlay-close and the layer rules in core/overlays.ts. Controls sit OUTSIDE .hb-blocks, so
+   the tokens here are the app's, with fallbacks, like every chrome rule above. */
+.hb-pin {
+  position: absolute;
+  top: 6px;
+  right: 78px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-lib {
+  position: absolute;
+  top: 6px;
+  right: 114px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-tag:hover .hb-pin, .hb-pin:focus-visible, .hb-pin[aria-pressed="true"],
+.hb-tag:hover .hb-lib, .hb-lib:focus-visible, .hb-lib[aria-expanded="true"] { opacity: 1; }
+.hb-pin[aria-disabled="true"], .hb-lib[aria-disabled="true"] { cursor: default; }
+.hb-pin[aria-pressed="true"] {
+  color: var(--foreground, #1f2328);
+  border-color: color-mix(in srgb, var(--foreground, #1f2328) 34%, transparent);
+}
+/* The pin's word: below the chrome row, wrapping inside the column \u2014 height may grow, width never
+   (the rule every status word in this host keeps; it costs the inline board's DOM nothing). */
+.hb-library-said {
+  position: absolute;
+  top: 38px;
+  right: 6px;
+  z-index: 1;
+  max-width: min(320px, 100%);
+  padding: 4px 10px 6px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  text-align: right;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The new-chat shelf entry (chat.empty, review round 2): the same quiet button, but IN FLOW and always
+   visible \u2014 there is no board to hover to reveal it. A pill with its word; the dialog it opens is the
+   one shelf unchanged. */
+.hb-library-entry {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hb-lib-entry {
+  position: static;
+  opacity: 1;
+  width: auto;
+  height: auto;
+  gap: 6px;
+  padding: 5px 10px;
+  color: var(--foreground, #1f2328);
+}
+.hb-lib-entry-label { font-size: 12px; font-weight: 550; }
+.hb-library-entry .hb-library-said { position: static; text-align: left; padding: 4px 8px; }
+.hb-library-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 12px;
+  background: rgba(0, 0, 0, 0.82);
+  animation: hb-appear 0.18s ease-out;
+}
+/* The entrance fade, under the same honest gate the chrome controls carry: this block MUST stay below
+   the rule that declares the animation (same specificity \u2014 the later rule wins). Chrome reads the
+   resting state (tests/test_library_chrome.py). */
+@media (prefers-reduced-motion: reduce) {
+  .hb-library-overlay { animation: none; }
+}
+.hb-library-dialog {
+  position: relative;
+  box-sizing: border-box;
+  width: min(620px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 18px 20px 20px;
+  border-radius: 14px;
+  background: var(--background, #ffffff);
+  color: var(--foreground, #1f2328);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+}
+.hb-library-close { color: #fff; }
+.hb-library-title { font-size: 15px; font-weight: 600; margin: 2px 44px 10px 0; }
+.hb-library-note {
+  padding: 8px 2px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.hb-library-group { margin: 0 0 12px; }
+.hb-library-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-text-tertiary, #6b7280);
+  padding: 6px 0 4px;
+}
+.hb-library-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 8%, transparent);
+}
+.hb-library-open {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: block;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--foreground, #1f2328);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.hb-library-open:hover:not(:disabled), .hb-library-open:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+}
+.hb-library-open:disabled { cursor: default; color: var(--ui-text-tertiary, #6b7280); }
+.hb-library-name { font-weight: 550; }
+.hb-library-missing, .hb-library-here { color: var(--ui-text-tertiary, #6b7280); font-size: 12px; font-style: normal; }
+.hb-library-tools { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.hb-library-tools > button {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 7px;
+  background: none;
+  color: var(--ui-text-tertiary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hb-library-tools > button:hover:not(:disabled), .hb-library-tools > button:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+  color: var(--foreground, #1f2328);
+}
+.hb-library-tools > button:disabled { cursor: default; opacity: 0.5; }
+.hb-library-tools > button[aria-pressed="true"] { color: #b8860b; border-color: currentColor; }
+.hb-library-edit { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.hb-library-edit > input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 22%, transparent);
+  border-radius: 7px;
+  background: var(--background, #ffffff);
+  color: var(--foreground, #1f2328);
+  font: inherit;
+  font-size: 13px;
+}
+.hb-library-attached { font-size: 12px; color: var(--ui-text-tertiary, #6b7280); white-space: normal; overflow-wrap: anywhere; }
+/* The reopened board rides the same sheet: it gets the dialog's width, the flex-shrink guard the
+   expand dialog proved necessary (a shrink fight is not a scroll), and no extra caps \u2014 the board's
+   own .hb-blocks rules keep their numbers, so a reopen lays out the way the board laid out inline. */
+.hb-library-board .hb-blocks > * { flex-shrink: 0; }
+.hb-library-boardhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 44px 10px 0;
+}
+.hb-library-boardhead > button {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 7px;
+  background: none;
+  color: var(--ui-text-tertiary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hb-library-boardhead > button:hover, .hb-library-boardhead > button:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+  color: var(--foreground, #1f2328);
+}
+.hb-library-boardtitle { font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 `;
 
 // src/blocks/atoms/atoms.css
@@ -7781,7 +8431,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx44 } from "react/jsx-runtime";
+import { jsx as jsx45 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -7807,7 +8457,14 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx44(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx44(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx45(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx45(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+      }
+    });
+    ctx.register({
+      id: "hermes-genui-shelf",
+      area: CHAT_EMPTY_AREA,
+      data: {
+        render: () => /* @__PURE__ */ jsx45(BlockActions.Provider, { value: { send, fill, rest }, children: /* @__PURE__ */ jsx45(LibraryEntry, {}) })
       }
     });
   }

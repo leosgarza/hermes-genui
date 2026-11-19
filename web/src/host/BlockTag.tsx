@@ -21,11 +21,13 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
 import { readBlocksNoted, type FollowUp } from "../core/readBlocks";
-import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
+import { popLayer, pushLayer } from "../core/overlays";
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
 import { useExportChrome } from "./ExportChrome";
+import { useLibraryChrome } from "./LibraryChrome";
+import { dialogKeys } from "./tabbable";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
@@ -109,33 +111,28 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     getHost: () => hostRef.current,
   });
 
+  // The Library (host/LibraryChrome.tsx): a pin beside the board's other chrome and the shelf dialog the
+  // pin feeds. The controls live OUTSIDE .hb-blocks, exactly like the expand and export pair, so an inline
+  // board still draws the markup it always drew; the dialog is the one established window-covering
+  // pattern, answering its own Escape/Tab on the shared layer stack.
+  const library = useLibraryChrome({
+    id,
+    drawn: state.kind === "drawn",
+    expanded,
+  });
+
   useEffect(() => {
     if (expanded) closeRef.current?.focus();  // an open dialog owns the keyboard
   }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
+    const root = hostRef.current;
+    if (!root) return;
     const layer = pushLayer();  // the board holds the keys until something opens over it
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        // A detail or a photo opened from inside this dialog sits above it; the key answers the topmost layer
-        // first — the board only closes when it IS the topmost one (core/overlays.ts).
-        if (!isTopLayer(layer)) return;
-        e.stopImmediatePropagation();  // one keypress steps down exactly one layer
-        close();
-        return;
-      }
-      if (e.key !== "Tab" || !hostRef.current) return;
-      if (!isTopLayer(layer)) return;  // the focus trap belongs to the topmost dialog alone
-      const items = tabbableIn(hostRef.current);  // the DOM can change while open: recompute per keypress
-      if (!items.length) return;
-      e.preventDefault();  // the dialog owns the keyboard: Tab steps only through its own eligible controls
-      const active = document.activeElement as HTMLElement | null;
-      const at = active === null ? -1 : items.indexOf(active);
-      const step = e.shiftKey ? -1 : 1;
-      const next = at === -1 ? (e.shiftKey ? items.length - 1 : 0) : (at + step + items.length) % items.length;
-      items[next].focus();
-    };
+    // One Escape steps the reader down exactly one layer; the trap belongs to the topmost dialog alone.
+    // The rules themselves are host/tabbable.ts, shared with the Library dialog word for word.
+    const onKey = dialogKeys(root, layer, close);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
@@ -157,6 +154,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           <IconExpand />
         </button>
         {chrome.menu}
+        {library.controls}
         <div ref={hostRef} className={expanded ? "hb-board-host hb-board-overlay" : "hb-board-host"}
           {...(expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {})}
           onClick={expanded ? (e) => e.target === e.currentTarget && close() : undefined}>
@@ -171,27 +169,9 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
             boardAsOf={board.boardAsOf} boardLive={board.boardLive} boardFollowUps={board.boardFollowUps} />
           {chrome.layer}
         </div>
+        {library.dialog}
       </div>
     </BlockActions.Provider>
-  );
-}
-
-/** The controls a real Tab press can reach inside the open dialog, in tab order. The focusable set minus the
- *  controls that are not actually stops: anything disabled (own .disabled or a disabled fieldset — Steps and
- *  Layers end on a spent Next, and a form's Send sits behind its fieldset once sent), anything asking not to be
- *  (negative tabindex, hidden inputs), anything not shown. The layout half of that read (rects, visibility)
- *  only counts where layout is real; jsdom reports a zero rect for every element, so there the attribute
- *  shape governs and Chrome measures the rest (tests/test_expand_fullscreen.py). */
-function tabbableIn(root: HTMLElement): HTMLElement[] {
-  const laidOut = root.getClientRects().length > 0;
-  return [...root.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")].filter(
-    (el) =>
-      el.tabIndex >= 0 &&
-      el.getAttribute("type") !== "hidden" &&
-      (el as HTMLButtonElement).disabled !== true &&
-      !el.closest("fieldset[disabled]") &&
-      !el.closest("[hidden]") &&
-      (!laidOut || (el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible")),
   );
 }
 

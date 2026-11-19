@@ -113,3 +113,86 @@ async def put_state(block_id: str, request: Request):
     except store.StateTooBig:
         return JSONResponse(TOO_BIG, status_code=413)
     return {"ok": True}
+
+
+# --- the Library door -------------------------------------------------------------------
+# The shelf is a local file inside the same store folder as the boards: these three routes read and
+# write that file and nothing else. No account, no cloud, no network — a pin never leaves the machine.
+# Semantics, pinned by tests: PUT requires a real stored board (auto-title from the board's own
+# words, or the words given); DELETE removes only the note — the board keeps answering /blocks/{id}
+# and is never deleted by anything on this door (the store has no delete at all).
+
+WORD_TYPES = {"title": str, "folder": str, "favorite": bool}
+
+
+def _entry_rows(entries: dict) -> list[dict]:
+    """The shelf as rows, newest first, each saying honestly whether its board answers on this machine."""
+    rows = []
+    newest_first = sorted(entries.items(), key=lambda kv: str(_note_of(kv[1]).get("saved_at", "")), reverse=True)
+    for block_id, note in newest_first:
+        note = _note_of(note)
+        if not note:
+            continue
+        rows.append({
+            "id": block_id,
+            "title": note.get("title") or "",
+            "folder": note.get("folder") or None,
+            "favorite": bool(note.get("favorite")),
+            "pinned": True,
+            "saved_at": note.get("saved_at") or "",
+            "exists": store.find_root(block_id) is not None,
+        })
+    return rows
+
+
+def _note_of(note: object) -> dict:
+    return note if isinstance(note, dict) else {}
+
+
+@router.get("/library")
+async def get_library():
+    """{"entries": [...]} — exactly the pinned boards, newest saved first, with the organize words
+    (title, folder, favorite) and an exists flag for the rare note whose board lives in no store here."""
+    return {"entries": _entry_rows(store.load_library())}
+
+
+@router.put("/library/{block_id}")
+async def put_library_entry(block_id: str, request: Request):
+    """Pin, or organize a pin. Body {} saves the board as its own words titled it; the words title,
+    folder and favorite set exactly those fields. Unknown words or wrong types are refused (400) with
+    nothing written; a board that is not stored is 404 — the Library never notes a broken link.
+    An empty title means the board's own words again; an empty folder means the shelf, unfiled.
+    """
+    if store.find_root(block_id) is None:
+        return JSONResponse(NOT_FOUND, status_code=404)
+    raw = await _body(request)
+    if raw is None:
+        return JSONResponse(TOO_BIG, status_code=413)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        body = None
+    if not isinstance(body, dict) or not all(
+        key in WORD_TYPES and isinstance(value, WORD_TYPES[key]) for key, value in body.items()
+    ):
+        return JSONResponse(
+            {"error": "body must be {} or words title/folder/favorite of the right type"}, status_code=400
+        )
+    try:
+        if body:
+            entry = store.update_entry(block_id, body)
+        else:
+            entry = store.pin(block_id)
+    except store.NoSuchBlock:
+        return JSONResponse(NOT_FOUND, status_code=404)
+    except store.LibraryTooBig:
+        return JSONResponse({"error": "library too big"}, status_code=413)
+    return {"entry": {"id": block_id, **entry}}
+
+
+@router.delete("/library/{block_id}")
+async def delete_library_entry(block_id: str):
+    """Take the note off the shelf. The board itself stays stored and keeps answering GET /blocks —
+    remove-from-Library never destroys anything a chat still quotes. {"removed": false} when there
+    was no note (id malformed or never pinned): saying nothing happened is cheaper than a lie."""
+    return {"ok": True, "removed": store.unpin(block_id)}

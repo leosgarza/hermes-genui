@@ -209,3 +209,224 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* --- the Library (enhancement #8) --------------------------------------------------------------
+   The two new chrome controls stand beside the expand/export pair, quiet until the pointer or the
+   keyboard reaches them — and a SAVED board keeps its pin lit at all times, because the pressed
+   state is the file's truth, not the pointer's. The dialog is the one window-covering pattern of
+   this host (the expand overlay's shape: fixed inset, dark field, centered sheet), so it shares
+   .hb-overlay-close and the layer rules in core/overlays.ts. Controls sit OUTSIDE .hb-blocks, so
+   the tokens here are the app's, with fallbacks, like every chrome rule above. */
+.hb-pin {
+  position: absolute;
+  top: 6px;
+  right: 78px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-lib {
+  position: absolute;
+  top: 6px;
+  right: 114px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+}
+.hb-tag:hover .hb-pin, .hb-pin:focus-visible, .hb-pin[aria-pressed="true"],
+.hb-tag:hover .hb-lib, .hb-lib:focus-visible, .hb-lib[aria-expanded="true"] { opacity: 1; }
+.hb-pin[aria-disabled="true"], .hb-lib[aria-disabled="true"] { cursor: default; }
+.hb-pin[aria-pressed="true"] {
+  color: var(--foreground, #1f2328);
+  border-color: color-mix(in srgb, var(--foreground, #1f2328) 34%, transparent);
+}
+/* The pin's word: below the chrome row, wrapping inside the column — height may grow, width never
+   (the rule every status word in this host keeps; it costs the inline board's DOM nothing). */
+.hb-library-said {
+  position: absolute;
+  top: 38px;
+  right: 6px;
+  z-index: 1;
+  max-width: min(320px, 100%);
+  padding: 4px 10px 6px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  text-align: right;
+  background: color-mix(in srgb, var(--background, #ffffff) 85%, transparent);
+  border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The new-chat shelf entry (chat.empty, review round 2): the same quiet button, but IN FLOW and always
+   visible — there is no board to hover to reveal it. A pill with its word; the dialog it opens is the
+   one shelf unchanged. */
+.hb-library-entry {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hb-lib-entry {
+  position: static;
+  opacity: 1;
+  width: auto;
+  height: auto;
+  gap: 6px;
+  padding: 5px 10px;
+  color: var(--foreground, #1f2328);
+}
+.hb-lib-entry-label { font-size: 12px; font-weight: 550; }
+.hb-library-entry .hb-library-said { position: static; text-align: left; padding: 4px 8px; }
+.hb-library-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 12px;
+  background: rgba(0, 0, 0, 0.82);
+  animation: hb-appear 0.18s ease-out;
+}
+/* The entrance fade, under the same honest gate the chrome controls carry: this block MUST stay below
+   the rule that declares the animation (same specificity — the later rule wins). Chrome reads the
+   resting state (tests/test_library_chrome.py). */
+@media (prefers-reduced-motion: reduce) {
+  .hb-library-overlay { animation: none; }
+}
+.hb-library-dialog {
+  position: relative;
+  box-sizing: border-box;
+  width: min(620px, 100%);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 18px 20px 20px;
+  border-radius: 14px;
+  background: var(--background, #ffffff);
+  color: var(--foreground, #1f2328);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.4);
+}
+.hb-library-close { color: #fff; }
+.hb-library-title { font-size: 15px; font-weight: 600; margin: 2px 44px 10px 0; }
+.hb-library-note {
+  padding: 8px 2px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.hb-library-group { margin: 0 0 12px; }
+.hb-library-head {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ui-text-tertiary, #6b7280);
+  padding: 6px 0 4px;
+}
+.hb-library-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 0;
+  border-top: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 8%, transparent);
+}
+.hb-library-open {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: block;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--foreground, #1f2328);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.hb-library-open:hover:not(:disabled), .hb-library-open:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+}
+.hb-library-open:disabled { cursor: default; color: var(--ui-text-tertiary, #6b7280); }
+.hb-library-name { font-weight: 550; }
+.hb-library-missing, .hb-library-here { color: var(--ui-text-tertiary, #6b7280); font-size: 12px; font-style: normal; }
+.hb-library-tools { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.hb-library-tools > button {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 7px;
+  background: none;
+  color: var(--ui-text-tertiary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hb-library-tools > button:hover:not(:disabled), .hb-library-tools > button:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+  color: var(--foreground, #1f2328);
+}
+.hb-library-tools > button:disabled { cursor: default; opacity: 0.5; }
+.hb-library-tools > button[aria-pressed="true"] { color: #b8860b; border-color: currentColor; }
+.hb-library-edit { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.hb-library-edit > input {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 22%, transparent);
+  border-radius: 7px;
+  background: var(--background, #ffffff);
+  color: var(--foreground, #1f2328);
+  font: inherit;
+  font-size: 13px;
+}
+.hb-library-attached { font-size: 12px; color: var(--ui-text-tertiary, #6b7280); white-space: normal; overflow-wrap: anywhere; }
+/* The reopened board rides the same sheet: it gets the dialog's width, the flex-shrink guard the
+   expand dialog proved necessary (a shrink fight is not a scroll), and no extra caps — the board's
+   own .hb-blocks rules keep their numbers, so a reopen lays out the way the board laid out inline. */
+.hb-library-board .hb-blocks > * { flex-shrink: 0; }
+.hb-library-boardhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 44px 10px 0;
+}
+.hb-library-boardhead > button {
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 12%, transparent);
+  border-radius: 7px;
+  background: none;
+  color: var(--ui-text-tertiary, #6b7280);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.hb-library-boardhead > button:hover, .hb-library-boardhead > button:focus-visible {
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+  color: var(--foreground, #1f2328);
+}
+.hb-library-boardtitle { font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }

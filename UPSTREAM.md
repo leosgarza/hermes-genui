@@ -758,6 +758,127 @@ the contract now.)
   needs a DOM rasterizer, a dependency this card forbids; per-block PNG/CSV and whole-board Markdown/JSON
   now cover every supported block instead.
 
+## 11. library — pin a board to a local shelf: reopen, reattach, organize (enhancement #8, this card)
+
+A reader can SAVE the board a chat drew and find it again tomorrow. The Library is host chrome — the same
+family of deterministic local acts as the expand and export pair — and it costs no model turn, no schema
+word and no network call: not at pin time, not at any time. Boards never leave the machine. (Honesty, per
+the research ledger: the vendor shelves this shape echoes are artifact-shaped (Claude) and file-shaped
+(ChatGPT); a BOARD-level pin for inline chat visuals is an [inferred] synthesis of the two — no vendor
+documents exactly this. What is genuinely ours is the local-first privacy: no account, no cloud, no upload,
+the whole shelf is one small file inside the plugin's own store folder.)
+
+- The note (core/store.py): the shelf is `library.json` beside the board files, one entry per saved board —
+  `{title, folder, favorite, pinned, saved_at}` with a UTC stamp. It is written WHOLE (a reader sees the old
+  file or the new one, never a torn one), refused over 64 KiB with nothing written, and a damaged note file
+  reads as an empty shelf, exactly like a damaged board file. `pin` refuses to note a board that is not
+  really stored (NoSuchBlock — a Library of broken links is a lie), titles it from the board's OWN words
+  (`title_of` walks the spec for its first real heading/label/text) unless the reader named it, and
+  re-pinning keeps the note's edits: same board saved again, not a new save. `update_entry` changes only
+  the words present in the call — an empty title means the board's words again, an empty folder means
+  unfiled. `unpin` is the whole of the remove semantics: THE NOTE GOES, THE BOARD STAYS — the store has no
+  delete at all, so removing from the Library cannot destroy anything a chat still quotes.
+- The door (dashboard/plugin_api.py): three routes over that one file and nothing else.
+  `GET /library` answers exactly the pinned boards, newest first, each row saying honestly whether its
+  board still answers on this machine (`exists`). `PUT /library/{id}` pins or organizes: unknown words or
+  wrong types are refused (400) with nothing written, a board that is not stored is 404, the size cap is 413.
+  `DELETE /library/{id}` removes only the note and reports `{removed: true|false}` — it never touches the
+  board, which keeps answering `GET /blocks/{id}` and drawing wherever its tag was quoted.
+- The chrome (web/src/host/LibraryChrome.tsx, wired in BlockTag.tsx): two quiet buttons join the expand and
+  export pair, OUTSIDE `.hb-blocks` like every other view act, so an inline board still draws byte-identical
+  markup. SAVE carries `aria-pressed` from the FILE — the door is read once on mount, so a pin survives a
+  real page reload and the button knows it. LIBRARY opens the established window-covering dialog (the
+  expand overlay's own pattern, and the dialog IS that one element — a class and ARIA toggle on one node,
+  never a second mount of stateful content): rows grouped Favorites, folders, Unfiled, newest first. Each
+  row can: OPEN the saved board right in the dialog — drawn from the door's own answer through the SAME
+  reader (`readBlocksNoted`) and the SAME `Blocks` the inline board went through, so a reopen renders the
+  board's data AND its layout, not a picture of it; ADD IT TO CHAT as context through the real send seam,
+  the saved board's own title on the line and its `::blocks{id="…"}` tag alone below — the plugin's one
+  board reference, exactly as paste sends it; and organize: favorite, rename (the editor opens with the old
+  title SELECTED, so typing REPLACES it — proven through the real door), move to folder, remove. A board
+  that is expanded takes the dialog's own chrome pair; the shelf lives at rest, one view at a time.
+- Shared keyboard rules (web/src/host/tabbable.ts): the expand dialog's focus trap — Tab steps only through
+  the dialog's own eligible controls (disabled, hidden and fieldset-spent stops removed, recomputed per
+  keypress), Escape steps down exactly ONE layer on the shared overlay stack, focus restored to the control
+  that opened — was lifted out of BlockTag VERBATIM into `dialogKeys` and is now word for word the Library
+  dialog's behavior too. No dialog can eat the page behind it; no Escape closes two layers at once.
+- What stands as before: static rendering, theming, AI alignment, the expand/export stack, the follow-up
+  strip (#5), the interactive table's send seam (#3), chart drill-down (#4), provenance, single-instance
+  state. `describe()` and `tests/fixtures/describe.txt` are untouched — the feature adds no model-facing
+  word at all; the catalog and the evals never heard about it. Two shipped tests grew the same way the
+  export pair grew them at #6: the BlockTag placement test admits `hb-pin`/`hb-lib` and the shelf's row
+  controls as view acts (they never place anything in chat), and the export suite's `rest_calls` filter
+  ignores the chrome's one `GET /library` state read — block-data requests stay pinned at exactly the load.
+- The proof is behavioral end to end. Store and door have unit suites (`tests/core/test_store_library.py`,
+  `tests/dashboard/test_plugin_api_library.py`: auto-title, re-pin keeps edits, 400/404/413 refusals write
+  nothing, unpin leaves the board file on disk answering GET); the dialog has a jsdom suite
+  (`LibraryChrome.test.tsx`: list fidelity, faithful reopen, organize, remove-word honesty); and
+  `tests/test_library_chrome.py` drives the WHOLE journey in real Chrome against plugin_api.py really
+  served on a loopback port over a tmp store: a pointer click on the pin writes a real note; a REAL reload
+  reads it back and the shelf lists exactly the pinned boards; reopen draws the saved board from the door's
+  answer; reattach submits exactly the saved board's own tag through the real composer seam; favorite,
+  rename and folder organize by clicks; the unpin click kills the note and the board file is STILL there
+  and STILL answers 200. The local-only claim is asserted, not promised: `window.__net` witnesses every
+  request the page makes and the suite pins that only the 127.0.0.1 door is ever asked — no account, no
+  cloud, no telemetry. The chrome pair is keyboard-operable with real Tab presses and a trusted Enter, the
+  dialog's entrance respects prefers-reduced-motion (read at rest), and at the narrowest board column the
+  shelf still fits: every tool inside its box, every word readable.
+- The bundle `desktop/plugin.js` was rebuilt twice to a byte-identical file carrying the Library chrome.
+- Review round 2 (both blocking fixes, behavior proven not declared):
+  · A REOPENED board answers to its OWN id. The shelf dialog inherits the hosting board's
+    `BlockActions` context, so the reopened `Blocks` are now wrapped in a provider that keeps the host's
+    actions but sets `blockId` to the SAVED board's id — a checklist or form inside reopened board B
+    loads and saves `/blocks/B/state`, never the board A the shelf was opened from (the id is consumed
+    through the context by exactly those two block kinds today; a block that never reads the id is
+    untouched by construction). The regression runs with two DIFFERENT boards of the same shape and
+    divergent state at the SAME keys: real Chrome reads B, taps B with a real pointer, and asserts B's
+    state file grew while A's stayed byte-identical — and the page's own network witness shows exactly
+    one state PUT, aimed at B.
+  · The Library stands in a genuinely NEW chat. `plugin.tsx` registers a host-level entry into the app's
+    `chat.empty` area — the same slot the Desktop host draws its own chat-empty content into, every
+    registration rendered with `{sessionId}` (both the area name and the render contract verified
+    against the shipped binary; `@hermes/plugin-sdk` exports `CHAT_EMPTY_AREA`). An empty chat with no
+    directive anywhere can open the shelf, reopen a saved board faithfully, and reattach it: the real
+    plugin registration, bundled as shipped and driven as the host's slot drives it, lands the saved
+    board's exact `::blocks{id="…"}` reference on the active composer, and the unopened shelf costs
+    the door ZERO requests. The favorite star and the row-title reopen control are a real labelled
+    BUTTON and a real focusable BUTTON — reached by genuine Tab and activated by a trusted Enter.
+- Review round 3 (verification defects, not new behavior):
+  · The isolation unit gate is DETERMINISTIC. The reopened-board test used to wait for the checkbox to
+    MOUNT and then read the ticks synchronously, which raced the async saved-state read (first
+    independent run: 1 failed / 15 passed; rerun green). It now waits for board B's LOADED tick state
+    (`[1]`) — a value only B's own state file can produce, so the gate still fails when the `blockId`
+    override is removed (negative control: exactly 1 failed / 15 passed), and the focused file has run
+    16/16 green seven consecutive times.
+  · The new-chat reattach is proven through a MIRROR of the shipped host, not a recording fake.
+    `tests/host_harness_r3.tsx` re-implements, function-for-function from
+    `…/assets/capabilities-CX1W09bd.js`, the app's own plugin pipeline: the `PU/FU/LU` global
+    namespaces + blob import-map shims, the `wW/OW/kW/AW/jW` bare-import scanner and unsupported-import
+    check, the `NW` loader (rewrite → blob → dynamic import → `{id, register}` contract), the `xW`
+    ctx (contributions namespaced `hermes-genui:<id>`, source `plugin:hermes-genui`, `rest`), the
+    `kI/FI/II/LI` `::directive{...}` splitter with the shipped 4800-char/`{`-guard rules, the `yz`
+    by-`data.name` directive lookup, and the `bA` composer whose `submit(null, text)` resolves to the
+    ACTIVE session. `tests/test_library_host_integration.py` loads THE FROZEN `desktop/plugin.js`
+    bytes (sha256 asserted in-test) through that pipeline in real Chrome over the real door and asserts
+    four things TOGETHER: the artifact's own `register(ctx)` lands both contributions; the shelf stands
+    in an empty chat through the host's `chat.empty` slot; a real tap on Add-to-chat puts the exact
+    `::blocks` reference into that session's transcript MODEL; and the transcript renders it through
+    the plugin's OWN directive registration, so the saved board appears as real `.hb-blocks` in the new
+    chat — while the other chat stays empty, and switching the active chat moves where the next
+    reattach lands. RESIDUAL, stated honestly: this is a faithful mirror of the shipped contract, not
+    the Electron renderer itself — the outermost live-Desktop routing (the app's real session store and
+    model loop) can only be exercised by installing the candidate and restarting, which this lane
+    forbids; it is scheduled as a bounded live new-chat acceptance at promotion.
+  · ROUND-4 AUTHORITY DECISION (Sol, recorded on the card): exercising the REAL shipped SDK in an
+    isolated regression is INFEASIBLE under the no-install/no-restart constraint — `@hermes/plugin-sdk`
+    is not an installable package (npm E404, web/package.json deps are empty) but a build-time external
+    (web/build.mjs) whose runtime implementation lives only inside the Desktop host bundle
+    (`capabilities-CX1W09bd.js`). The function-for-function mirror above is ACCEPTED as the maximal
+    isolated proof; the live-Desktop residual is CLOSED by Sol's bounded live new-chat acceptance at
+    promotion (open Library in a genuinely new chat → reattach → confirm render + active-session
+    targeting). The test header previously overstated this as "the ACTUAL host seam"; corrected in
+    round 4 to state exactly what is mirrored vs what requires live.
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

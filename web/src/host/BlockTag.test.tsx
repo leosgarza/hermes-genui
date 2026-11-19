@@ -113,7 +113,13 @@ describe("BlockTag placement", () => {
     for (const b of [...document.querySelectorAll("button")]) {
       const viewAct = b.classList.contains("hb-expand") ||
         b.classList.contains("hb-export") || b.classList.contains("hb-export-btn") ||
-        b.closest(".hb-export-menu") !== null;
+        b.closest(".hb-export-menu") !== null ||
+        // …and since #8 (t_0559173f), the Library pair: saving a board and reading the shelf are local
+        // shelf acts, exactly like exporting — they never ask the model anything and never place anything.
+        b.classList.contains("hb-pin") || b.classList.contains("hb-lib") ||
+        b.closest(".hb-library-row") !== null || b.closest(".hb-library-tools") !== null ||
+        b.closest(".hb-library-edit") !== null || b.closest(".hb-library-boardhead") !== null ||
+        b.classList.contains("hb-library-close");
       expect(viewAct, b.className).toBe(true);
     }
     for (const word of ["Auto", "Left", "Center", "Right"]) {
