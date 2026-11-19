@@ -183,3 +183,35 @@ def test_save_and_load_round_trip_an_envelope(tmp_path):
     board = {"align": "right", "blocks": [{"type": "text", "text": "hi"}]}
     block_id = store.save(board, root=tmp_path)
     assert store.load(block_id, root=tmp_path) == board
+
+# --- the envelope's provenance words: as_of (a date line) and live (a real bool) --------------------------------
+
+def test_blocks_of_still_reads_a_provenance_envelope(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.blocks_of({"as_of": "2026-11-18", "live": True, "blocks": plain}) == plain
+
+
+def test_as_of_of_reads_the_date_line_the_way_align_of_reads_its_word(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.as_of_of({"as_of": "2026-11-18", "blocks": plain}) == "2026-11-18"
+    assert store.as_of_of(plain) is None
+    assert store.as_of_of({"as_of": 5, "blocks": plain}) is None
+    assert store.as_of_of({"blocks": plain}) is None
+    assert store.as_of_of(None) is None
+
+
+def test_live_of_keeps_false_and_refuses_a_non_bool(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.live_of({"live": True, "blocks": plain}) is True
+    assert store.live_of({"live": False, "blocks": plain}) is False  # a snapshot is a word, not an absence
+    assert store.live_of({"live": "yes", "blocks": plain}) is None
+    assert store.live_of({"live": 1, "blocks": plain}) is None
+    assert store.live_of(plain) is None
+    assert store.live_of(None) is None
+
+
+def test_save_and_load_round_trip_a_provenance_envelope(tmp_path):
+    board = {"align": "center", "as_of": "Nov 18, 14:05 UTC", "live": False,
+             "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = store.save(board, root=tmp_path)
+    assert store.load(block_id, root=tmp_path) == board

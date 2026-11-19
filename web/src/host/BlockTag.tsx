@@ -13,7 +13,11 @@ import { BlockActions } from "./actions";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
-type State = { kind: "loading" } | { kind: "drawn"; blocks: Block[]; boardAlign?: Align } | { kind: "failed" };
+type State = {
+  kind: "loading";
+} | {
+  kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardAsOf?: string; boardLive?: boolean;
+} | { kind: "failed" };
 
 /**
  * load fetches the stored JSON for an id (in the app: the plugin's REST route).
@@ -35,8 +39,8 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     let live = true;
     load(id)
       .then((data) => {
-        const { blocks, align: boardAlign } = readBlocksNoted(data);
-        if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign } : { kind: "failed" });
+        const { blocks, align: boardAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
+        if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardAsOf, boardLive } : { kind: "failed" });
       })
       .catch(() => {
         if (live) setState({ kind: "failed" });
@@ -58,7 +62,8 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
   return (
     <BlockActions.Provider value={{ ...actions, blockId: id }}>
       <AlignControl value={userAlign ?? "auto"} onChoose={choose} />
-      <Blocks blocks={state.blocks} boardAlign={state.boardAlign} userAlign={userAlign} />
+      <Blocks blocks={state.blocks} boardAlign={state.boardAlign} userAlign={userAlign}
+        boardAsOf={state.boardAsOf} boardLive={state.boardLive} />
     </BlockActions.Provider>
   );
 }

@@ -68,7 +68,7 @@ class BoardTooBig(ValueError):
     """The board is over BOARD_LIMIT bytes as JSON."""
 
 
-def board_size(blocks: list) -> int:
+def board_size(blocks: list | dict) -> int:
     """How many bytes a board takes stored: board_size([{"type": "divider"}]) → 20"""
     return len(json.dumps(blocks, ensure_ascii=False).encode("utf-8"))
 
@@ -174,6 +174,26 @@ def align_of(board: object) -> str | None:
     """
     word = board.get("align") if isinstance(board, dict) else None
     return word if isinstance(word, str) else None
+
+
+def as_of_of(board: object) -> str | None:
+    """The date line a stored envelope carries for the whole board, or None. Like the align word it is checked
+    where it is drawn; here only what was never text (or is empty) is refused.
+
+    as_of_of({"as_of": "2026-11-18", "blocks": [x]}) → "2026-11-18";  as_of_of({"as_of": 5, ...}) → None
+    """
+    line = board.get("as_of") if isinstance(board, dict) else None
+    return line if isinstance(line, str) and line else None
+
+
+def live_of(board: object) -> bool | None:
+    """Whether a stored envelope says its figures are live: True or False when it carries a real bool (False is a
+    word of its own — a snapshot — and not an absence), None when it says nothing or says it any other way.
+
+    live_of({"live": false, "blocks": [x]}) → False;  live_of({"live": "yes", ...}) → None
+    """
+    flag = board.get("live") if isinstance(board, dict) else None
+    return flag if isinstance(flag, bool) else None
 
 
 PHOTO_LIST = "photo-urls.txt"

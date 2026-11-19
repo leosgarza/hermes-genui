@@ -167,7 +167,7 @@ function composerActions(composer) {
 import { useContext as useContext8, useEffect as useEffect9, useState as useState24 } from "react";
 
 // src/core/Blocks.tsx
-import { createContext as createContext3, useContext as useContext7 } from "react";
+import { createContext as createContext3, Fragment as Fragment12, useContext as useContext7 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -4835,8 +4835,14 @@ var BLOCK_TYPES = Object.keys(REGISTRY);
 function readBlocksNoted(data) {
   let list = data;
   let board;
+  let asOf;
+  let live;
   if (isObject(list) && Array.isArray(list.blocks)) {
-    if (typeof list.type !== "string") board = align(list.align);
+    if (typeof list.type !== "string") {
+      board = align(list.align);
+      asOf = str(list.as_of, 80);
+      live = typeof list.live === "boolean" ? list.live : void 0;
+    }
     list = list.blocks;
   }
   if (isObject(list) && typeof list.type === "string") list = [list];
@@ -4847,7 +4853,7 @@ function readBlocksNoted(data) {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board };
+  return { blocks, dropped: top.dropped, align: board, asOf, live };
 }
 function alignOf(block) {
   return block.align;
@@ -4877,7 +4883,7 @@ function readOne(raw, here, depth) {
 }
 
 // src/core/Blocks.tsx
-import { jsx as jsx38 } from "react/jsx-runtime";
+import { jsx as jsx38, jsxs as jsxs33 } from "react/jsx-runtime";
 var AlignScope = createContext3({ board: void 0, user: void 0 });
 function BlockView({ block }) {
   const entry = REGISTRY[block.type];
@@ -4895,12 +4901,53 @@ function Placed({ block }) {
 function drawAll(blocks) {
   return blocks.map((b, i) => /* @__PURE__ */ jsx38(Placed, { block: b }, i));
 }
-function Blocks({ blocks, boardAlign, userAlign }) {
-  return /* @__PURE__ */ jsx38(AlignScope.Provider, { value: { board: boardAlign, user: userAlign }, children: /* @__PURE__ */ jsx38("div", { className: "hb-blocks", children: /* @__PURE__ */ jsx38(FlowLightBoard, { children: drawAll(blocks) }) }) });
+function Provenance({ source, chartSources, asOf, live }) {
+  const parts = [];
+  const add = (key, node) => {
+    if (parts.length) parts.push(/* @__PURE__ */ jsx38("span", { className: "hb-provenance-dot", "aria-hidden": "true", children: "\xB7" }, `${key}-dot`));
+    parts.push(/* @__PURE__ */ jsx38(Fragment12, { children: node }, key));
+  };
+  for (const [i, s] of (chartSources ?? []).entries()) {
+    add(`chart-${i}`, /* @__PURE__ */ jsx38("span", { className: "hb-provenance-source", children: s }));
+  }
+  if (asOf) add("as_of", /* @__PURE__ */ jsx38("span", { className: "hb-provenance-time", children: asOf }));
+  if (live !== void 0) {
+    add("live", /* @__PURE__ */ jsx38("span", { className: "hb-provenance-badge", "data-live": live ? "live" : "snapshot", children: live ? "Live" : "Snapshot" }));
+  }
+  return /* @__PURE__ */ jsxs33("div", { className: "hb-provenance", children: [
+    source && /* @__PURE__ */ jsx38(Placed, { block: source }),
+    /* @__PURE__ */ jsx38("div", { className: "hb-provenance-line", children: parts })
+  ] });
+}
+function Blocks({ blocks, boardAlign, userAlign, boardAsOf, boardLive }) {
+  const declared = boardAsOf !== void 0 || boardLive !== void 0;
+  let list = blocks;
+  let source;
+  let chartSources = [];
+  if (declared) {
+    const at2 = blocks.findIndex((b) => b.type === "source");
+    if (at2 >= 0) {
+      source = blocks[at2];
+      list = blocks.filter((_, i) => i !== at2);
+    }
+    const said = new Set(source ? [source.text] : []);
+    for (const b of list) {
+      if (b.type !== "chart") continue;
+      const s = b.spec.source;
+      if (typeof s === "string" && s.trim() && !said.has(s)) {
+        said.add(s);
+        chartSources.push(s);
+      }
+    }
+  }
+  return /* @__PURE__ */ jsx38(AlignScope.Provider, { value: { board: boardAlign, user: userAlign }, children: /* @__PURE__ */ jsxs33("div", { className: "hb-blocks", children: [
+    /* @__PURE__ */ jsx38(FlowLightBoard, { children: drawAll(list) }),
+    declared && /* @__PURE__ */ jsx38(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive })
+  ] }) });
 }
 
 // src/host/BlockTag.tsx
-import { jsx as jsx39, jsxs as jsxs33 } from "react/jsx-runtime";
+import { jsx as jsx39, jsxs as jsxs34 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
@@ -4912,8 +4959,8 @@ function BlockTag({ id, streaming, load }) {
     if (streaming || !validId) return;
     let live = true;
     load(id).then((data) => {
-      const { blocks, align: boardAlign } = readBlocksNoted(data);
-      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign } : { kind: "failed" });
+      const { blocks, align: boardAlign, asOf: boardAsOf, live: boardLive } = readBlocksNoted(data);
+      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardAsOf, boardLive } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -4929,9 +4976,18 @@ function BlockTag({ id, streaming, load }) {
     setUserAlign(value);
     saveUserAlign(id, value);
   };
-  return /* @__PURE__ */ jsxs33(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
+  return /* @__PURE__ */ jsxs34(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
     /* @__PURE__ */ jsx39(AlignControl, { value: userAlign ?? "auto", onChoose: choose }),
-    /* @__PURE__ */ jsx39(Blocks, { blocks: state.blocks, boardAlign: state.boardAlign, userAlign })
+    /* @__PURE__ */ jsx39(
+      Blocks,
+      {
+        blocks: state.blocks,
+        boardAlign: state.boardAlign,
+        userAlign,
+        boardAsOf: state.boardAsOf,
+        boardLive: state.boardLive
+      }
+    )
   ] });
 }
 var CHOICES = ["auto", "left", "center", "right"];
@@ -5025,6 +5081,41 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 .hb-place { display: flow-root; }
 .hb-place-center > * { margin-inline: auto; }
 .hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* The provenance footer: the quiet lines a board grows when its envelope says as_of or live \u2014 the source on its
+   own row, then the joined line: each chart's own source, the date \xB7 the word Live or Snapshot. The source row is
+   a block column on purpose: placement through a .hb-place only shares out space a block context left over, and a
+   place inside the join line's flex row would shrink-wrap to its content, parking every word back at the left
+   edge (measured in Chrome: 29px where the board puts 800). As its own row it fills the footer's width exactly
+   like a board's own column fills the board, so the placement machinery is the same one, untouched. The joins on
+   the line are plain text (.hb-provenance-source needs no rule of its own \u2014 the line's voice already fits them).
+   The badge always carries its word; colour (the existing good green for Live) only sits beside it. */
+.hb-provenance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--hb-muted);
+}
+.hb-provenance-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.hb-provenance .hb-source { font-size: inherit; }
+.hb-provenance-dot { opacity: 0.7; }
+.hb-provenance-badge {
+  padding: 0 7px;
+  border: 1px solid var(--hb-line-strong);
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--hb-ink-2);
+}
+.hb-provenance-badge[data-live="live"] {
+  color: var(--hb-good);
+  border-color: color-mix(in srgb, var(--hb-good) 45%, transparent);
+}
 `;
 
 // src/styles/shared.css

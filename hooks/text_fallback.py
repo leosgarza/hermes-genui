@@ -131,7 +131,8 @@ def _board_text(block_id: str, load) -> str:
         board = load(block_id)
     except Exception:  # an unreadable file must not stop the reply
         return NOT_SHOWN
-    return blocks_as_text(store.blocks_of(board)) or NOT_SHOWN  # alignment is a drawing concern; text is just blocks
+    # alignment and provenance are drawing concerns; text is just blocks
+    return blocks_as_text(store.blocks_of(board)) or NOT_SHOWN
 
 
 def replace_tags(text: str, load=store.load) -> str:

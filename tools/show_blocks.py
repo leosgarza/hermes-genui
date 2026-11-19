@@ -3,7 +3,7 @@
 import json
 import math
 
-from ..blocks.common import align_word
+from ..blocks.common import align_word, as_of_line, live_flag
 from ..core import store, surface
 from ..core.catalog_text import describe
 from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, too_deep
@@ -152,10 +152,10 @@ def _included(block_id: str, here: str, problems: list[str]) -> list:
         problems.append(f"{here}: board {block_id} is too big to include (max {INCLUDE_LIMIT // 1024} KB)")
     elif board is None:
         problems.append(f"{here}: no stored board with id {block_id}")
-    return store.blocks_of(board)  # its own align stays with the board it was saved for; includes take the blocks
+    return store.blocks_of(board)  # its own align and provenance stay with the board; includes take just the blocks
 
 
-def too_big(blocks: list) -> str | None:
+def too_big(blocks: list | dict) -> str | None:
     """The refusal for a board over store.BOARD_LIMIT as JSON, or None when it fits.
 
     a 300 KB board → "Not drawn: board too big (300 KB, max 256 KB). Draw less or split it.";  a 2 KB board → None
@@ -182,7 +182,16 @@ def show_blocks(params: dict, **kwargs) -> str:
         problems = [deep] if (deep := too_deep(blocks)) else []
     if problems:
         return _not_drawn(problems)
-    board = blocks if (word := align_word(params.get("align"))) is None else {"align": word, "blocks": blocks}
+    board = blocks
+    envelope: dict = {}
+    if (word := align_word(params.get("align"))) is not None:
+        envelope["align"] = word
+    if (as_of := as_of_line(params.get("as_of"))) is not None:
+        envelope["as_of"] = as_of
+    if (live := live_flag(params.get("live"))) is not None:
+        envelope["live"] = live
+    if envelope:  # the board's own words ride beside its blocks, in one envelope
+        board = {**envelope, "blocks": blocks}
     refusal = too_big(board)
     if refusal:
         return refusal
@@ -213,6 +222,17 @@ SHOW_BLOCKS_SCHEMA = {
                 "type": "string",
                 "description": "Optional. Where the blocks of this whole board sit across the reply when a block "
                 "doesn't ask for itself: left (the default) | center | right. The reader can override it in the app.",
+            },
+            "as_of": {
+                "type": "string",
+                "description": "Optional. When the board's data is from, as one line people read rather than a "
+                "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The board's footer shows "
+                "it beside its source line.",
+            },
+            "live": {
+                "type": "boolean",
+                "description": "Optional. true: the figures update live; false: this is a snapshot taken at as_of. "
+                "The board's footer shows the word Live or Snapshot. Only give it when you really know.",
             },
         },
         "required": ["blocks"],

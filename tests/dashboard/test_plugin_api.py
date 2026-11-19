@@ -112,3 +112,17 @@ def test_api_passes_the_boards_own_align(client, tmp_path):
     board = {"align": "center", "blocks": [{"type": "text", "text": "hi"}]}
     block_id = api.store.save(board, root=tmp_path)
     assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center"}
+
+def test_api_passes_the_boards_own_provenance(client, tmp_path):
+    http, api = client
+    board = {"as_of": "2026-11-18", "live": True, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "as_of": "2026-11-18", "live": True}
+
+
+def test_api_keeps_live_false_and_skips_junk(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "as_of": 5, "live": False, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    # an as_of that was never a string is not served; a live false is.
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center", "live": False}

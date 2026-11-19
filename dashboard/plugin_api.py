@@ -35,6 +35,10 @@ async def get_block(block_id: str):
     answer = {"blocks": store.blocks_of(board)}
     if (word := store.align_of(board)) is not None:  # the board's own alignment default, when it has one
         answer["align"] = word
+    if (as_of := store.as_of_of(board)) is not None:  # and its provenance: when the data is from, live or snapshot
+        answer["as_of"] = as_of
+    if (live := store.live_of(board)) is not None:
+        answer["live"] = live
     return answer
 
 

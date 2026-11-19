@@ -2,26 +2,36 @@
 // in blocks/<type>/read.ts, with a comment and a worked example, listed in registry.tsx. The rule throughout: drop what
 // doesn't fit and note why; never show broken data.
 import { REGISTRY, type Block } from "../registry";
-import { align, Trail, type Align, type Diagnostic } from "./fields";
+import { align, str, Trail, type Align, type Diagnostic } from "./fields";
 
 /** Every block type that can be drawn, containers included. */
 export const BLOCK_TYPES: string[] = Object.keys(REGISTRY);
 
 /**
- * Stored JSON → its blocks, notes on what was dropped, and the board's own alignment default. A lone block object is
- * a list of one, and the store's {blocks: [...]} envelope is unwrapped (it may say align beside blocks: where the
- * board puts the blocks that don't ask for themselves). Anything else gives no blocks.
+ * Stored JSON → its blocks, notes on what was dropped, and the board's own words from the stored envelope: its
+ * alignment default, and provenance — asOf (when the data is from, one short line) and live (true: the figures
+ * update; false: a snapshot; undefined: the board didn't say). A lone block object is a list of one, and the
+ * store's {blocks: [...]} envelope is unwrapped (it may say align, as_of or live beside blocks). Anything else
+ * gives no blocks.
  *   [{type: "heading", text: "Day 1"}, {type: "weather"}]
  *   → {blocks: [{type: "heading", text: "Day 1"}], dropped: [{path: "1", why: 'unknown type "weather"'}]}
  */
-export function readBlocksNoted(data: unknown): { blocks: Block[]; dropped: Diagnostic[]; align?: Align } {
+export function readBlocksNoted(data: unknown): {
+  blocks: Block[]; dropped: Diagnostic[]; align?: Align; asOf?: string; live?: boolean;
+} {
   let list: unknown = data;
   let board: Align | undefined;
+  let asOf: string | undefined;
+  let live: boolean | undefined;
   if (isObject(list) && Array.isArray((list as any).blocks)) {
-    // The envelope's own word is the board's default. A block that merely spells its children `blocks` (a section
-    // with `blocks: [...]` on its own line — drawn unwrapped, as it has always been) is not an envelope: its align
-    // is the block's own ask, not a board default.
-    if (typeof (list as any).type !== "string") board = align((list as any).align);
+    // The envelope's own words are the board's defaults. A block that merely spells its children `blocks` (a
+    // section with `blocks: [...]` on its own line — drawn unwrapped, as it has always been) is not an envelope:
+    // its align is the block's own ask, not a board default, and its as_of is none of the board's business.
+    if (typeof (list as any).type !== "string") {
+      board = align((list as any).align);
+      asOf = str((list as any).as_of, 80);  // the date line, cut the way every shown string is; junk gives nothing
+      live = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
+    }
     list = (list as any).blocks;
   }
   if (isObject(list) && typeof (list as any).type === "string") list = [list];
@@ -32,7 +42,7 @@ export function readBlocksNoted(data: unknown): { blocks: Block[]; dropped: Diag
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board };
+  return { blocks, dropped: top.dropped, align: board, asOf, live };
 }
 
 /** Just the blocks to draw. */

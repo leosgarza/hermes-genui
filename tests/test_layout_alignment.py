@@ -6,6 +6,10 @@
 # with the DOM the frozen renderer draws, and asserts the measured rects: placed cards keep their exact unplaced
 # width, full-width blocks stay at the container width, nested blocks fill their cells, row cells stretch, and a
 # narrow container places without shrinking. Skipif only when no Chrome binary exists on this machine.
+# Round 3 (t_4c0e43aa) adds the provenance footer: the absorbed source block sits on its own full-width row, and
+# that row must measure EXACTLY like the same asks drawn by a no-provenance board — a place box squeezed into
+# the join line's flex row shrink-wraps instead (the Reviewer's [8,29.09] on an 800px board). The negative
+# control keeps that defect shape measurable, so the probe proves it is reading real geometry, not classes.
 import html
 import os
 import re
@@ -25,6 +29,7 @@ CSS = [
     SRC / "blocks" / "calculator" / "calculator.css",
     SRC / "blocks" / "chart" / "chart.css",
     SRC / "blocks" / "table" / "table.css",
+    SRC / "blocks" / "source" / "source.css",
 ]
 
 CHROME_CANDIDATES = [
@@ -52,8 +57,9 @@ def find_chrome() -> Path | None:
 CHROME = find_chrome()
 
 
-def place(word: str, inner: str) -> str:
-    return f'<div class="hb-place hb-place-{word}" data-align="{word}">{inner}</div>'
+def place(word: str, inner: str, id_: str = "") -> str:
+    tag = f' id="{id_}"' if id_ else ""
+    return f'<div class="hb-place hb-place-{word}"{tag} data-align="{word}">{inner}</div>'
 
 
 def calc(id_: str) -> str:
@@ -76,6 +82,19 @@ def wide_chart(id_: str) -> str:
 def grid(id_: str, cells: list[str]) -> str:
     inner = "".join(f'<div class="hb-grid-cell">{c}</div>' for c in cells)
     return f'<div class="hb-grid" id="{id_}">{inner}</div>'
+
+
+PROV_LINE = ('<div class="hb-provenance-line"><span class="hb-provenance-time">2026-11-18</span>'
+             '<span class="hb-provenance-dot" aria-hidden="true">·</span>'
+             '<span class="hb-provenance-badge" data-live="snapshot">Snapshot</span></div>')
+
+
+def footer(word: str, src_id: str) -> str:
+    """The DOM the frozen renderer draws for a declaring board whose absorbed source block lands at `word`
+    (a left ask sits bare, exactly like any block that sits left; a reader's override lands as its own word)."""
+    src = f'<div class="hb-source" id="{src_id}">BLS</div>'
+    row = src if word == "left" else place(word, src, f"{src_id}-place")
+    return f'<div class="hb-provenance">{row}{PROV_LINE}</div>'
 
 
 def measure_script() -> str:
@@ -132,10 +151,43 @@ def fixture_html() -> str:
       </div>
     </div>
     """
-    body = board + nested_board + narrow
+    # The provenance footer (t_4c0e43aa round 3): the absorbed source lands through the same placement
+    # machinery as any block, on a row of its own — measured here against the identical asks drawn by a
+    # board with no provenance. The last row is a reader's Right chip over a board that asked left: the
+    # override lands as its own word, and real geometry must follow the word.
+    prov = f"""
+    <div class="hb-blocks" data-root id="prov" style="width:800px">
+      {footer("left", "f-left")}
+      {footer("center", "f-center")}
+      {footer("right", "f-right")}
+      {footer("right", "f-override")}
+    </div>
+    """
+    ctrl = f"""
+    <div class="hb-blocks" data-root id="ctrl" style="width:800px">
+      <div class="hb-source" id="c-left">BLS</div>
+      {place("center", '<div class="hb-source" id="c-center">BLS</div>', "c-center-place")}
+      {place("right", '<div class="hb-source" id="c-right">BLS</div>', "c-right-place")}
+    </div>
+    """
+    # The negative control keeps the CURRENT defect measurable: the same placed source squeezed into a flex
+    # ROW footer — the shape the Reviewer measured in Chrome (place [8,29.09] on an 800px board). The rule
+    # below is NOT shipped CSS; it is scoped to #neg-ctrl on purpose, so the probe provably reads geometry
+    # and the fix is exactly what changes the numbers above it.
+    neg = f"""
+    <div class="hb-blocks" data-root id="neg-ctrl" style="width:800px">
+      <div class="hb-provenance">
+        {place("right", '<div class="hb-source" id="neg-src">BLS</div>', "neg-place")}
+        <span class="hb-provenance-dot" aria-hidden="true">·</span>
+        <span class="hb-provenance-time">2026-11-18</span>
+      </div>
+    </div>
+    """
+    neg_css = "\n#neg-ctrl .hb-provenance { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }\n"
+    body = board + nested_board + narrow + prov + ctrl + neg
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"<style>{css}</style></head>"
+        f"<style>{css}\n{neg_css}</style></head>"
         f"<body style='margin:0;width:1200px'>{body}"
         "<pre id='out' style='display:none'></pre>"
         f"<script>{measure_script()}</script></body></html>"
@@ -225,3 +277,39 @@ class TestPlacementSizing:
             w, x, _ = rects[id_]
             assert near(w, 360.0), (id_, w)
             assert near(x, x0), (id_, x)  # no free space to share: nothing moves, nothing shrinks
+
+
+class TestProvenancePlacement:
+    """The footer's absorbed source block is placed by the very machinery the board uses — proven with real
+    Chrome geometry at the Reviewer's 800px width, not with class names jsdom cannot lay out."""
+
+    def test_the_place_boxes_span_the_footer_row_at_the_off_left_words(self, rects):
+        # 800px board: each placed row fills it — left edge at 0, right edge at 800 — never the shrink-
+        # wrapped ~29px the Reviewer measured when the place sat as a child of the flex-row footer.
+        for word in ("f-center", "f-right", "f-override"):
+            w, x, _ = rects[f"{word}-place"]
+            assert near(w, 800.0), (word, w)
+            assert near(x, 0.0), (word, x)
+
+    def test_the_footer_source_measures_exactly_like_the_plain_board(self, rects):
+        # Width and left edge, word by word, against identical asks drawn without provenance. A filling
+        # element keeps the full row at every word (the accepted prose semantics the first class pins);
+        # what placement must never lose is the box a board gives the block in the first place.
+        for word in ("left", "center", "right"):
+            assert rects[f"f-{word}"][:2] == pytest.approx(rects[f"c-{word}"][:2], abs=0.01), word
+
+    def test_reader_override_lands_at_the_override_word(self, rects):
+        # A board that asked left, read through the Right chip: the row measures like the plain right ask.
+        assert rects["f-override"][:2] == pytest.approx(rects["c-right"][:2], abs=0.01)
+
+    def test_negative_control_shrinkwraps_the_way_the_defect_did(self, rects):
+        # The same right ask squeezed into a flex-row footer — the old shape, kept measurable on purpose:
+        # the place hugs its content and the source stays pinned at the left edge of an 800px board. If
+        # these numbers ever match the fixed rows, this probe has stopped reading real geometry.
+        pw, px, _ = rects["neg-place"]
+        sw, sx, _ = rects["neg-src"]
+        assert pw < 100.0, pw             # ~29px of content where the footer row gives 800
+        assert near(px, 0.0), px
+        assert near(sx, 0.0), sx          # the right-aligned source stuck at the left edge
+        assert sw < 100.0, sw
+        assert rects["f-right"][:2] != pytest.approx(rects["neg-src"][:2], abs=1.0)
