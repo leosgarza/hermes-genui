@@ -55,6 +55,26 @@ def align_word(value: object) -> str | None:
     return None
 
 
+# --- how the board looks (the envelope's adaptive-visual words: density, palette, motion) --------------------------
+
+# Three small semantic words the model picks for the board it draws, the same way it picks its alignment: the
+# renderer turns them into spacing rhythm, chart colours and motion from the existing tokens. A word that isn't
+# on the list means nothing was said — the board draws as it always has, comfortable, house colours, full motion.
+DENSITY = ("comfortable", "compact")
+PALETTE = ("default", "cool", "warm")
+MOTION = ("full", "reduced")
+
+
+def choice_word(value: object, choices: tuple[str, ...]) -> str | None:
+    """One of the given words, trimmed and caseless the way models write; anything else gives None.
+    " Compact " → "compact";  "tight" → None. The same lenient rule align_word answers for alignment, shared
+    by the board's look words (density, palette, motion), each with its own vocabulary."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        return word if word in choices else None
+    return None
+
+
 # --- where the board's data came from and when (the envelope's provenance words) ---------------------------------
 
 # The as_of line is shown as one quiet footer line, not parsed: any date or timestamp text is fine, cut short so

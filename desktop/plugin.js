@@ -80,6 +80,21 @@ function align(v) {
   const word = v.trim().toLowerCase();
   return word === "left" || word === "center" || word === "right" ? word : void 0;
 }
+function density(v) {
+  if (typeof v !== "string") return void 0;
+  const word = v.trim().toLowerCase();
+  return word === "comfortable" || word === "compact" ? word : void 0;
+}
+function palette(v) {
+  if (typeof v !== "string") return void 0;
+  const word = v.trim().toLowerCase();
+  return word === "default" || word === "cool" || word === "warm" ? word : void 0;
+}
+function motion(v) {
+  if (typeof v !== "string") return void 0;
+  const word = v.trim().toLowerCase();
+  return word === "full" || word === "reduced" ? word : void 0;
+}
 function slug(v) {
   if (typeof v === "string" && /^[a-z][a-z0-9_-]{0,23}$/.test(v)) return v;
   return void 0;
@@ -178,10 +193,10 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext12, useEffect as useEffect12, useRef as useRef20, useState as useState27 } from "react";
+import { useContext as useContext13, useEffect as useEffect12, useRef as useRef20, useState as useState27 } from "react";
 
 // src/core/Blocks.tsx
-import { createContext as createContext3, Fragment as Fragment14, useContext as useContext9 } from "react";
+import { createContext as createContext4, Fragment as Fragment14, useContext as useContext10 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -2574,8 +2589,14 @@ function readFlip(raw, here) {
 import { Fragment as Fragment7, useId as useId2, useLayoutEffect as useLayoutEffect3, useMemo as useMemo4, useRef as useRef7, useState as useState11 } from "react";
 
 // src/lib/motion.ts
+import { createContext as createContext3, useContext as useContext4 } from "react";
+var MotionScope = createContext3("full");
 function lessMotion() {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function useLessMotion() {
+  const word = useContext4(MotionScope);
+  return lessMotion() || word === "reduced";
 }
 
 // src/blocks/flow/packet.ts
@@ -2721,10 +2742,11 @@ function Counter({ layer, count }) {
 }
 function useTravel(walk, nodes, groups, target, packet, boxes, frame) {
   const [travelling, setTravelling] = useState11(null);
+  const less = useLessMotion();
   useLayoutEffect3(() => {
     const step = walk && walk.from !== null && walk.at === walk.from + 1 ? walk.steps[walk.at] : void 0;
     const dot = packet.current;
-    if (!walk || !step || !(step.send || step.tick) || !dot || typeof dot.animate !== "function" || lessMotion()) {
+    if (!walk || !step || !(step.send || step.tick) || !dot || typeof dot.animate !== "function" || less) {
       setTravelling(null);
       return;
     }
@@ -2899,7 +2921,7 @@ function readChips(raw, here) {
 }
 
 // src/blocks/form/Form.tsx
-import { useContext as useContext4, useEffect as useEffect3, useRef as useRef8, useState as useState12 } from "react";
+import { useContext as useContext5, useEffect as useEffect3, useRef as useRef8, useState as useState12 } from "react";
 
 // src/blocks/form/read.ts
 var MAX_FIELDS = 12;
@@ -3108,7 +3130,7 @@ function fitting(field, value) {
 // src/blocks/form/Form.tsx
 import { jsx as jsx21, jsxs as jsxs18 } from "react/jsx-runtime";
 function Form(form) {
-  const { send } = useContext4(BlockActions);
+  const { send } = useContext5(BlockActions);
   const [values, setValues] = useState12(() => startingValues(form));
   const [sent, markSent] = useSentForm(form, setValues);
   const ready = canSend(form, values, sent);
@@ -3141,7 +3163,7 @@ function Form(form) {
   );
 }
 function useSentForm(form, setValues) {
-  const { rest, blockId } = useContext4(BlockActions);
+  const { rest, blockId } = useContext5(BlockActions);
   const [sent, setSent] = useState12(false);
   const sentHere = useRef8(false);
   const latest = useRef8(form);
@@ -3797,7 +3819,7 @@ function Tabs({ labels: labels2, panel }) {
 }
 
 // src/blocks/list/List.tsx
-import { useContext as useContext5, useState as useState17 } from "react";
+import { useContext as useContext6, useState as useState17 } from "react";
 
 // src/blocks/list/rowAvatar.ts
 var AVATAR_COLOURS = [1, 3, 8, 4, 6];
@@ -3831,7 +3853,7 @@ function List({ title, ranked, items }) {
   ] });
 }
 function ListRow({ item, rank }) {
-  const { send } = useContext5(BlockActions);
+  const { send } = useContext6(BlockActions);
   const [photoFailed, setPhotoFailed] = useState17(false);
   const lead = rowLead(item, rank !== null, photoFailed);
   const body = /* @__PURE__ */ jsxs24(Fragment10, { children: [
@@ -4077,11 +4099,12 @@ function Layers({ title, caption, layers }) {
 }
 function useOpening(at2, n) {
   const [open, setOpen] = useState19(() => Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0));
+  const less = useLessMotion();
   const now = useRef11(open);
   now.current = open;
   useEffect6(() => {
     const target = Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0);
-    if (lessMotion() || typeof requestAnimationFrame !== "function") return setOpen(target);
+    if (less || typeof requestAnimationFrame !== "function") return setOpen(target);
     const from = now.current;
     const start = performance.now();
     let frame = requestAnimationFrame(function step(time) {
@@ -4420,6 +4443,7 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
   const born = useRef12([]);
   const width = useWidth(canvas);
   const theme = useTheme();
+  const less = useLessMotion();
   const count = counts[k];
   const cols = Math.max(20, Math.floor(width / DOT));
   const size = width / cols;
@@ -4428,13 +4452,13 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
   useEffect7(() => {
     const el = canvas.current;
     if (!el) return;
-    const grow = playing && !lessMotion();
+    const grow = playing && !less;
     let frame = 0;
     const draw = () => {
       const fit = fitCanvas(el, height);
       if (!fit) return;
       const now = performance.now();
-      const palette = [1, 2, 3, 4].map((i) => colourOf(el, `--hb-chart-${i}`));
+      const palette2 = [1, 2, 3, 4].map((i) => colourOf(el, `--hb-chart-${i}`));
       born.current.length = Math.min(born.current.length, count);
       while (born.current.length < count) born.current.push(grow ? now : 0);
       let growing = false;
@@ -4442,7 +4466,7 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
       for (let n = 0; n < count; n++) {
         const g = Math.min(1, (now - born.current[n]) / GROW_MS);
         if (g < 1) growing = true;
-        fit.ctx.fillStyle = palette[dotColour(n, startDots, counts, k)];
+        fit.ctx.fillStyle = palette2[dotColour(n, startDots, counts, k)];
         fit.ctx.beginPath();
         fit.ctx.arc(n % cols * size + size / 2, fit.height - (Math.floor(n / cols) * size + size / 2), size * 0.38 * g, 0, Math.PI * 2);
         fit.ctx.fill();
@@ -4451,7 +4475,7 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
     };
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [count, counts.join(), startDots, width, height, theme]);
+  }, [count, counts.join(), startDots, width, height, theme, less]);
   return /* @__PURE__ */ jsxs27("div", { className: "hb-sim-pile", children: [
     /* @__PURE__ */ jsx31("div", { className: "hb-sim-pile-name", children: name }),
     /* @__PURE__ */ jsx31("div", { className: "hb-sim-amount", children: shown }),
@@ -4877,7 +4901,7 @@ function isIndex(n, length) {
 }
 
 // src/blocks/table/Table.tsx
-import { useContext as useContext6, useRef as useRef16, useState as useState22 } from "react";
+import { useContext as useContext7, useRef as useRef16, useState as useState22 } from "react";
 
 // src/blocks/table/sort.ts
 function cellNumber(cell) {
@@ -4971,7 +4995,7 @@ function Table({ columns, rows: rows2, highlight, caption, interactive }) {
   const [picked, setPicked] = useState22([]);
   const [sent, setSent] = useState22(null);
   const taps = useRef16(0);
-  const { send } = useContext6(BlockActions);
+  const { send } = useContext7(BlockActions);
   const order = sortedOrder(rows2, sort);
   const visible = interactive ? order.filter((r) => rowMatches(rows2[r], query)) : order;
   const message = pickedMessage(caption, columns, rows2, picked);
@@ -5134,7 +5158,7 @@ function readTile(item) {
 }
 
 // src/blocks/tiles/Tiles.tsx
-import { useContext as useContext7, useState as useState23 } from "react";
+import { useContext as useContext8, useState as useState23 } from "react";
 import { Fragment as Fragment13, jsx as jsx37, jsxs as jsxs33 } from "react/jsx-runtime";
 var WASHES = [1, 4, 8, 3, 6];
 function Tiles({ items }) {
@@ -5146,7 +5170,7 @@ function tapOf(tile, send, fill) {
   return void 0;
 }
 function Tile({ tile, wash }) {
-  const { send, fill } = useContext7(BlockActions);
+  const { send, fill } = useContext8(BlockActions);
   const [photoFailed, setPhotoFailed] = useState23(false);
   const tap = tapOf(tile, send, fill);
   const colour = `var(--hb-chart-${wash})`;
@@ -5292,11 +5316,17 @@ function readBlocksNoted(data) {
   let asOf;
   let live;
   let followUps;
+  let boardDensity;
+  let boardPalette;
+  let boardMotion;
   const top = new Trail();
   if (isObject(list) && Array.isArray(list.blocks)) {
     if (typeof list.type !== "string") {
       board = align(list.align);
       boardText = align(list.text_align);
+      boardDensity = density(list.density);
+      boardPalette = palette(list.palette);
+      boardMotion = motion(list.motion);
       asOf = str(list.as_of, 80);
       live = typeof list.live === "boolean" ? list.live : void 0;
       followUps = readFollowUps(list.follow_ups, top.at("follow_ups"));
@@ -5310,7 +5340,18 @@ function readBlocksNoted(data) {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live, followUps };
+  return {
+    blocks,
+    dropped: top.dropped,
+    align: board,
+    textAlign: boardText,
+    asOf,
+    live,
+    followUps,
+    density: boardDensity,
+    palette: boardPalette,
+    motion: boardMotion
+  };
 }
 function alignOf(block) {
   return block.align;
@@ -5398,11 +5439,11 @@ function provenanceLine(p) {
 }
 
 // src/core/FollowUps.tsx
-import { useContext as useContext8, useRef as useRef17, useState as useState24 } from "react";
+import { useContext as useContext9, useRef as useRef17, useState as useState24 } from "react";
 import { jsx as jsx40, jsxs as jsxs35 } from "react/jsx-runtime";
 var PENDING_WORD = "Pending\u2026";
 function FollowUps({ items, place }) {
-  const { send } = useContext8(BlockActions);
+  const { send } = useContext9(BlockActions);
   const [said, setSaid] = useState24(null);
   const taps = useRef17(0);
   const cls = ["hb-followups"];
@@ -5435,7 +5476,8 @@ function FollowUps({ items, place }) {
 
 // src/core/Blocks.tsx
 import { jsx as jsx41, jsxs as jsxs36 } from "react/jsx-runtime";
-var AlignScope = createContext3({ board: void 0, text: void 0 });
+var motionPref = (word) => word === "reduced" ? "reduced" : "full";
+var AlignScope = createContext4({ board: void 0, text: void 0 });
 var TEXT_BEARING = /* @__PURE__ */ new Set(["heading", "text", "stat", "callout"]);
 function BlockView({ block }) {
   const entry = REGISTRY[block.type];
@@ -5444,7 +5486,7 @@ function BlockView({ block }) {
   return /* @__PURE__ */ jsx41(Component, { block, draw: drawAll });
 }
 function Placed({ block }) {
-  const { board, text } = useContext9(AlignScope);
+  const { board, text } = useContext10(AlignScope);
   const at2 = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
   const view = /* @__PURE__ */ jsx41(BlockView, { block });
@@ -5483,17 +5525,31 @@ function Provenance({ source, chartSources, asOf, live }) {
     /* @__PURE__ */ jsx41("div", { className: "hb-provenance-line", children: parts })
   ] });
 }
-function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps }) {
+function Blocks({
+  blocks,
+  boardAlign,
+  boardTextAlign,
+  boardAsOf,
+  boardLive,
+  boardFollowUps,
+  boardDensity,
+  boardPalette,
+  boardMotion
+}) {
   const { declared, list, source, chartSources } = provenanceOf(blocks, boardAsOf, boardLive);
-  return /* @__PURE__ */ jsx41(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs36("div", { className: "hb-blocks", children: [
+  const look = {};
+  if (boardDensity === "compact") look["data-density"] = "compact";
+  if (boardPalette === "cool" || boardPalette === "warm") look["data-palette"] = boardPalette;
+  if (boardMotion === "reduced") look["data-motion"] = "reduced";
+  return /* @__PURE__ */ jsx41(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsx41(MotionScope.Provider, { value: motionPref(boardMotion), children: /* @__PURE__ */ jsxs36("div", { className: "hb-blocks", ...look, children: [
     /* @__PURE__ */ jsx41(FlowLightBoard, { children: drawAll(list) }),
     declared && /* @__PURE__ */ jsx41(Provenance, { source, chartSources, asOf: boardAsOf, live: boardLive }),
     !!boardFollowUps?.length && /* @__PURE__ */ jsx41(FollowUps, { items: boardFollowUps, place: boardAlign })
-  ] }) });
+  ] }) }) });
 }
 
 // src/host/ExportChrome.tsx
-import { useContext as useContext10, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useRef as useRef18, useState as useState25 } from "react";
+import { useContext as useContext11, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useRef as useRef18, useState as useState25 } from "react";
 
 // src/lib/csv.ts
 function csvCell(value) {
@@ -6668,7 +6724,7 @@ function blocksOf(board) {
 }
 function useExportChrome(args) {
   const { blocks, asOf, live, stored, expanded, getBoard, getHost } = args;
-  const actions = useContext10(BlockActions);
+  const actions = useContext11(BlockActions);
   const provenance = provenanceOf(blocks, asOf, live);
   const line = provenanceLine(provenance);
   const [found, setFound] = useState25([]);
@@ -6900,7 +6956,7 @@ function IconDownload() {
 }
 
 // src/host/LibraryChrome.tsx
-import { useCallback as useCallback2, useContext as useContext11, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
+import { useCallback as useCallback2, useContext as useContext12, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
 
 // src/host/tabbable.ts
 function tabbableIn(root) {
@@ -6961,7 +7017,7 @@ function rows(data) {
   }));
 }
 function useLibraryChrome(args) {
-  const actions = useContext11(BlockActions);
+  const actions = useContext12(BlockActions);
   const rest = actions.rest;
   const valid = typeof args.id === "string" && ID_PATTERN.test(args.id);
   const [entries, setEntries] = useState26(null);
@@ -7034,7 +7090,7 @@ function useLibraryChrome(args) {
     setOpened(e.id);
     setOpenedSaid(null);
     answer.then((data) => {
-      const { blocks, align: align2, textAlign, asOf, live, followUps } = readBlocksNoted(data);
+      const { blocks, align: align2, textAlign, asOf, live, followUps, density: density2, palette: palette2, motion: motion2 } = readBlocksNoted(data);
       if (!blocks.length) {
         setOpenedSaid("This board could not be reopened.");
         return;
@@ -7043,7 +7099,17 @@ function useLibraryChrome(args) {
         kind: "board",
         id: e.id,
         title: e.title,
-        board: { blocks, boardAlign: align2, boardTextAlign: textAlign, boardAsOf: asOf, boardLive: live, boardFollowUps: followUps }
+        board: {
+          blocks,
+          boardAlign: align2,
+          boardTextAlign: textAlign,
+          boardAsOf: asOf,
+          boardLive: live,
+          boardFollowUps: followUps,
+          boardDensity: density2,
+          boardPalette: palette2,
+          boardMotion: motion2
+        }
       });
     }).catch(() => setOpenedSaid("This board could not be reopened.")).finally(() => setOpened(null));
   };
@@ -7275,7 +7341,10 @@ function useLibraryChrome(args) {
           boardTextAlign: view.board.boardTextAlign,
           boardAsOf: view.board.boardAsOf,
           boardLive: view.board.boardLive,
-          boardFollowUps: view.board.boardFollowUps
+          boardFollowUps: view.board.boardFollowUps,
+          boardDensity: view.board.boardDensity,
+          boardPalette: view.board.boardPalette,
+          boardMotion: view.board.boardMotion
         }
       ) })
     ] }) : /* @__PURE__ */ jsxs38("div", { className: "hb-library-list", children: [
@@ -7351,7 +7420,7 @@ function isEnvelopeCarrying(data) {
 var NO_BLOCKS = [];
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN2.test(id);
-  const actions = useContext12(BlockActions);
+  const actions = useContext13(BlockActions);
   const [state, setState] = useState27({ kind: "loading" });
   const [expanded, setExpanded] = useState27(false);
   const hostRef = useRef20(null);
@@ -7367,10 +7436,25 @@ function BlockTag({ id, streaming, load }) {
         textAlign: boardTextAlign,
         asOf: boardAsOf,
         live: boardLive,
-        followUps: boardFollowUps
+        followUps: boardFollowUps,
+        density: boardDensity,
+        palette: boardPalette,
+        motion: boardMotion
       } = readBlocksNoted(data);
       const envelope = isEnvelopeCarrying(data) ? data.stored : data;
-      if (live) setState(blocks.length ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps, stored: envelope } : { kind: "failed" });
+      if (live) setState(blocks.length ? {
+        kind: "drawn",
+        blocks,
+        boardAlign,
+        boardTextAlign,
+        boardAsOf,
+        boardLive,
+        boardFollowUps,
+        boardDensity,
+        boardPalette,
+        boardMotion,
+        stored: envelope
+      } : { kind: "failed" });
     }).catch(() => {
       if (live) setState({ kind: "failed" });
     });
@@ -7458,7 +7542,10 @@ function BlockTag({ id, streaming, load }) {
               boardTextAlign: board.boardTextAlign,
               boardAsOf: board.boardAsOf,
               boardLive: board.boardLive,
-              boardFollowUps: board.boardFollowUps
+              boardFollowUps: board.boardFollowUps,
+              boardDensity: board.boardDensity,
+              boardPalette: board.boardPalette,
+              boardMotion: board.boardMotion
             }
           ),
           chrome.layer
@@ -7536,8 +7623,15 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 8px 0;
+  /* The board's rhythm, kept as tokens so the model's \`density\` word can retighten them (enhancement #7).
+     comfortable draws exactly what boards have always drawn: 10px between blocks, 8px above and below, and
+     card padding 14/16 (shared.css reads the padding pair). */
+  --hb-gap: 10px;
+  --hb-margin: 8px;
+  --hb-card-pad-y: 14px;
+  --hb-card-pad-x: 16px;
+  gap: var(--hb-gap, 10px);
+  margin: var(--hb-margin, 8px) 0;
   /* A board stops at a comfortable reading width on a wide screen. */
   max-width: 1100px;
   color: var(--hb-ink);
@@ -7550,6 +7644,48 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 .dark .hb-blocks {
   --hb-warn: #f0883e;
   --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* The model's look words (enhancement #7): core/Blocks.tsx grows these attributes from the stored envelope's
+   density, palette and motion \u2014 and only for a word that isn't the default, so a board that never spoke them
+   draws exactly what it always drew. There is no reader control that sets these; like alignment, the model's
+   ask is the whole rule. */
+/* compact: less air between cards, tighter margins, and less padding inside every card. Still semantic \u2014 the
+   pixels live here in the renderer, never in the spec. */
+.hb-blocks[data-density="compact"] {
+  --hb-gap: 5px;
+  --hb-margin: 4px;
+  --hb-card-pad-y: 9px;
+  --hb-card-pad-x: 12px;
+}
+/* cool: blues, teals and violets \u2014 neighbours stay apart the way the house set's do. */
+.hb-blocks[data-palette="cool"] {
+  --hb-chart-1: #4f7cff;
+  --hb-chart-2: #0d9488;
+  --hb-chart-3: #6366f1;
+  --hb-chart-4: #06b6d4;
+  --hb-chart-5: #8b5cf6;
+  --hb-chart-6: #14b8a6;
+  --hb-chart-7: #a5b4fc;
+  --hb-chart-8: #38bdf8;
+}
+/* warm: reds, ambers and pinks, likewise. */
+.hb-blocks[data-palette="warm"] {
+  --hb-chart-1: #ef4444;
+  --hb-chart-2: #f59e0b;
+  --hb-chart-3: #ec4899;
+  --hb-chart-4: #f97316;
+  --hb-chart-5: #d946ef;
+  --hb-chart-6: #ca8a04;
+  --hb-chart-7: #fb7185;
+  --hb-chart-8: #b45309;
+}
+/* reduced: this board settles every CSS animation and glide at once. The word only ADDS stillness \u2014 every
+   prefers-reduced-motion media block in the stylesheets stays exactly as it was, so a reader whose system asks
+   for less motion always gets less, whatever the model said. */
+.hb-blocks[data-motion="reduced"] *,
+.hb-blocks[data-motion="reduced"] {
+  animation: none !important;
+  transition: none !important;
 }
 /* A stronger line, for chart axes, checkboxes and inputs. */
 .hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }
@@ -7659,7 +7795,7 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
 `;
 
 // src/styles/shared.css
-var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s, transform 0.1s;\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
+var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  /* The board's density tokens set the padding; without a board above (host chrome) it is what cards always had. */\n  padding: var(--hb-card-pad-y, 14px) var(--hb-card-pad-x, 16px);\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s, transform 0.1s;\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
 
 // src/host/blockTag.css
 var blockTag_default = `/* The block tag's own states */

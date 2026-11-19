@@ -179,6 +179,21 @@ def test_blocks_of_gives_nothing_for_anything_else(tmp_path):
     assert store.align_of({"blocks": []}) is None
 
 
+# --- the envelope's adaptive-look words (enhancement #7): read as written, checked where drawn --------------------
+
+def test_look_words_read_from_the_envelope(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    assert store.density_of({"density": "compact", "blocks": plain}) == "compact"
+    assert store.palette_of({"palette": "cool", "blocks": plain}) == "cool"
+    assert store.motion_of({"motion": "reduced", "blocks": plain}) == "reduced"
+    assert store.density_of(plain) is None
+    assert store.palette_of(None) is None
+    assert store.motion_of({}) is None
+    assert store.density_of({"density": 5, "blocks": []}) is None
+    # any text rides stored, as align's does — the drawing side is where the word is checked
+    assert store.palette_of({"palette": "neon", "blocks": []}) == "neon"
+
+
 def test_save_and_load_round_trip_an_envelope(tmp_path):
     board = {"align": "right", "blocks": [{"type": "text", "text": "hi"}]}
     block_id = store.save(board, root=tmp_path)

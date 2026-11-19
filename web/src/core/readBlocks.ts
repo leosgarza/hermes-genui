@@ -2,7 +2,8 @@
 // in blocks/<type>/read.ts, with a comment and a worked example, listed in registry.tsx. The rule throughout: drop what
 // doesn't fit and note why; never show broken data.
 import { REGISTRY, type Block } from "../registry";
-import { actsBeforeTheModel, align, firstText, keepFirst, NO_SEND, str, Trail, type Align, type Diagnostic } from "./fields";
+import { actsBeforeTheModel, align, density, firstText, keepFirst, motion, NO_SEND, palette, str, Trail,
+  type Align, type Density, type Diagnostic, type Motion, type Palette } from "./fields";
 
 /** Every block type that can be drawn, containers included. */
 export const BLOCK_TYPES: string[] = Object.keys(REGISTRY);
@@ -23,7 +24,7 @@ export type FollowUp = { label: string; run: string };
  */
 export function readBlocksNoted(data: unknown): {
   blocks: Block[]; dropped: Diagnostic[]; align?: Align; textAlign?: Align; asOf?: string; live?: boolean;
-  followUps?: FollowUp[];
+  followUps?: FollowUp[]; density?: Density; palette?: Palette; motion?: Motion;
 } {
   let list: unknown = data;
   let board: Align | undefined;
@@ -31,6 +32,9 @@ export function readBlocksNoted(data: unknown): {
   let asOf: string | undefined;
   let live: boolean | undefined;
   let followUps: FollowUp[] | undefined;
+  let boardDensity: Density | undefined;
+  let boardPalette: Palette | undefined;
+  let boardMotion: Motion | undefined;
   const top = new Trail();
   if (isObject(list) && Array.isArray((list as any).blocks)) {
     // The envelope's own words are the board's defaults. A block that merely spells its children `blocks` (a
@@ -39,6 +43,9 @@ export function readBlocksNoted(data: unknown): {
     if (typeof (list as any).type !== "string") {
       board = align((list as any).align);
       boardText = align((list as any).text_align);  // the same three words; they move the reading, not the card
+      boardDensity = density((list as any).density);  // the board's look words (enhancement #7): how it packs,
+      boardPalette = palette((list as any).palette);  // which colours its charts draw, how much it moves
+      boardMotion = motion((list as any).motion);
       asOf = str((list as any).as_of, 80);  // the date line, cut the way every shown string is; junk gives nothing
       live = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
       followUps = readFollowUps((list as any).follow_ups, top.at("follow_ups"));
@@ -52,7 +59,8 @@ export function readBlocksNoted(data: unknown): {
       blocks.push(...readOne(raw, top.at(i), 0));
     });
   }
-  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live, followUps };
+  return { blocks, dropped: top.dropped, align: board, textAlign: boardText, asOf, live, followUps,
+    density: boardDensity, palette: boardPalette, motion: boardMotion };
 }
 
 /** Just the blocks to draw. */

@@ -70,6 +70,42 @@ export function align(v: unknown): Align | undefined {
   return word === "left" || word === "center" || word === "right" ? word : undefined;
 }
 
+/** How much air the whole board keeps: comfortable is how boards have always drawn; compact tightens the rhythm
+ *  between and inside cards for a lot of figures on one screen. The model's ask alone (enhancement #7). */
+export type Density = "comfortable" | "compact";
+
+/** One of the density words, trimmed and caseless the way models write; anything else gives undefined, which
+ *  leaves the board comfortable. " Compact " → "compact"; "tight" → undefined. */
+export function density(v: unknown): Density | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "comfortable" || word === "compact" ? word : undefined;
+}
+
+/** Which colours the board's charts draw from: default is the house categorical set; cool and warm recolour the
+ *  series only — themes and the app's accent are untouched, and the word never carries a hex value. */
+export type Palette = "default" | "cool" | "warm";
+
+/** One of the palette words, trimmed and caseless; anything else gives undefined, which draws the house set.
+ *  "Cool" → "cool"; "neon" → undefined. */
+export function palette(v: unknown): Palette | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "default" || word === "cool" || word === "warm" ? word : undefined;
+}
+
+/** How much the board moves: full is today's behaviour; reduced settles animations at once. It can only ADD
+ *  stillness — a reader's own prefers-reduced-motion ask is never overridden (lib/motion.ts). */
+export type Motion = "full" | "reduced";
+
+/** One of the motion words, trimmed and caseless; anything else gives undefined, which draws full motion.
+ *  " Reduced " → "reduced"; "off" → undefined. */
+export function motion(v: unknown): Motion | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "full" || word === "reduced" ? word : undefined;
+}
+
 /** A short lowercase name one block uses to point at another (a flow's id, its nodes' ids, a steps block's `for`),
  *  or undefined. The same rule as the Python side's SLUG. "tf" → "tf";  "next-word" → "next-word";  "Big Flow" → undefined */
 export function slug(v: unknown): string | undefined {

@@ -41,6 +41,12 @@ async def get_block(block_id: str):
         answer["align"] = word
     if (word := store.text_align_of(board)) is not None:  # and its text default: how the words inside read
         answer["text_align"] = word
+    if (word := store.density_of(board)) is not None:  # and its look words: how it packs, colours, moves
+        answer["density"] = word
+    if (word := store.palette_of(board)) is not None:
+        answer["palette"] = word
+    if (word := store.motion_of(board)) is not None:
+        answer["motion"] = word
     if (as_of := store.as_of_of(board)) is not None:  # and its provenance: when the data is from, live or snapshot
         answer["as_of"] = as_of
     if (live := store.live_of(board)) is not None:

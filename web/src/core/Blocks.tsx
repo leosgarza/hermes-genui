@@ -28,10 +28,15 @@ import { FlowLightBoard } from "../blocks/flow/highlight";
 import type { SourceBlock } from "../blocks/source/read";
 import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
-import type { Align } from "./fields";
+import type { Align, Density, Motion, Palette } from "./fields";
 import { alignOf, textAlignOf, type FollowUp } from "./readBlocks";
 import { provenanceOf } from "./provenance";
 import { FollowUps } from "./FollowUps";
+import { MotionScope, type MotionPref } from "../lib/motion";
+
+/** The model's motion word, told to the drawings that animate by hand: only "reduced" stills them, and
+ *  it can never un-still a reader whose own system asks for less motion (lib/motion.ts). */
+const motionPref = (word?: Motion): MotionPref => (word === "reduced" ? "reduced" : "full");
 
 /** The two board-wide voices, carried down so every block — top level or nested — resolves both the same way:
  *  `board` places the cards, `text` says how the words inside the blocks that carry text should read. */
@@ -103,19 +108,30 @@ function Provenance({ source, chartSources, asOf, live }: {
   );
 }
 
-export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps }: {
+export function Blocks({ blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps,
+  boardDensity, boardPalette, boardMotion }: {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
-  boardFollowUps?: FollowUp[];
+  boardFollowUps?: FollowUp[]; boardDensity?: Density; boardPalette?: Palette; boardMotion?: Motion;
 }) {
   // What the board's origins ARE is core/provenance.ts, the same reading an export writes; this draws it.
   const { declared, list, source, chartSources } = provenanceOf(blocks, boardAsOf, boardLive);
+  // The board's look words (enhancement #7) mark the root, and only when they ask for something the default
+  // isn't: compact, cool/warm, reduced. comfortable, default, full and any unknown word grow no attribute —
+  // a board that never spoke these words draws exactly the DOM and tokens it always drew. The motion word
+  // also rides down as a scope, so the drawings that animate by hand (flow, layers, simulate) ask once.
+  const look: Record<string, string> = {};
+  if (boardDensity === "compact") look["data-density"] = "compact";
+  if (boardPalette === "cool" || boardPalette === "warm") look["data-palette"] = boardPalette;
+  if (boardMotion === "reduced") look["data-motion"] = "reduced";
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
-      <div className="hb-blocks">
-        <FlowLightBoard>{drawAll(list)}</FlowLightBoard>
-        {declared && <Provenance source={source} chartSources={chartSources} asOf={boardAsOf} live={boardLive} />}
-        {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} place={boardAlign} />}
-      </div>
+      <MotionScope.Provider value={motionPref(boardMotion)}>
+        <div className="hb-blocks" {...look}>
+          <FlowLightBoard>{drawAll(list)}</FlowLightBoard>
+          {declared && <Provenance source={source} chartSources={chartSources} asOf={boardAsOf} live={boardLive} />}
+          {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} place={boardAlign} />}
+        </div>
+      </MotionScope.Provider>
     </AlignScope.Provider>
   );
 }

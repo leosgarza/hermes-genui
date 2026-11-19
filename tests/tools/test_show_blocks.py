@@ -274,6 +274,70 @@ def test_a_block_may_ask_for_its_own_text_align(store_dir):
     result = tools.show_blocks({"blocks": [block]})
     assert plugin_store.load(stored_id(result), root=store_dir) == [block]
 
+# --- adaptive look (enhancement #7): density, palette and motion ride the same envelope, model-decided ------------
+#   The schema texts below are the eval contract: they must teach the model to pick the words from the
+#   content, in semantic words only — no pixel values, no hex colours (lazy-spec discipline).
+
+def test_board_density_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": " Compact "})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"density": "compact", "blocks": [TIMELINE]}
+
+
+def test_board_palette_and_motion_are_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "palette": "Cool", "motion": "REDUCED"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"palette": "cool", "motion": "reduced",
+                                                                    "blocks": [TIMELINE]}
+
+
+def test_unknown_look_words_are_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": "tight", "palette": "neon", "motion": "off"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_non_text_look_words_are_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": 1, "palette": ["cool"], "motion": {"less": True}})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_look_words_share_the_envelope_with_align_and_provenance(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "density": "compact",
+                                "palette": "warm", "motion": "reduced", "as_of": "2026-11-19"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "density": "compact",
+                                                                    "palette": "warm", "motion": "reduced",
+                                                                    "as_of": "2026-11-19", "blocks": [TIMELINE]}
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_look_words(store_dir):
+    board_id = plugin_store.save({"density": "compact", "palette": "cool", "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_the_schema_teaches_the_look_words():
+    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
+    density = props["density"]["description"]
+    palette = props["palette"]["description"]
+    motion = props["motion"]["description"]
+    for word in ("comfortable", "compact", "Yours to decide"):
+        assert word in density
+    assert "dashboard" in density and "story" in density  # the content cues the model picks from
+    for word in ("default", "cool", "warm", "Yours to decide"):
+        assert word in palette
+    for word in ("full", "reduced"):
+        assert word in motion
+    assert "never overrides" in motion and "less motion always gets less" in motion  # the accessibility floor
+    for word in (density, palette, motion):
+        assert "reader has no control" in word or "reader's system" in word  # model-decided, never a panel
+
+
+def test_the_look_words_stay_semantic_not_pixels():
+    import re
+    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
+    texts = " ".join(props[name]["description"] for name in ("density", "palette", "motion"))
+    assert not re.search(r"\d+\s*px", texts, re.IGNORECASE), "density must not speak in pixels"
+    assert not re.search(r"#[0-9a-fA-F]{3,8}", texts), "palette must not speak in hex"
+
+
 # --- provenance: the board's as_of and live ride in the same envelope as its align word -------------------------
 
 def test_board_provenance_is_stored_beside_the_blocks(store_dir):

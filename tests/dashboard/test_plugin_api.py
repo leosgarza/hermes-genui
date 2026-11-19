@@ -131,6 +131,23 @@ def test_api_skips_a_text_align_that_was_never_text(client, tmp_path):
     block_id = api.store.save(board, root=tmp_path)
     assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "stored": board}
 
+
+def test_api_passes_the_boards_own_look_words(client, tmp_path):
+    http, api = client
+    board = {"density": "compact", "palette": "cool", "motion": "reduced",
+             "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "density": "compact",
+                                                      "palette": "cool", "motion": "reduced", "stored": board}
+
+
+def test_api_skips_look_words_that_were_never_words(client, tmp_path):
+    http, api = client
+    board = {"density": 3, "palette": None, "motion": {"less": True}, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "stored": board}
+
+
 def test_api_passes_the_boards_own_provenance(client, tmp_path):
     http, api = client
     board = {"as_of": "2026-11-18", "live": True, "blocks": [{"type": "text", "text": "hi"}]}

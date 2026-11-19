@@ -29,8 +29,15 @@
 
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin: 8px 0;
+  /* The board's rhythm, kept as tokens so the model's `density` word can retighten them (enhancement #7).
+     comfortable draws exactly what boards have always drawn: 10px between blocks, 8px above and below, and
+     card padding 14/16 (shared.css reads the padding pair). */
+  --hb-gap: 10px;
+  --hb-margin: 8px;
+  --hb-card-pad-y: 14px;
+  --hb-card-pad-x: 16px;
+  gap: var(--hb-gap, 10px);
+  margin: var(--hb-margin, 8px) 0;
   /* A board stops at a comfortable reading width on a wide screen. */
   max-width: 1100px;
   color: var(--hb-ink);
@@ -43,6 +50,48 @@
 .dark .hb-blocks {
   --hb-warn: #f0883e;
   --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* The model's look words (enhancement #7): core/Blocks.tsx grows these attributes from the stored envelope's
+   density, palette and motion — and only for a word that isn't the default, so a board that never spoke them
+   draws exactly what it always drew. There is no reader control that sets these; like alignment, the model's
+   ask is the whole rule. */
+/* compact: less air between cards, tighter margins, and less padding inside every card. Still semantic — the
+   pixels live here in the renderer, never in the spec. */
+.hb-blocks[data-density="compact"] {
+  --hb-gap: 5px;
+  --hb-margin: 4px;
+  --hb-card-pad-y: 9px;
+  --hb-card-pad-x: 12px;
+}
+/* cool: blues, teals and violets — neighbours stay apart the way the house set's do. */
+.hb-blocks[data-palette="cool"] {
+  --hb-chart-1: #4f7cff;
+  --hb-chart-2: #0d9488;
+  --hb-chart-3: #6366f1;
+  --hb-chart-4: #06b6d4;
+  --hb-chart-5: #8b5cf6;
+  --hb-chart-6: #14b8a6;
+  --hb-chart-7: #a5b4fc;
+  --hb-chart-8: #38bdf8;
+}
+/* warm: reds, ambers and pinks, likewise. */
+.hb-blocks[data-palette="warm"] {
+  --hb-chart-1: #ef4444;
+  --hb-chart-2: #f59e0b;
+  --hb-chart-3: #ec4899;
+  --hb-chart-4: #f97316;
+  --hb-chart-5: #d946ef;
+  --hb-chart-6: #ca8a04;
+  --hb-chart-7: #fb7185;
+  --hb-chart-8: #b45309;
+}
+/* reduced: this board settles every CSS animation and glide at once. The word only ADDS stillness — every
+   prefers-reduced-motion media block in the stylesheets stays exactly as it was, so a reader whose system asks
+   for less motion always gets less, whatever the model said. */
+.hb-blocks[data-motion="reduced"] *,
+.hb-blocks[data-motion="reduced"] {
+  animation: none !important;
+  transition: none !important;
 }
 /* A stronger line, for chart axes, checkboxes and inputs. */
 .hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }

@@ -33,7 +33,7 @@
 //    Library and reattaches a saved board into the composer the user is typing in.
 import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Blocks } from "../core/Blocks";
-import type { Align } from "../core/fields";
+import type { Align, Density, Motion, Palette } from "../core/fields";
 import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
 import { readBlocksNoted, type FollowUp } from "../core/readBlocks";
 import type { Block } from "../registry";
@@ -57,6 +57,7 @@ export type LibraryEntry = {
 type SavedBoard = {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align;
   boardAsOf?: string; boardLive?: boolean; boardFollowUps?: FollowUp[];
+  boardDensity?: Density; boardPalette?: Palette; boardMotion?: Motion;
 };
 
 type View = { kind: "list" } | { kind: "board"; id: string; title: string; board: SavedBoard };
@@ -210,14 +211,15 @@ export function useLibraryChrome(args: {
     setOpenedSaid(null);
     answer
       .then((data) => {
-        const { blocks, align, textAlign, asOf, live, followUps } = readBlocksNoted(data);
+        const { blocks, align, textAlign, asOf, live, followUps, density, palette, motion } = readBlocksNoted(data);
         if (!blocks.length) {
           setOpenedSaid("This board could not be reopened.");
           return;
         }
         setView({
           kind: "board", id: e.id, title: e.title,
-          board: { blocks, boardAlign: align, boardTextAlign: textAlign, boardAsOf: asOf, boardLive: live, boardFollowUps: followUps },
+          board: { blocks, boardAlign: align, boardTextAlign: textAlign, boardAsOf: asOf, boardLive: live,
+            boardFollowUps: followUps, boardDensity: density, boardPalette: palette, boardMotion: motion },
         });
       })
       .catch(() => setOpenedSaid("This board could not be reopened."))
@@ -386,7 +388,9 @@ export function useLibraryChrome(args: {
             <BlockActions.Provider value={{ ...actions, blockId: view.id }}>
               <Blocks blocks={view.board.blocks} boardAlign={view.board.boardAlign}
                 boardTextAlign={view.board.boardTextAlign} boardAsOf={view.board.boardAsOf}
-                boardLive={view.board.boardLive} boardFollowUps={view.board.boardFollowUps} />
+                boardLive={view.board.boardLive} boardFollowUps={view.board.boardFollowUps}
+                boardDensity={view.board.boardDensity} boardPalette={view.board.boardPalette}
+                boardMotion={view.board.boardMotion} />
             </BlockActions.Provider>
           </div>
         ) : (

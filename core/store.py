@@ -187,6 +187,36 @@ def text_align_of(board: object) -> str | None:
     return word if isinstance(word, str) else None
 
 
+def density_of(board: object) -> str | None:
+    """The density word a stored envelope carries for the whole board, or None. The word is checked where it is
+    drawn (the web side reads anything that isn't comfortable or compact as comfortable), as every model word is.
+
+    density_of({"density": "compact", "blocks": [x]}) → "compact";  density_of([x]) → None
+    """
+    word = board.get("density") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def palette_of(board: object) -> str | None:
+    """The chart-palette word a stored envelope carries for the whole board, or None. Checked where drawn
+    (anything that isn't default, cool or warm draws the house colours); the store keeps any text as written.
+
+    palette_of({"palette": "cool", "blocks": [x]}) → "cool";  palette_of([x]) → None
+    """
+    word = board.get("palette") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def motion_of(board: object) -> str | None:
+    """The motion word a stored envelope carries for the whole board, or None. Checked where drawn (anything
+    that isn't full or reduced is as unsaid), never overriding a reader's own reduced-motion ask there.
+
+    motion_of({"motion": "reduced", "blocks": [x]}) → "reduced";  motion_of([x]) → None
+    """
+    word = board.get("motion") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
 def as_of_of(board: object) -> str | None:
     """The date line a stored envelope carries for the whole board, or None. Like the align word it is checked
     where it is drawn; here only what was never text (or is empty) is refused.

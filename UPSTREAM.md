@@ -879,6 +879,54 @@ the whole shelf is one small file inside the plugin's own store folder.)
     targeting). The test header previously overstated this as "the ACTUAL host seam"; corrected in
     round 4 to state exactly what is mirrored vs what requires live.
 
+## 12. adaptive look — the model's `density`, `palette` and `motion` words (enhancement #7, this card)
+
+Enhancement-menu item 15 proposed a reader settings panel for these knobs. The owner superseded that framing
+(2026-11-19: "I think it should be decided by AI"): presentation is part of what the model already decides —
+alignment, provenance, follow-ups. This build adds three optional board-level words to `show_blocks`, expressed
+semantically and cascaded into the existing token system. There is no reader control, no manual chips and no
+localStorage override anywhere in the change: the model's ask is the whole rule, exactly as it is for placement.
+
+- **Words.** `density`: `comfortable` (default) | `compact`. `palette`: `default` (the house categorical set) |
+  `cool` | `warm`. `motion`: `full` (default) | `reduced`. Each is one of a small fixed vocabulary, read the
+  same lenient way every model word is (trim, caseless; anything unknown is as unsaid — `blocks/common.py`
+  `choice_word`, `web/src/core/fields.ts`). The spec never carries pixels or hex: the renderer owns the numbers
+  (`tokens.css`), the model owns the meaning.
+- **The ride.** The words join the stored envelope beside `align`/`as_of`/`follow_ups` (`show_blocks` →
+  `core/store.py` `density_of/palette_of/motion_of` → `dashboard/plugin_api.py` GET /blocks →
+  `core/readBlocks.ts` → `core/Blocks.tsx`). The renderer grows `data-density`/`data-palette`/`data-motion` on
+  the board root ONLY for an ask that isn't the default — an unsaid board draws byte-identical DOM (capture
+  proof: base tree and candidate render the same board to the same PNG hash; explicit default words too).
+  `hooks/text_fallback.py` and `include` keep taking blocks only, as they do for align.
+- **The cascade.** `tokens.css` now declares the board's rhythm as tokens (`--hb-gap`, `--hb-margin`,
+  `--hb-card-pad-y/x`, shipped at the exact numbers boards always measured) and `shared.css` reads the padding
+  pair; `[data-density="compact"]` tightens them. The chart series colours were already `var(--hb-chart-1..8)`
+  (SVG fills and the canvas `colourOf` resolver alike), so `[data-palette="cool"|"warm"]` recolours series and
+  nothing else — ink, accent and light/dark inheritance are untouched (Chrome test pins the chip's
+  accent-derived colour across palettes). `[data-motion="reduced"]` stills CSS animation/transition for that
+  board, and the word rides down as a React scope (`lib/motion.ts` `MotionScope`/`useLessMotion`) so the
+  drawings that animate by hand (flow packet, layers glide, simulate grow) settle too.
+- **The floor.** `motion: reduced` can only ADD stillness. Every `prefers-reduced-motion` media block ships
+  unchanged, `lessMotion()` is still consulted everywhere, and the Chrome suite runs the page twice (plain and
+  `--force-prefers-reduced-motion`) to pin the four-cell matrix: a full/unsaid board animates only when the
+  reader's system allows it. Keyboard and aria behaviour are untouched by construction.
+- **Spec discipline.** The words are taught in the `SHOW_BLOCKS_SCHEMA` parameter descriptions — the same place
+  `align`/`text_align`/`as_of`/`live` are taught — so `describe()` and its pinned fixture
+  (`tests/fixtures/describe.txt`) and `core/catalog.json` stay byte-identical. The schema texts are asserted
+  by tests (`test_the_schema_teaches_the_look_words`, `test_the_look_words_stay_semantic_not_pixels`): the
+  content cues ("data-dense dashboard → compact", "money/operations → cool", "alerts/energy → warm"), the
+  model-decided wording ("Yours to decide", "The reader has no control") and the accessibility floor ("never
+  overrides… always gets less") are the eval contract the model reads; no live-model harness exists in this
+  repo, and this lane cannot run one — the deterministic contract plus the renderer behaviour tests are the
+  honest coverage.
+- **Library reopen.** A saved board reopens with its own look words (the reopen path threads them through the
+  same reader), so the shelf is faithful.
+- **Tests.** Python: envelope storage/leniency/combine (`tests/tools/test_show_blocks.py` +9), store readers
+  (`tests/core/test_store.py` +1), API passthrough (`tests/dashboard/test_plugin_api.py` +2). Web: readers,
+  envelope, attribute surface, token sets, motion scope (`web/src/core/visual.test.tsx` +11). Real Chrome:
+  geometry (10px vs 5px gaps, 17 vs 13 word inset), palette fills, the motion floor matrix, and the
+  unknown-word negative control (`tests/test_visual_adaptive_chrome.py` +10).
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

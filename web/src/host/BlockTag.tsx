@@ -22,7 +22,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
 import { readBlocksNoted, type FollowUp } from "../core/readBlocks";
 import { popLayer, pushLayer } from "../core/overlays";
-import type { Align } from "../core/fields";
+import type { Align, Density, Motion, Palette } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
 import { useExportChrome } from "./ExportChrome";
@@ -42,14 +42,16 @@ const NO_BLOCKS: Block[] = [];
 
 type Board = {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
-  boardFollowUps?: FollowUp[]; stored: unknown;
+  boardFollowUps?: FollowUp[]; boardDensity?: Density; boardPalette?: Palette; boardMotion?: Motion;
+  stored: unknown;
 };
 
 type State = {
   kind: "loading";
 } | {
   kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string;
-  boardLive?: boolean; boardFollowUps?: FollowUp[]; stored: unknown;
+  boardLive?: boolean; boardFollowUps?: FollowUp[]; boardDensity?: Density; boardPalette?: Palette;
+  boardMotion?: Motion; stored: unknown;
 } | { kind: "failed" };
 
 /**
@@ -76,13 +78,14 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
       .then((data) => {
         const {
           blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive,
-          followUps: boardFollowUps,
+          followUps: boardFollowUps, density: boardDensity, palette: boardPalette, motion: boardMotion,
         } = readBlocksNoted(data);
         // The export's JSON source: the stored envelope when the answer carries it (the local get_block does);
         // the answer itself where it does not (previews, old doors) — never a fabrication.
         const envelope = isEnvelopeCarrying(data) ? (data as { stored: unknown }).stored : data;
         if (live) setState(blocks.length
-          ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps, stored: envelope }
+          ? { kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps,
+                boardDensity, boardPalette, boardMotion, stored: envelope }
           : { kind: "failed" });
       })
       .catch(() => {
@@ -166,7 +169,8 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           )}
           {chrome.dialogMenu}
           <Blocks blocks={board.blocks} boardAlign={board.boardAlign} boardTextAlign={board.boardTextAlign}
-            boardAsOf={board.boardAsOf} boardLive={board.boardLive} boardFollowUps={board.boardFollowUps} />
+            boardAsOf={board.boardAsOf} boardLive={board.boardLive} boardFollowUps={board.boardFollowUps}
+            boardDensity={board.boardDensity} boardPalette={board.boardPalette} boardMotion={board.boardMotion} />
           {chrome.layer}
         </div>
         {library.dialog}

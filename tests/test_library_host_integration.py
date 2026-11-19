@@ -65,7 +65,8 @@ from test_chart_scatter_cluster_chrome import (  # noqa: E402
 from test_layout_alignment import CHROME  # noqa: E402
 
 WINDOW_W, WINDOW_H = 1100, 820
-BUNDLE_SHA256 = "22cec44c809a19bb4397999fce8ef291bd9da01c2a092f28754a709eef5c4e1a"
+BUNDLE_SHA256 = "d38d306e28cdbead0bfc3a6464e313b1148aa31a04a055f875c77fb01eaff55c"  # #7 rebuild (the mirror
+# loads THE frozen bundle of this tree; #8's 22cec44c… predates the adaptive-look renderer)
 
 
 @pytest.fixture

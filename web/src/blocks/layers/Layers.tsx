@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { colourOf, fitCanvas, useTheme } from "../../lib/canvas";
 import { InlineText } from "../../lib/InlineText";
-import { lessMotion } from "../../lib/motion";
+import { useLessMotion } from "../../lib/motion";
 import { useWidth } from "../chart/useWidth";
 import { slabAt, stackShapes, type SlabShape } from "./geometry";
 import type { LayersBlock, Tone } from "./read";
@@ -118,11 +118,12 @@ export function Layers({ title, caption, layers }: LayersBlock) {
  *  with less motion. */
 function useOpening(at: number, n: number): number[] {
   const [open, setOpen] = useState<number[]>(() => Array.from({ length: n }, (_, i) => (i === at ? 1 : 0)));
+  const less = useLessMotion();  // the reader's system ask, or this board's own `motion: reduced` word
   const now = useRef(open);
   now.current = open;
   useEffect(() => {
     const target = Array.from({ length: n }, (_, i) => (i === at ? 1 : 0));
-    if (lessMotion() || typeof requestAnimationFrame !== "function") return setOpen(target);
+    if (less || typeof requestAnimationFrame !== "function") return setOpen(target);
     const from = now.current;
     const start = performance.now();
     let frame = requestAnimationFrame(function step(time) {

@@ -3,7 +3,17 @@
 import json
 import math
 
-from ..blocks.common import align_word, as_of_line, follow_up_problems, follow_up_words, live_flag
+from ..blocks.common import (
+    DENSITY,
+    MOTION,
+    PALETTE,
+    align_word,
+    as_of_line,
+    choice_word,
+    follow_up_problems,
+    follow_up_words,
+    live_flag,
+)
 from ..core import store, surface
 from ..core.catalog_text import describe
 from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, too_deep
@@ -189,6 +199,12 @@ def show_blocks(params: dict, **kwargs) -> str:
         envelope["align"] = word
     if (word := align_word(params.get("text_align"))) is not None:  # the same three words, for how the text reads
         envelope["text_align"] = word
+    if (word := choice_word(params.get("density"), DENSITY)) is not None:  # how the board packs its space
+        envelope["density"] = word
+    if (word := choice_word(params.get("palette"), PALETTE)) is not None:  # which chart colours it draws from
+        envelope["palette"] = word
+    if (word := choice_word(params.get("motion"), MOTION)) is not None:  # how much it moves when it can
+        envelope["motion"] = word
     if (as_of := as_of_line(params.get("as_of"))) is not None:
         envelope["as_of"] = as_of
     if (live := live_flag(params.get("live"))) is not None:
@@ -240,6 +256,29 @@ SHOW_BLOCKS_SCHEMA = {
                 "callout) read when a block doesn't ask for itself: left (the default) | center | right. Set it "
                 "adaptively — a centered headline or stat for emphasis, left for prose. Charts, tables, images "
                 "and layouts keep their own layout and ignore it.",
+            },
+            "density": {
+                "type": "string",
+                "description": "Optional. How much air this whole board keeps: comfortable (the default) | "
+                "compact (tighter spacing between and inside cards, for fitting a lot of figures on one screen). "
+                "Yours to decide from the content and who reads it — a data-dense dashboard or tracker usually "
+                "reads better compact; a story, plan or first-glance answer better comfortable. The reader has no "
+                "control.",
+            },
+            "palette": {
+                "type": "string",
+                "description": "Optional. Which colours this board's charts draw from: default (the house set) | "
+                "cool (blues, teals, violets) | warm (reds, ambers, pinks). Yours to decide from the subject — "
+                "cool suits money and operations, warm suits alerts and energy; keep default when a colour must "
+                "carry meaning on its own or nothing special fits. Only chart series recolour: themes and the "
+                "app's accent stay as they are. The reader has no control.",
+            },
+            "motion": {
+                "type": "string",
+                "description": "Optional. How much this board moves: full (the default) | reduced (animations "
+                "settle at once). Yours to decide — reduced suits a quiet dashboard or a board meant for reading; "
+                "full suits an explainer that animates to make a point. It never overrides the reader's system: "
+                "a device that asks for less motion always gets less, whatever you say.",
             },
             "as_of": {
                 "type": "string",
