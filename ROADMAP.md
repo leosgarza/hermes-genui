@@ -29,7 +29,7 @@ upstream, it still lives here and works for us.
 | 4 | Chart drill-down + true scatter / histogram | Explore a point; see distributions honestly | ✅ done | not yet offered |
 | 5 | Follow-up suggestions strip | One tap continues the conversation | ✅ done | not yet offered |
 | — | AI-decided alignment | The model places text for best effect; no reader fiddling | ✅ done | not yet offered |
-| 6 | Export PNG / CSV / Markdown | The bridge from chat to decks, reports and messages | 🔨 building | — |
+| 6 | Export PNG / CSV / Markdown | The bridge from chat to decks, reports and messages | ✅ done | not yet offered |
 | 7 | Visual preferences (density / accent) | Comfort for long reading | 📋 planned | — |
 | 8 | Pin / save boards to a Library | Reuse dashboards as durable assets | 📋 planned | — |
 | 9 | Refresh / stale indicator | Know when data is old | 📋 planned | — |
