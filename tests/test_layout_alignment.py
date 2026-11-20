@@ -209,7 +209,7 @@ def fixture_html() -> str:
       </div>
     </div>
     """
-    ctrl = f"""
+    ctrl = """
     <div class="hb-blocks" data-root id="ctrl" style="width:800px">
       <div class="hb-place" data-text-align="center" id="ta-attr-only">
         <div class="hb-text" id="ta-attr-inside">Attribute without its class must read left.</div>
