@@ -34,7 +34,7 @@ upstream, it still lives here and works for us.
 | 8 | Pin / save boards to a Library | Reuse dashboards as durable assets | ✅ done | not yet offered |
 | 9 | Refresh / stale indicator | Know when data is old | 📋 planned | — |
 | 10 | Motion + form-validation polish | Accessibility and feel | 📋 planned | — |
-| ★ | **Living Boards v1** (capstone) | The chat's visual memory — boards the AI can address, update in place, and link across turns | 🔨 building | — |
+| ★ | **Living Boards v1** (capstone) | The chat's visual memory — boards the AI can address, update in place, and link across turns | ✅ done | offered (#55) |
 
 ## Already upstream 🎉
 
@@ -43,6 +43,7 @@ upstream, it still lives here and works for us.
 - **#50** *(open)* — a design note offering local-file image rendering for `image_generate`, for Sagar to consider.
 - **#53** *(open)* — the visual-judgment skill: a judgment layer over the drawing tools — when to style a board, which block should lead, and plain as a legitimate answer. *Offered.*
 - **#54** *(open)* — the placement lever: per-block `align` + board `text_align` (with the chart-centering fix), so a model can center a highlight. *Offered.*
+- **#55** *(open)* — Living Boards: chat boards become addressable, updatable in place, linkable objects with bounded history — the capstone. *Offered.*
 
 ## Avoiding duplicate work
 
