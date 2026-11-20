@@ -1,6 +1,7 @@
 """Living Boards: a board's id is its address, and update() writes a NEW version at that SAME address — the
-old content is archived beside it, so every version stays retrievable. No delete, no parallel store: the board
-file keeps its name and the history rides in a <id>.versions.json sidecar.
+old content is archived beside it, reachable via ?version=N within the store's BOUNDED history (newest
+HISTORY_MAX versions under HISTORY_LIMIT bytes, oldest dropped past them). No delete, no parallel store: the
+board file keeps its name and the history rides in a <id>.versions.json sidecar.
 
 The semantics pinned here:
   · update() answers the same address it was given; the new envelope carries version+updated_at;

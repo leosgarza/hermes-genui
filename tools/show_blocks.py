@@ -255,8 +255,8 @@ def _link_addresses(raw: object, target: str | None, problems: list[str]) -> lis
 
 # The words the live-board answer says before the paste line: what the tool did, in one breath.
 UPDATED = ("Updated the same live board {addr} to v{version} — the tag below is that same address: paste it "
-           "where the update belongs and the board updates in place, keeping the versions before this one "
-           "retrievable.\n")
+           "where the update belongs and the board updates in place; the versions before this one stay "
+           "retrievable within the store's bounded history (the newest archived, oldest dropped past the cap).\n")
 
 # The same sentence in the short-menu schema (#42): the menu names the blocks, the living words ride in the
 # parameters — target and links — where the schema can carry them in full.
@@ -331,8 +331,9 @@ def schema(guide: str = "full") -> dict:
                     "description": "Optional. The address of a board you drew earlier in this conversation — the 8-"
                     "character id inside its ::blocks tag (e.g. \"7f3a09bc\"). Set it when the user asks to change, "
                     "extend or tighten THAT board (\"add NVDA\", \"make it compact\", \"update the numbers\"): the "
-                    "board updates in place at the same address, keeps a version history (the older version stays "
-                    "retrievable), and the reply pastes its same tag — not a new board. Leave it out for anything "
+                    "board updates in place at the same address, keeps a bounded version history (recent archived "
+                    "versions stay retrievable; past the store's cap the oldest drop), and the reply pastes its "
+                    "same tag — not a new board. Leave it out for anything "
                     "new; a wrong address is refused, never silently redrawn fresh. Most turns need no target.",
                 },
                 "links": {

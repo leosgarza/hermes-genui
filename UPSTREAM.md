@@ -21,8 +21,10 @@ local daily-use stack (7 review rounds, PASS WITH NOTES); this candidate is the 
 
 1. **The board's identity is its filename/address.** `update()` answers the same id; the tag the chat
    already quoted keeps drawing, now the current version.
-2. **Update-in-place keeps the address and the history.** Nothing is deleted: the archive is the
-   store's own "blocks are never deleted" rule applied per version.
+2. **Update-in-place keeps the address and a bounded history.** The version that was current is
+   archived whole beside the board and stays reachable via `?version=N` — within explicit caps: the
+   newest `HISTORY_MAX` (8) archived versions under `HISTORY_LIMIT` (512 KiB), oldest dropped past
+   them. The current version is never dropped; a reach-back past the cap honestly 404s.
 3. **Links between boards.** A link is an address the store confirmed; opening one fetches that
    board, whole, and its interactive state stays keyed to its own address.
 4. **Interactive state is board-held, not page-held.** Every wired answer reaches the state door at

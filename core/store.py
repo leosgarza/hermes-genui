@@ -152,9 +152,11 @@ def load(block_id: str, root: Path | None = None) -> list[dict] | None:
 # A board drawn into a chat is not a dead snapshot: show_blocks can be told to update the board an address
 # names. The new content replaces <id>.json AT THE SAME ADDRESS (the tag the chat already quotes keeps
 # drawing, now the current version), and the version that was current is archived, whole, into a
-# <id>.versions.json sidecar beside it. Nothing is deleted — the archive is exactly the store's old rule
-# ("blocks are never deleted, so old chats still draw") applied per version. A board that was never
-# updated carries no version word at all and answers load() with exactly the bytes it always had.
+# <id>.versions.json sidecar beside it. History is BOUNDED by design: the sidecar keeps the newest
+# HISTORY_MAX archived versions within HISTORY_LIMIT bytes and drops the oldest when either cap is
+# crossed; reach-back past the cap answers like an unknown version, and the CURRENT version is never
+# dropped. A board that was never updated carries no version word at all and answers load() with
+# exactly the bytes it always had.
 
 HISTORY_SUFFIX = ".versions.json"
 HISTORY_MAX = 8                 # the newest archived versions kept; the live one answers load()
