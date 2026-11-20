@@ -41,6 +41,7 @@ upstream, it still lives here and works for us.
 - **#16** — graceful hiding of stray / unloadable `::blocks` tags (no more grey error boxes). *Merged.*
 - **#12** — readable tile text (full reasons, no hover needed). *Merged.*
 - **#50** *(open)* — a design note offering local-file image rendering for `image_generate`, for Sagar to consider.
+- **#53** *(open)* — the visual-judgment skill: a judgment layer over the drawing tools — when to style a board, which block should lead, and plain as a legitimate answer. *Offered.*
 
 ## Avoiding duplicate work
 
