@@ -28,7 +28,7 @@ upstream, it still lives here and works for us.
 | 3 | Interactive table (filter / search / select, tap-to-send) | Tables become conversational, not just static | ✅ done | not yet offered |
 | 4 | Chart drill-down + true scatter / histogram | Explore a point; see distributions honestly | ✅ done | not yet offered |
 | 5 | Follow-up suggestions strip | One tap continues the conversation | ✅ done | not yet offered |
-| — | AI-decided alignment | The model places text for best effect; no reader fiddling | ✅ done | not yet offered |
+| — | AI-decided alignment | The model places text for best effect; no reader fiddling | ✅ done | offered (#54) |
 | 6 | Export PNG / CSV / Markdown | The bridge from chat to decks, reports and messages | ✅ done | not yet offered |
 | 7 | AI-adaptive density / palette / motion | The model tunes presentation to content & audience — no reader panel | ✅ done | not yet offered |
 | 8 | Pin / save boards to a Library | Reuse dashboards as durable assets | ✅ done | not yet offered |
@@ -42,6 +42,7 @@ upstream, it still lives here and works for us.
 - **#12** — readable tile text (full reasons, no hover needed). *Merged.*
 - **#50** *(open)* — a design note offering local-file image rendering for `image_generate`, for Sagar to consider.
 - **#53** *(open)* — the visual-judgment skill: a judgment layer over the drawing tools — when to style a board, which block should lead, and plain as a legitimate answer. *Offered.*
+- **#54** *(open)* — the placement lever: per-block `align` + board `text_align` (with the chart-centering fix), so a model can center a highlight. *Offered.*
 
 ## Avoiding duplicate work
 
