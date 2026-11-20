@@ -90,10 +90,13 @@ inline-style margin clear, a scoped not-shipped hug, an attribute without its cl
 `captures/` (workspace, byte-reproducible across runs; one markup — the jsdom dump of this renderer drawing
 the asked hero — and only the stylesheet's tree differs):
 
-- `hero-before-left-aligned.png` (sha256 `0065088e…259a0`) — upstream main `af8a4f6` with the asked DOM: the
-  words are unknown, every block sits left, the chart fills the column.
-- `hero-after-centered.png` (sha256 `401c8a23…042d`) — this candidate: the heading reads centered, the chart
-  centers at 190/190, the callout's words center. Captions draw the margins Chrome measured in that render.
+- `hero-before-left-aligned.png` (sha256
+  `102f6eef55cb21fefcd3cafb56b0e3b4f1ff8b019806a09d7db6c2f4d418184f`) — upstream main `af8a4f6` with the asked
+  DOM: the words are unknown, every block sits left, the chart fills the column.
+- `hero-after-centered.png` (sha256
+  `98f2d547608e2d7a93f8bfbacae19cffd8798439fe744635d2d08fc2b877c1d4`) — this candidate: the heading reads
+  centered, the chart centers at 190/190, the callout's words center. Captions draw the margins Chrome
+  measured in that render.
   Disclosed: `*{animation:none;transition:none}` is injected for a deterministic settle (the appear fades are
   one-shot, default fill-mode, so the settled style equals the no-animation style).
 
@@ -110,7 +113,7 @@ File-level overlap, for merge order:
 
 | PR | shares with this branch | hunk overlap |
 |---|---|---|
-| #30–#32, #38, #40, #41 | `tests/hooks/test_text_fallback.py` (both append at EOF), `desktop/plugin.js` | none in code; trivial append/bundle conflicts |
+| #30–#36, #38, #40, #41 | `tests/hooks/test_text_fallback.py` (both append at EOF), `desktop/plugin.js` | none in code; trivial append/bundle conflicts |
 | #33 | `web/src/styles/tokens.css` (adds `--hb-bad` tokens at the top; this appends at the bottom) | none |
 | #34, #35, #36 | `web/src/blocks/chart/chart.css` (they add kind-specific rules after line 45; this edits lines 1–8) | none |
 | #36 | `blocks/common.py` (it edits `out_of` at ~line 203; this adds `align_word` at ~line 40) | none |
