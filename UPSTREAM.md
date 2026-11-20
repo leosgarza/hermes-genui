@@ -75,16 +75,30 @@ plausible in `Checklist.tsx`/`Form.tsx` (their #32/#40 add fields; this changes 
 semantically none: board state and block fields are different seams. #53 (recipes) touches `recipes/`
 only. The store/REST seams here are untouched by every open PR.
 
-## Evidence captures (in this card's attachments)
+## Evidence captures (durably attached to this card as chunked rows — reassembly in the ledger)
+
+Produced through the **`genui_capture.py` workflow**: the real app (the shipped `BlockTag` renderer
+bundled from each tree, served by a door answering the shapes each tree actually answers) drives the
+scenario in headless Chrome — create → headless update-in-place → reach-back → link chip open — and
+each SETTLED page's host DOM is dumped and handed to `genui_capture.render()` for the PNG. render()
+assembles the page from the repo's own shipped CSS — the full stylesheet in the shipped order parsed
+from `web/src/styles/index.ts`, which places the host `blockTag.css` at its shipped position exactly
+as the tool's docstring prescribes for host chrome — plus the tool's app-approximated dark theme vars
+(the fix for the round-1 captures: the custom page left those vars unresolved, so `--hb-ink` fell
+back to its light-ink default on a dark background). Entrance animations are injected off
+(`*{animation:none}`) for determinism — faithful here because every entrance on this surface is a
+one-shot fade with default fill-mode (the settled style equals the no-animation style). The reach-back
+phase waits for BOTH the row word and v1's own bytes, so the picture shows the completed retrieval,
+not a mid-transition frame. Two driver runs produced byte-identical PNGs (the `capture-v2-run1/2`
+logs in the evidence bundle). History shown is BOUNDED: the archive keeps the newest 8 versions
+under 512 KiB (see invariant 2); the captures show retrieval inside that cap.
 
 `before-duplicate-boards.png` (base main: two tags, two boards, the stale twin),
 `after-update-in-place-pointer.png` (the same address updated headlessly: live row `v2 · date ·
-#address · v1↩`, the later tag a pointer), `after-reach-back-v1.png` (v1 retrieved from the archive),
+#address · v1↩`, the later tag a pointer), `after-reach-back-v1.png` (v1 retrieved from the archive —
+v1's own bytes on screen, row says `viewing v1`),
 `before-unconnected-boards.png` / `after-link-opens-board.png` (the link chip opening the Q3 board
-fetched by its own address). Captures are the REAL renderer bundled from each tree, driven in headless
-Chrome over the door shapes each tree answers through; entrance animations are injected off
-(`*{animation:none}`) for determinism — faithful here because every entrance on this surface is a
-one-shot fade with default fill-mode (the settled style equals the no-animation style).
+fetched by its own address).
 
 ## What adopting this does NOT change
 
