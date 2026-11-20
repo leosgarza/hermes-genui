@@ -99,7 +99,8 @@ _dispatch()
 
 CALC = {"type": "calculator", "inputs": [{"id": "p", "label": "Loan", "min": 0, "max": 1000, "step": 10, "value": 400}],
         "outputs": [{"label": "Half", "formula": "p / 2"}]}
-CALCB = {"type": "calculator", "inputs": [{"id": "q", "label": "Mortgage", "min": 0, "max": 900, "step": 10, "value": 300}],
+CALCB = {"type": "calculator", "inputs": [{"id": "q", "label": "Mortgage", "min": 0, "max": 900,
+                                           "step": 10, "value": 300}],
          "outputs": [{"label": "Half", "formula": "q / 2"}]}
 HEAD = {"type": "heading", "text": "Portfolio \u00b7 Q4"}
 TEXT = {"type": "text", "text": "ADDED AFTER THE UPDATE"}
