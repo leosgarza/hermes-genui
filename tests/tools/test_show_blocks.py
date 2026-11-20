@@ -311,4 +311,3 @@ def test_the_envelope_words_count_in_the_boards_size(store_dir, monkeypatch):
     assert plain.startswith("Drawn.")
     big = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "text_align": "center"})
     assert big.startswith("Not drawn: board too big (")
-

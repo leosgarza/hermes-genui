@@ -554,4 +554,3 @@ def test_an_envelope_board_still_becomes_text():
     board = {"align": "center", "text_align": "center", "blocks": [{"type": "heading", "text": "Kyoto"}]}
     reply = '::blocks{id="7f3a09bc"}'
     assert tf.replace_tags(reply, load=lambda _id: board) == "**Kyoto**"
-

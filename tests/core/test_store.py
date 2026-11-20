@@ -186,4 +186,3 @@ def test_an_envelope_board_round_trips(tmp_path):
     board = {"align": "center", "text_align": "center", "blocks": [TEXT]}
     block_id = store.save(board, root=tmp_path)
     assert store.load(block_id, root=tmp_path) == board
-
