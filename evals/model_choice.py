@@ -97,6 +97,38 @@ CASES = [
         "prompt": "Subscriptions just renewed: MRR is $482k. Give me the number on a small board with a "
                   "one-line note.",
     },
+    # Living Boards v1 (enhancement #9): the model decides UPDATE vs CREATE vs REACH-BACK from the teaching
+    # alone. The addresses are plain tokens of the board-id shape; the judge reads only the words the model
+    # chose (target/links present, absent, or naming the right address) — no board execution is needed, and
+    # the prompts never nudge the answer past the product's own rules.
+    {
+        "id": "update_portfolio",
+        "field": "target", "allow": {"a1b2c3d4"},
+        "board": [{"type": "heading", "text": "Portfolio · Q4"},
+                  {"type": "table", "columns": ["Name", "Gain"],
+                   "rows": [["AAPL", "+8.1%"], ["MSFT", "+15.2%"], ["GOOGL", "+6.7%"]]}],
+        "prompt": "Earlier in this chat you drew my portfolio board and my reply showed the tag "
+                  '::blocks{id="a1b2c3d4"}. Now I say: Add NVDA (+34.0%) to that board and tighten it up — '
+                  "it should fit one screen.",
+    },
+    {
+        "id": "fresh_topic",
+        "field": "fresh", "allow": {None},
+        "board": [{"type": "heading", "text": "Portfolio · Q4"}],
+        "prompt": "Earlier in this chat you drew my portfolio board (the reply carried its ::blocks tag). "
+                  "Now I ask something unrelated: draw me a plan board for a 3-day Kyoto trip — day one "
+                  "Fushimi Inari and Nishiki market, day two Arashiyama, day three Kinkaku-ji.",
+    },
+    {
+        "id": "reach_back_q3",
+        "field": "links", "allow": {"b2c3d4e5"},
+        "board": [{"type": "heading", "text": "Portfolio · Q3"},
+                  {"type": "table", "columns": ["Name", "Gain"],
+                   "rows": [["AAPL", "+5.0%"], ["MSFT", "+11.0%"], ["GOOGL", "+4.0%"]]}],
+        "prompt": 'My Library holds my Q3 portfolio board at address "b2c3d4e5" (saved Oct 12). Now I ask: '
+                  "draw my Q4 board — AAPL +8.1%, MSFT +15.2%, GOOGL +6.7%, total +12.4% — and show it "
+                  "against last quarter so I can see the comparison.",
+    },
 ]
 
 WORDS = {"density": ["comfortable", "compact"], "palette": ["default", "cool", "warm"],
@@ -156,10 +188,56 @@ def parse_spec(arguments: str) -> dict | None:
     return spec
 
 
+def _address(v: object) -> str | None:
+    """A board address as the teaching says to write it, read leniently the way the tool does: trimmed,
+    lower-cased, an optional leading #. Anything else names nothing."""
+    if not isinstance(v, str):
+        return None
+    word = v.strip().lower().lstrip("#")
+    return word if re.fullmatch(r"[0-9a-f]{8}", word) else None
+
+
+def _link_addresses(raw: object) -> set[str]:
+    """Every address the model's links word names (bare or {id, note}); {} when it said no links."""
+    if not isinstance(raw, list):
+        return set()
+    out = set()
+    for item in raw:
+        addr = _address(item if isinstance(item, str) else (item.get("id") if isinstance(item, dict) else None))
+        if addr:
+            out.add(addr)
+    return out
+
+
+def judge_living(case: dict, spec: dict) -> dict:
+    """The update-vs-create-vs-reach-back verdict, recomputable from the raw reply."""
+    field = case["field"]
+    allow = set(map(str, case["allow"]))
+    if field == "target":
+        said = _address(spec.get("target"))
+        return {"said": said, "pass": said in allow,
+                "why": f"target={said!r}, allowed {sorted(allow)}"}
+    if field == "links":
+        said = _link_addresses(spec.get("links"))
+        wanted = next(iter(allow))
+        return {"said": " ".join(sorted(said)) or None, "pass": wanted in said,
+                "why": f"links={sorted(said)} wanted {wanted!r}"}
+    # fresh: a board drawn new — neither the update word nor a reach-back word may be said.
+    strays = {}
+    if (t := _address(spec.get("target"))) is not None:
+        strays["target"] = t
+    if (ls := _link_addresses(spec.get("links"))):
+        strays["links"] = sorted(ls)
+    return {"said": strays or None, "pass": not strays,
+            "why": "no target, no links — drew fresh" if not strays else f"lived-board words {strays}"}
+
+
 def judge(case: dict, spec: dict | None) -> dict:
     """The recorded verdict, recomputable from the raw reply at any time."""
     if spec is None:
         return {"said": None, "pass": False, "why": "no JSON board spec in the reply"}
+    if case["field"] in ("target", "links", "fresh"):
+        return judge_living(case, spec)
     if case["field"] is not None:
         said = read_word(spec, case["field"])
         ok = said in case["allow"]

@@ -28,10 +28,26 @@ router = APIRouter()
 
 
 @router.get("/blocks/{block_id}")
-async def get_block(block_id: str):
-    board = store.load(block_id, store.find_root(block_id))
+async def get_block(block_id: str, version: str | None = None):
+    root = store.find_root(block_id)
+    board = store.load(block_id, root)
     if board is None:
         return JSONResponse({"error": "not found"}, status_code=404)
+    # A board's address answers its CURRENT version by default; ?version=N reaches back into the archive
+    # and answers that version in the very same shape (blocks, words, stored) — a prior board is fetched
+    # by address, never redrawn. An unusable number is a 400; a number with no archive behind it is a 404.
+    served_version = store.version_of(board)
+    if version is not None:
+        if not version.isdigit() or int(version) < 1:
+            return JSONResponse({"error": "version must be a number 1 or up"}, status_code=400)
+        want = int(version)
+        if want != (served_version or 1):
+            archived = next((e for e in store.load_versions(block_id, root)
+                             if isinstance(e, dict) and e.get("version") == want), None)
+            if archived is None or not isinstance(archived.get("board"), (list, dict)):
+                return JSONResponse({"error": f"no version {want} of this board"}, status_code=404)
+            board = archived["board"]
+            served_version = want
     # `stored` is the envelope exactly as it was saved, riding along so a board's JSON export is the board's
     # OWN words — unknown fields and all — with no second read and no request at export time (enhancement #6:
     # an export is a deterministic host act, local to the page). The drawer ignores the key; its reader
@@ -53,7 +69,30 @@ async def get_block(block_id: str):
         answer["live"] = live
     if (ups := store.follow_ups_of(board)) is not None:  # and its tappable follow-ups, when the board offers them
         answer["follow_ups"] = ups
+    if served_version is not None:  # living boards (enhancement #9): which version this answer is
+        answer["version"] = served_version
+    if (stamp := store.updated_at_of(board)) is not None:  # and when this version was written
+        answer["updated_at"] = stamp
+    if (links := store.links_of(board)) is not None:  # and the boards this one connects to, each by address
+        answer["links"] = links
     return answer
+
+
+@router.get("/blocks/{block_id}/versions")
+async def get_versions(block_id: str):
+    """What history this address has: {"versions": [...]} newest first, the live one marked current.
+    A board that was never updated lists [] — the truth the drawer reads as "no versions to reach for"."""
+    root = store.find_root(block_id)
+    board = store.load(block_id, root) if root is not None else None
+    if board is None:
+        return JSONResponse(NOT_FOUND, status_code=404)
+    rows = [{"version": store.version_of(board) or 1, "updated_at": store.updated_at_of(board),
+             "saved_at": None, "current": True}]
+    for entry in reversed(store.load_versions(block_id, root)):
+        if isinstance(entry, dict):
+            rows.append({"version": entry.get("version"), "updated_at": None,
+                         "saved_at": entry.get("saved_at"), "current": False})
+    return {"versions": rows[1:]} if len(rows) == 1 else {"versions": rows}
 
 
 NOT_FOUND = {"error": "not found"}

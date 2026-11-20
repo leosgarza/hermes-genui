@@ -927,6 +927,159 @@ localStorage override anywhere in the change: the model's ask is the whole rule,
   geometry (10px vs 5px gaps, 17 vs 13 word inset), palette fills, the motion floor matrix, and the
   unknown-word negative control (`tests/test_visual_adaptive_chrome.py` +10).
 
+## 13. living boards — address, update-in-place, reach-back (enhancement #9, this card)
+
+**What it is.** Boards stop being dead snapshots. A board's tag id IS its address: `show_blocks` learns an
+optional `target` (update THAT live board — a new version at the same address, the prior version archived,
+the chat's existing tag keeps drawing it) and optional `links` (1-3 boards by address with an AI-suggested
+one-line note). The renderer keeps **one live view per address**: the first tag of an id owns the view, a
+later tag draws a quiet pointer and pokes the owner, whose refetch updates the SAME mounted subtree in place
+— same element, calculator/form/tab state intact (proven by node identity + typed value in real Chrome,
+`tests/test_living_boards_chrome.py`). That in-place promise is kept by a CARRIED identity, not a derived
+one (the lesson of four review rounds: content-derived keys are fragile — descendant content, placement
+flips and same-worded twin swaps each re-keyed a surviving block in turn). When an update lands, the
+host matches the new tree against the mounted one (`web/src/core/living-identity.ts`): a block whose OWN
+canonical words are unchanged (the reader's positional `path` stamp and the #6 wrapper words `align`/
+`text_align` never enter the identity; a container's words deliberately EXCLUDE its descendants) inherits
+the very React key it was MOUNTED under — independent of content shape and of position — while same-worded
+twins are told apart by what they HOLD (descendant signatures), never by the slot they sit in. A genuinely
+changed block matches nothing and is honestly redrawn. A never-updated board carries nothing and keeps the
+accepted content-key drawing, byte for byte. Placement rides the same promise: every block has ONE stable
+`.hb-place` root, and a flip of the model's word is a class change, never a re-wrap — with nothing asked
+the root is `.hb-bare` (`display: contents`: no box, no layout voice), so an unsaid board still renders
+sha256-identically while a live flip carries the mounted slider through. Row/grid/column cells wrap their
+child under the CHILD's identity key, so insertion, reorder, a sibling's content change at any depth, a
+placement flip, or a swap of two same-titled containers carries every logically-unchanged block to its new
+place on its live element — half-dragged slider, typed form field, checklist ticks, opened tab all ride
+the move (behavioral and real-Chrome regressions included). A row under a living board names the address
+and version,
+opens older versions through `GET /blocks/{id}?version=N` (drawn in place), and opens linked boards
+fetched whole from the store — reach-back without redrawing, with the reopened board answering to its OWN
+id (the #8 isolation reused).
+
+**Round 5 — the answer lives on the BOARD.** A carried React key protects every element React can keep, but
+two facts cannot be keyed away: a block MOVED into another container is re-parented (React rebuilds the
+element there), and a REOPEN mounts a wholly new tree from the stored spec anyway. By the owner-endorsed
+disposition, interactive state therefore lives OUTSIDE the element: `web/src/core/blockState.ts` gives every
+interactive block (slider, form draft, sent record, checklist ticks, picked tab) a value held on the BOARD,
+keyed by the block's IDENTITY CHAIN — its own words plus its occurrence among same-worded siblings, hung on
+the chains of the identity blocks above it. The chain is the same string at the mount, at an update's
+promote and at a reopen derived from the stored spec, in any parent and at any depth. Changes file at once
+into a page store (a move remounts in the same tick — before any network — and answers from there) and into
+the state door (`GET/PUT /blocks/<id>/state` — the #8 endpoint, unchanged, keys only). A mount restores
+page-first then door; a genuinely changed block keys elsewhere and redraws honestly. The first update to
+land makes the board LIVING and promotes positionally filed #8 answers along the carry's trail — pairs,
+cross-container moves, twin swaps — into identity keys; once the door holds ANY identity key, position
+says nothing, so a new block taking a vacated path can never wear the old occupant's ticks. A board that
+never took an update is untouched: its checklist and form file the exact positional bytes #8 accepted, and
+transient answers keep the page-only scope they always had. When the page's last tag for an address goes,
+queued writes flush to the door and the page's memory is let go — a reopen is answered by the door alone.
+
+**Round 5 verification.** RED-first on tree `f5d482b2`: the reviewer's two cases (moved calculator keeps
+700; ticks return after insertion + unmount + reopen; plus a vacated-position misfire guard, an isolation
+pair and the 500-honesty reopen boundary) and the full transformation matrix — {insert, delete, reorder,
+cross-container move, placement wrap, sibling-content, twin swap} × {slider, form, checklist, tab} ×
+{in-place update, reopen} — 31 vitest cells (`web/src/host/BlockTag.living.test.tsx`, RED 29 / pinned-GREEN
+2 pre-fix) and 2 real-Chrome witnesses over the actual door (`test_cross_container_move_…`,
+`test_reopen_after_insertion_…`, both RED pre-fix at the reviewer's exact assertion).
+
+**Store.** No parallel store, no delete, same door: the current version lives at `<id>.json` exactly as
+ever; updates archive each superseded version whole into a `<id>.versions.json` sidecar (cap 8 versions /
+512 KB). A never-updated board carries no version word and answers byte-identically — proven by sha256-
+identical real-Chrome frames of an unsaid board drawn from the accepted #7 base and from this candidate
+(`captures/unsaid-base.png` == `captures/unsaid-candidate.png`, same sha256 — see OUTCOME.md).
+
+**AI-decided, as always.** No reader settings, no localStorage: the choice to update vs draw fresh vs link
+is taught in the show_blocks parameter descriptions, the catalog `about` line (describe pin raised 3,350 →
+3,390 tokens, history recorded in-test) and the Desktop prompt rule — and proven on real model output:
+`evals/model_choice.py` gained three living scenarios (update an addressed board / unrelated fresh ask /
+comparison reaching back), captured LIVE at temperature 0, 3 runs over all nine cases (qwen4-max-preview,
+token-plan endpoint — 27/27 rows pass; the recorded transcript is hash-pinned to this tree's exact schema
+by `tests/evals/test_model_choice_evidence.py`). Motion: the new row has no animation, so nothing
+overrides a reader's reduced-motion ask.
+
+**Verification.** RED-first: pytest store/tool/door suites, 66 vitest on the living seam (roster
+semantics, same-element in-place update through insertion and reordering, nested and moved state, pointer,
+reach-back controls, links, unsaid-DOM-free, negatives), 10 real-Chrome witnesses; full suites on the
+frozen tree (see OUTCOME.md). Desktop bundle `desktop/plugin.js` built twice byte-identical:
+`0e37f819b5627cb367f8de8594e46cca9d295582c8fefe6ec0088de61e39e960`.
+
+**Disclosed trade-offs.** (1) The live view sits where the address's FIRST tag stands; later tags point
+there — the concept mock's board-reappearing-in-the-new-message was traded for the hard rule "never
+duplicate-mount a second renderer" (one object, one subtree; the pointer carries its version and address).
+(2) An opened link draws a second REFERENCE view of that board (the way two chats quoting one tag already
+each draw their own); its ticks save to its own address, and it is not itself given a live row — links do
+not recurse in v1. (3) `updated_at` shows its date part only; no clock games. The spatial
+Constellation/auto-curation ideas stay out of scope (owner: over-built). Round-5 boundaries, disclosed:
+(a) answers of the TRANSIENT kinds (slider, tab, draft) reach the door only once the board is living — an
+update or a reload of a never-updated board shows the spec's numbers, exactly as #7/#8 ever drew; (b) a
+block that MOVED is followed only when nothing else in the old tree shares its flat identity — two LITERAL
+twins (identical own words) leave no unique match, so the implementation never guesses: the carried twin
+keeps its answer at the chain that never moved, and the moved twin redraws honestly from its own words;
+(c) a board updated while no page held it migrates at the FIRST mount of the new version, computed from
+the STORED version archive — see round 6 below; the round-5 sentence "seeded from the old positional keys
+on the first mount whose block still sits at the saved position" described the mechanism round 6 retired.
+
+**Round 6 (reviewer comment 937 / Sol's disposition): migration is tied to the VERSION TRANSITION, not to
+a mount.** The store takes an update at an address with no view anywhere — the ordinary reach-back/edit-later
+shape of the chat's visual memory. The mounted promote (round 5) cannot run headless, so the door kept
+holding legacy answers for whatever block NOW sat in the old slot. The accepted behavior was a misattribution:
+a new checklist in a vacated path could wear a deleted one's ticks. Sol bound the rule: a legacy positional
+answer never falls back to the new positional path; migration uses a reliable old→new carried-identity
+mapping computed from the STORED pre-update specs; retention unconfirmed = nothing applies.
+- `savedState.migrateArchived` walks the version archive (`GET /blocks/<id>?version=t` — the very route
+  reach-back already answers, so no new door surface): at the first mount of a v≥2 board it classifies every
+  door key no current block claims — a POSITION resolves only against the stored v1 spec (only a never-living
+  board ever filed positionally, and only v1 was ever non-living while it held that slot), a stale `k:` chain
+  against every archived version that spoke it — then rides the answer forward across EVERY headless
+  transition, step by step, with the same unique-flat move trails the mounted promote uses; an unchanged
+  chain is its own trail. Anything unprovable stays exactly where it is: inert, never erased, never worn by
+  a stranger (the misfire guard). The walk lands answers BEFORE any block mounts (the draw is gated on it),
+  so reopened readers never see a wrong tick even for one frame.
+- `seedValue` lost its positional fallback (Sol's invariant 1). The accepted #8 truth for never-updated
+  boards is untouched — their door key IS the path, read as a primary key, and no fallback was ever part of
+  that story.
+- One walk per address-and-version (`migratedWalk`); a released board re-checks honestly. Unreadable archive
+  (evicted by `HISTORY_MAX`, offline door) = no application, no loss.
+
+**Round-6 verification.** RED-first: the reviewer's exact probe plus insertion/swap/misfire/second-headless-
+update/nested cases (7 Vitest, 6 RED pre-fix, 1 never-updated control green by design), and 3 real-Chrome
+witnesses over the REAL store door with the page killed between versions (all RED pre-fix at the misattribution,
+GREEN after; 13/13 living Chrome total). Full suites on this tree: pytest 964 / vitest 936 / tsc / ruff.
+Desktop bundle `desktop/plugin.js` built twice byte-identical:
+`6a2efc63d6e289b3059d60a8fa62627803d13cab0197a4369b413022609264df`.
+
+**Round 7 — the unification completed (Sol's binding disposition, reviewer comment 944).** Whack-a-mole on
+the last ephemeral path ends here: EVERY interactive surface files its answer on the board AT EDIT TIME
+while mounted. The transient kinds (calculator slider, tab pick, unsent form draft) declare door `"identity"`
+and their door key is the block's identity chain FROM THE FIRST EDIT — living or not — so an answer is on
+the door before any view can die; `recordValue`'s `door:"never"` transient path is retired ("never" now
+means only "no door exists to write to"), and `forgetBlock`, releasing an address, destroys NOTHING the
+reader answered: queued writes still flush, the page mirror survives as the board's own store, and only
+the archive-walk gate resets for the next honest re-check. Because the edit is durable before any unmount,
+a FIRST addressed update — mounted OR entirely headless — migrates it by identity along the same round-6
+`trailsFrom` walk and misfire guard, and a reopen restores it: the reviewer's exact probe (v1 calculator
+dragged 700 → only view unmounted → headless v2 → reopen) now shows 700 in jsdom and in a genuine second
+Chrome process against the real store. #8 survives exactly where it was bound: PERSISTED answers (checklist
+ticks, a form's sent record) keep the accepted POSITIONAL filing on a never-updated board — door key IS the
+path — switching to identity only when an update makes the board living. Isolation, no-misattribution,
+one-live-subtree, 500-honesty and unsaid byte identity all stay under their existing controls.
+
+**Round-7 verification.** RED-first on pre-fix `2b08221`: 9 behavioral Vitest cases
+(`web/src/host/BlockTag.headless-transient.test.tsx`) — calculator/form/tabs first-headless probes, the
+cross-container archived-walk ride, reopen-without-any-update durability, the #8 positional truth, an
+address-isolation pair — 8 RED pre-fix, 1 disclosed 500-honesty pin green by design; the existing r5/r6
+suites stay 73/73 on the same pre-fix tree. And a NEW REVIEW-CHANNEL WITNESS:
+`tests/living_boards_envfree_witness.py` proves the same invariants in REAL Chrome over the REAL
+`core/store.py` door served by a stdlib `http.server`, needing no environment at all — plain
+`python3 tests/living_boards_envfree_witness.py` (exit 0/1; it finds a 3.11+ interpreter itself, the
+exact wall the round-6 reviewer hit, and the pytest wrapper `test_living_boards_envfree_witness.py` runs
+the identical script in CI). 9 symptom FAIL lines pre-fix (incl. "reopened after a FIRST headless update
+shows 400, expected 700" verbatim), 4/4 PASS after. One test-contract ripple, disclosed: the accepted form
+sent-state case now asserts the positional sent record AND the draft's identity byte inside the same PUT
+snapshot (the old exact-body equality would fail against the added durability, not a lost claim); the r5
+`stateDoor` mock now isolates state per address exactly like the shipped door.
+
 ## Combined candidate
 
 - Branch `combined-candidate` on baseline `5f223c2`; commits `cb4f9e5` (tiles) → `956d9dd` (images) →

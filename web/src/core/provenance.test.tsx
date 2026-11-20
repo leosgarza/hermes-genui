@@ -123,7 +123,7 @@ describe("footer render", () => {
   it("absorbs only the first top-level source; a later one draws where it sits", () => {
     const root = draw({ as_of: "2026-11-18", blocks: [SRC, { type: "source", text: "field log" } ] });
     expect(root.querySelectorAll(".hb-source").length).toBe(2);  // one in the footer, one in the board
-    expect(root.querySelector(".hb-blocks > .hb-source")!.textContent).toBe("field log");
+    expect(root.querySelector(".hb-blocks > .hb-place > .hb-source")!.textContent).toBe("field log");
   });
 
   it("a board with no provenance draws exactly what it always did: no footer, no new nodes", () => {
@@ -164,7 +164,7 @@ describe("the footer source keeps its placement (rework of defect 1)", () => {
     const center = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "center" }] });
     expect(center.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("center");
     const plain = draw({ as_of: "d", blocks: [SRC] });
-    expect(plain.querySelector(".hb-provenance .hb-place")).toBeNull();
+    expect(plain.querySelector(".hb-provenance .hb-place:not(.hb-bare)")).toBeNull();
     expect(plain.querySelector(".hb-provenance .hb-source")!.textContent).toBe("BLS");
   });
 
@@ -175,7 +175,7 @@ describe("the footer source keeps its placement (rework of defect 1)", () => {
 
   it("the model's word moves the footer source; nothing else can", () => {
     const plain = draw({ as_of: "d", blocks: [SRC] });
-    expect(plain.querySelector(".hb-provenance .hb-place")).toBeNull();     // left is how it sits anyway
+    expect(plain.querySelector(".hb-provenance .hb-place:not(.hb-bare)")).toBeNull();  // left is how it sits anyway
     const asked = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "right" }] });
     expect(asked.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("right");
     expect(asked.querySelectorAll("button").length).toBe(0);                // no reader chips, not even beside a footer
@@ -191,7 +191,7 @@ describe("the footer source keeps its placement (rework of defect 1)", () => {
     expect(root.querySelector(".hb-provenance-line .hb-place")).toBeNull();
     expect(root.querySelector(".hb-provenance-line .hb-source")).toBeNull();
     const plain = draw({ as_of: "d", blocks: [SRC] });  // left asks need no wrapper but still sit on the row
-    expect(plain.querySelector(".hb-provenance > .hb-source")).toBeTruthy();
+    expect(plain.querySelector(".hb-provenance > .hb-place > .hb-source")).toBeTruthy();
   });
 });
 

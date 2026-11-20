@@ -8,8 +8,13 @@
 // section or tab panel; each block is placed within the cell it already had, and the cell keeps the layout it owns.
 // The same block also answers for how the words read inside the blocks that carry words (heading, text, stat,
 // callout): `text_align` per block, `boardTextAlign` for every block that didn't ask, left when neither says.
-// A block wrapped for placement, for its text voice, or for both, gets the one wrapper; a board with no ask
-// anywhere draws the same DOM it always did.
+// A block wrapped for placement, for its text voice, or for both, gets the one wrapper; and the wrapper
+// is now the block's STABLE root: every block sits in a .hb-place element, asked or not. Where nothing
+// is asked the root carries .hb-bare and generates NO BOX (display: contents) — the block is laid out,
+// measured and exported exactly as an unwrapped block has always been, and an unsaid board still renders
+// byte-identically. What changed is why: a living update that only flips a placement word must not
+// re-wrap the block's element tree, or the calculator inside it remounts and its half-dragged slider is
+// gone (review round 3, defect 1). Placement is a class on the stable root, never a shape change.
 // A board whose envelope declares provenance (boardAsOf or boardLive) also grows a quiet footer — its source,
 // when its data is from, and the word Live or Snapshot. The source part joins both attributions the board says:
 // its first top-level source block — drawn here rather than twice, and placed exactly like any block, through
@@ -33,6 +38,8 @@ import { alignOf, textAlignOf, type FollowUp } from "./readBlocks";
 import { provenanceOf } from "./provenance";
 import { FollowUps } from "./FollowUps";
 import { MotionScope, type MotionPref } from "../lib/motion";
+import { carriedKey, identityOf, mintKey, noteMounted } from "./living-identity";
+import { BlockSlot } from "./blockState";
 
 /** The model's motion word, told to the drawings that animate by hand: only "reduced" stills them, and
  *  it can never un-still a reader whose own system asks for less motion (lib/motion.ts). */
@@ -56,27 +63,64 @@ function BlockView({ block }: { block: Block }) {
   return <Component block={block} draw={drawAll} />;
 }
 
-/** One block wherever it sits: wrapped in its place when it sits away from left, and marked with its text voice
- *  when it carries words and they are asked to read other than left. Either ask grows the one wrapper; nothing
- *  asked for, nothing added — the board draws exactly the DOM it always drew. */
-function Placed({ block }: { block: Block }) {
+/** One block wherever it sits: its root is ALWAYS the one .hb-place element, asked for or not. Where the
+ *  model asked for a place (away from left) or a text voice, the wrapper carries the variant class and
+ *  box; where it asked for nothing the wrapper carries .hb-bare and generates no box (display: contents),
+ *  so an unsaid board lays out and measures exactly as it always drew. Placement is a class on the
+ *  stable root — never a re-wrap — so a flip to or from left keeps the mounted block's live subtree
+ *  (a half-dragged slider, an unsent form) instead of remounting it (review round 3, defect 1).
+ *  The wrapper also answers for the block's identity SLOT (round 5): the block's own flat identity hung
+ *  on the chain of identity blocks above it, and passed down through BlockView so every child list this
+ *  block draws chains under it. Context only — no DOM — an unsaid board's bytes are untouched. */
+function Placed({ block, flat }: { block: Block; flat: string }) {
+  const parent = useContext(BlockSlot);
+  const slot = parent === null ? flat : `${parent}/${flat}`;
   const { board, text } = useContext(AlignScope);
   const at = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
-  const view = <BlockView block={block} />;
-  if (at === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at !== "left") cls.push(`hb-place-${at}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
+  if (at === "left" && ta === "left") cls.push("hb-bare");
   return (
-    <div className={cls.join(" ")} {...(at !== "left" ? { "data-align": at } : {})}
-      {...(ta !== "left" ? { "data-text-align": ta } : {})}>{view}</div>
+    <BlockSlot.Provider value={slot}>
+      <div className={cls.join(" ")} {...(at !== "left" ? { "data-align": at } : {})}
+        {...(ta !== "left" ? { "data-text-align": ta } : {})}><BlockView block={block} /></div>
+    </BlockSlot.Provider>
   );
 }
 
-/** The drawing path every container gets: children come back placed, exactly like the board's own list. */
+/** A block's identity is the block's OWN words, never the slot it sits in and never its children's —
+ *  and across a living board's update the key is CARRIED, not re-derived: core/living-identity.ts holds
+ *  the whole rule (canonicalization, the skipped `path` stamp and #6 wrapper words, and the carry that
+ *  hands a retained block the key it was mounted under, so same-worded twins stay distinguishable with
+ *  no positional ordinal — review round 3, defect 2). drawAll below just asks for the key.
+ *  Every block also gets its identity SLOT (`own-words hash:occurrence among its same-worded siblings
+ *  in this drawn list`) through BlockSlot context — round 5's home for interactive state on the board,
+ *  computed here once and counted exactly the way the legacy key counts, so key and slot can never
+ *  disagree. */
+function blockKey(b: Block, id: string, occ: number, carried: boolean): string {
+  const asked = carriedKey(b);
+  if (asked !== undefined) { noteMounted(b, asked); return asked; }
+  if (carried) { const fresh = mintKey(b); noteMounted(b, fresh); return fresh; }
+  const legacy = `${id}:${occ}`;
+  noteMounted(b, legacy);
+  return legacy;
+}
+
+/** The drawing path every container gets: children come back placed, exactly like the board's own list.
+ *  A list an update has carried is keyed wholly by carried identity (a straggler gets a fresh mint, so
+ *  no carried key and no legacy ordinal ever collide in one list); a plain list — every unsaid board,
+ *  every first draw — keeps the accepted content key with its occurrence ordinal, byte for byte. */
 function drawAll(blocks: Block[]): ReactNode[] {
-  return blocks.map((b, i) => <Placed key={i} block={b} />);
+  const seen = new Map<string, number>();
+  const carried = blocks.some((b) => carriedKey(b) !== undefined);
+  return blocks.map((b) => {
+    const id = identityOf(b);
+    const occ = seen.get(id) ?? 0;
+    seen.set(id, occ + 1);
+    return <Placed key={blockKey(b, id, occ, carried)} block={b} flat={`${id}:${occ}`} />;
+  });
 }
 
 /** The quiet footer of a board that declares where its data came from and when. Only the parts the board gave
@@ -102,7 +146,7 @@ function Provenance({ source, chartSources, asOf, live }: {
   }
   return (
     <div className="hb-provenance">
-      {source && <Placed block={source} />}
+      {source && <Placed block={source} flat={`${identityOf(source)}:0`} />}
       <div className="hb-provenance-line">{parts}</div>
     </div>
   );

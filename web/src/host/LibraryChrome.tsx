@@ -36,6 +36,7 @@ import { Blocks } from "../core/Blocks";
 import type { Align, Density, Motion, Palette } from "../core/fields";
 import { isTopLayer, popLayer, pushLayer } from "../core/overlays";
 import { readBlocksNoted, type FollowUp } from "../core/readBlocks";
+import { markLiving } from "../blocks/checklist/savedState";
 import type { Block } from "../registry";
 import { BlockActions, SENT_WORDS } from "./actions";
 import { dialogKeys } from "./tabbable";
@@ -211,11 +212,14 @@ export function useLibraryChrome(args: {
     setOpenedSaid(null);
     answer
       .then((data) => {
-        const { blocks, align, textAlign, asOf, live, followUps, density, palette, motion } = readBlocksNoted(data);
+        const { blocks, align, textAlign, asOf, live, followUps, density, palette, motion, version } = readBlocksNoted(data);
         if (!blocks.length) {
           setOpenedSaid("This board could not be reopened.");
           return;
         }
+        // round 5: a board that has taken updates files its answers by identity — the word the door
+        // already speaks — so this view says so too before its blocks mount.
+        if ((version ?? 0) >= 2) markLiving(e.id);
         setView({
           kind: "board", id: e.id, title: e.title,
           board: { blocks, boardAlign: align, boardTextAlign: textAlign, boardAsOf: asOf, boardLive: live,

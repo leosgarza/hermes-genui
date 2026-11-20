@@ -39,7 +39,7 @@ describe("block widths", () => {
 
   it("stop a chart, calculator or form at 720px at the top of a reply, and a long line at the board's width", () => {
     const root = draw([example("chart"), example("calculator"), example("form")]);
-    expect(style(root, ".hb-blocks > .hb-chart").maxWidth).toBe("720px");
+    expect(style(root, ".hb-blocks > .hb-place > .hb-chart").maxWidth).toBe("720px");
     expect(style(root, ".hb-calc").maxWidth).toBe("720px");
     expect(style(root, ".hb-form").maxWidth).toBe("720px");
     cleanup();

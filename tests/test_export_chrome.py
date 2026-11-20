@@ -420,7 +420,9 @@ def wait_any_download(downloads: Path, prefix: str, timeout: float = 15.0) -> tu
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         for p in downloads.iterdir():
-            if p.name.startswith(prefix) and p.stat().st_size:
+            # Chrome lands a download as <name>.crdownload and renames on completion; reading the temp
+            # file wins a race sometimes and returns a partial body under the wrong name every time.
+            if p.name.startswith(prefix) and not p.name.endswith(".crdownload") and p.stat().st_size:
                 return p.name, p.read_bytes()
         time.sleep(0.1)
     raise AssertionError(f"nothing starting with {prefix} landed")

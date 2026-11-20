@@ -109,6 +109,12 @@
    and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
    .hb-place at all. */
 .hb-place { display: flow-root; }
+/* Round 4 (living updates, review defect 1): placement is a class change, never a re-wrap. Every block
+   sits in ONE stable .hb-place root; when nothing was asked the root carries .hb-bare and generates no
+   box at all — its block lays out, measures and exports exactly where an unwrapped block has always
+   sat, so an unsaid board renders byte-identically while a flip to or from center cannot remount the
+   live subtree. */
+.hb-place.hb-bare { display: contents; }
 .hb-place-center > * { margin-inline: auto; }
 .hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
 /* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's

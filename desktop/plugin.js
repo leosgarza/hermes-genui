@@ -95,6 +95,13 @@ function motion(v) {
   const word = v.trim().toLowerCase();
   return word === "full" || word === "reduced" ? word : void 0;
 }
+function boardId(v) {
+  return typeof v === "string" && /^[0-9a-f]{8}$/.test(v) ? v : void 0;
+}
+function version(v) {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 9999) return void 0;
+  return v;
+}
 function slug(v) {
   if (typeof v === "string" && /^[a-z][a-z0-9_-]{0,23}$/.test(v)) return v;
   return void 0;
@@ -193,10 +200,10 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext13, useEffect as useEffect12, useRef as useRef20, useState as useState27 } from "react";
+import { useContext as useContext14, useEffect as useEffect12, useLayoutEffect as useLayoutEffect5, useReducer, useRef as useRef19, useState as useState25 } from "react";
 
 // src/core/Blocks.tsx
-import { createContext as createContext4, Fragment as Fragment14, useContext as useContext10 } from "react";
+import { createContext as createContext5, Fragment as Fragment14, useContext as useContext10 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -507,7 +514,574 @@ function readBar(raw, here) {
 }
 
 // src/blocks/calculator/Calculator.tsx
-import { useMemo as useMemo3, useState as useState8 } from "react";
+import { useMemo as useMemo3 } from "react";
+
+// src/core/blockState.ts
+import { createContext as createContext3, useContext as useContext3, useEffect, useRef, useState as useState3 } from "react";
+
+// src/core/living-identity.ts
+var POSITIONAL_PATH = /^\d+(?:\.[A-Za-z_]+(?:\.\d+)*)*$/;
+var PRESENTATION_KEYS = /* @__PURE__ */ new Set(["align", "text_align"]);
+var DESCENDANTS = "\u25C7";
+function holdsBlocks(v) {
+  if (Array.isArray(v)) return v.some(holdsBlocks);
+  if (v === null || typeof v !== "object") return false;
+  if (typeof v.type === "string") return true;
+  return Object.values(v).some(holdsBlocks);
+}
+function canonicalize(v, root) {
+  if (!root && holdsBlocks(v)) return DESCENDANTS;
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map((e) => canonicalize(e, false)).join(",")}]`;
+  const o = v;
+  const positional = typeof o.type === "string" && typeof o.path === "string" && POSITIONAL_PATH.test(o.path);
+  const keys = Object.keys(o).filter((k) => !(positional && k === "path" || root && PRESENTATION_KEYS.has(k))).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(o[k], false)}`).join(",")}}`;
+}
+function identityOf(block) {
+  const json = canonicalize(block, true);
+  let h = 2166136261;
+  for (let i = 0; i < json.length; i++) {
+    h ^= json.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h.toString(16);
+}
+var freshSeq = 0;
+var mintOf = (b) => `${identityOf(b)}:~${freshSeq += 1}`;
+var mounted = /* @__PURE__ */ new WeakMap();
+var carried = /* @__PURE__ */ new WeakMap();
+function noteMounted(block, key) {
+  mounted.set(block, key);
+}
+function carriedKey(block) {
+  return carried.get(block);
+}
+function mintKey(block) {
+  return mintOf(block);
+}
+function existingKey(obj) {
+  return carried.get(obj) ?? mounted.get(obj) ?? mintOf(obj);
+}
+var isBlock = (v) => typeof v === "object" && v !== null && !Array.isArray(v) && typeof v.type === "string";
+function overlap(a, b) {
+  const pool = /* @__PURE__ */ new Map();
+  for (const x of a) pool.set(x, (pool.get(x) ?? 0) + 1);
+  let n = 0;
+  for (const y of b) {
+    const c = pool.get(y) ?? 0;
+    if (c > 0) {
+      pool.set(y, c - 1);
+      n += 1;
+    }
+  }
+  return n;
+}
+function signatures(obj) {
+  const exact = [];
+  const kinds = [];
+  const walkKinds = (v) => {
+    if (Array.isArray(v)) {
+      v.forEach(walkKinds);
+      return;
+    }
+    if (v === null || typeof v !== "object") return;
+    const t = v.type;
+    if (typeof t === "string") {
+      kinds.push(t);
+      return;
+    }
+    Object.values(v).forEach(walkKinds);
+  };
+  for (const value of Object.values(obj)) {
+    if (!holdsBlocks(value)) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (isBlock(item)) exact.push(identityOf(item));
+      }
+    }
+    walkKinds(value);
+  }
+  return { exact, kinds };
+}
+function carryBlocks(prev, next) {
+  carryList(prev ?? [], next);
+}
+function carryList(prev, next) {
+  const cands = [];
+  const nextSig = next.map((b) => signatures(b));
+  const prevSig = prev.map((b) => signatures(b));
+  for (let n = 0; n < next.length; n++) {
+    if (!holdsOwnIdentity(next[n])) continue;
+    for (let p = 0; p < prev.length; p++) {
+      if (!holdsOwnIdentity(prev[p]) || identityOf(prev[p]) !== identityOf(next[n])) continue;
+      const score = 2 * overlap(nextSig[n].exact, prevSig[p].exact) + overlap(nextSig[n].kinds, prevSig[p].kinds);
+      cands.push({ n, p, score });
+    }
+  }
+  cands.sort((a, b) => b.score - a.score || Math.abs(a.n - a.p) - Math.abs(b.n - b.p) || a.p - b.p || a.n - b.n);
+  const pairOf = /* @__PURE__ */ new Map();
+  const prevTaken = /* @__PURE__ */ new Set();
+  for (const c of cands) {
+    if (pairOf.has(c.n) || prevTaken.has(c.p)) continue;
+    pairOf.set(c.n, c.p);
+    prevTaken.add(c.p);
+  }
+  const assigned = /* @__PURE__ */ new Set();
+  for (let n = 0; n < next.length; n++) {
+    const item = next[n];
+    if (typeof item !== "object" || item === null) continue;
+    const p = pairOf.get(n);
+    let key = p === void 0 ? void 0 : existingKey(prev[p]);
+    if (key !== void 0 && assigned.has(key)) key = void 0;
+    if (key === void 0) key = mintOf(item);
+    else if (p !== void 0) carriedFrom.set(item, prev[p]);
+    assigned.add(key);
+    carried.set(item, key);
+  }
+  for (let n = 0; n < next.length; n++) {
+    const p = pairOf.get(n);
+    carryFields(p === void 0 ? null : prev[p], next[n]);
+  }
+}
+function holdsOwnIdentity(v) {
+  return isBlock(v) || isHolderWithBlocks(v);
+}
+function carryFields(pv, nv) {
+  if (typeof nv !== "object" || nv === null) return;
+  const po = typeof pv === "object" && pv !== null && !Array.isArray(pv) ? pv : {};
+  for (const [k, value] of Object.entries(nv)) {
+    if (!holdsBlocks(value)) continue;
+    const before = po[k];
+    if (Array.isArray(value)) {
+      carryList(Array.isArray(before) ? before : [], value);
+    } else if (isBlock(value)) {
+      carryList(before !== void 0 && holdsBlocks(before) ? [before] : [], [value]);
+    } else {
+      carryFields(isHolderWithBlocks(before) ? before : null, value);
+    }
+  }
+}
+function isHolderWithBlocks(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && holdsBlocks(v);
+}
+function kkey(slot) {
+  return `k:${slot}`;
+}
+function eachSlot(root, visit, prefix = "") {
+  slotList(root, visit, prefix);
+}
+function slotList(list, visit, prefix) {
+  const seen = /* @__PURE__ */ new Map();
+  for (const item of list) {
+    if (typeof item !== "object" || item === null) continue;
+    const id = identityOf(item);
+    const n = seen.get(id) ?? 0;
+    seen.set(id, n + 1);
+    const flat = `${id}:${n}`;
+    const full = prefix === "" ? flat : `${prefix}/${flat}`;
+    const block = isBlock(item);
+    if (block) visit(item, full, flat);
+    slotDescend(item, visit, block ? full : prefix);
+  }
+}
+function slotDescend(block, visit, full) {
+  if (typeof block !== "object" || block === null) return;
+  for (const value of Object.values(block)) slotValue(value, visit, full);
+}
+function slotValue(value, visit, full) {
+  if (!holdsBlocks(value)) return;
+  if (Array.isArray(value)) {
+    slotList(value, visit, full);
+    return;
+  }
+  if (isBlock(value)) {
+    slotList([value], visit, full);
+    return;
+  }
+  slotDescend(value, visit, full);
+}
+var carriedFrom = /* @__PURE__ */ new WeakMap();
+function carrySource(block) {
+  return carriedFrom.get(block);
+}
+
+// src/blocks/checklist/savedState.ts
+var boards = /* @__PURE__ */ new Map();
+var living = /* @__PURE__ */ new Set();
+var migratedWalk = /* @__PURE__ */ new Map();
+var stored = /* @__PURE__ */ new Map();
+var queued = /* @__PURE__ */ new Map();
+var timers = /* @__PURE__ */ new Map();
+var DOOR_DELAY = 150;
+function stateIn(answer) {
+  const state = answer?.state;
+  if (state && typeof state === "object" && !Array.isArray(state)) return { ...state };
+  return {};
+}
+function loadBoardState(rest, blockId) {
+  const known = boards.get(blockId);
+  if (known) return known.loaded;
+  const board = { state: {}, loaded: Promise.resolve({}), saving: Promise.resolve(), ready: false };
+  board.loaded = rest(`/blocks/${blockId}/state`).then(
+    (answer) => {
+      Object.assign(board.state, stateIn(answer));
+      board.ready = true;
+      return board.state;
+    },
+    () => {
+      boards.delete(blockId);
+      return {};
+    }
+  );
+  boards.set(blockId, board);
+  return board.loaded;
+}
+function peekState(blockId) {
+  const board = boards.get(blockId);
+  return board !== void 0 && board.ready ? board.state : null;
+}
+async function saveBoardValue(rest, blockId, key, value) {
+  await loadBoardState(rest, blockId);
+  const board = boards.get(blockId);
+  if (!board) return;
+  board.state[key] = value;
+  const snapshot = { ...board.state };
+  board.saving = board.saving.then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } })).then(() => {
+  }, () => {
+  });
+  await board.saving;
+}
+function markLiving(blockId) {
+  living.add(blockId);
+}
+function isLiving(blockId) {
+  return living.has(blockId);
+}
+function seedValue(state, key) {
+  return state[key];
+}
+function peekStored(blockId, cacheKey) {
+  const key = `${blockId}\0${cacheKey}`;
+  return stored.has(key) ? { value: stored.get(key) } : void 0;
+}
+function recordValue(rest, blockId, cacheKey, doorKey, value, door) {
+  if (cacheKey !== null) stored.set(`${blockId}\0${cacheKey}`, value);
+  const state = peekState(blockId);
+  if (state !== null && door !== "never") state[doorKey] = value;
+  if (!rest || door === "never") return;
+  if (door === "now") {
+    void saveBoardValue(rest, blockId, doorKey, value);
+    return;
+  }
+  const key = `${blockId}\0${doorKey}`;
+  queued.set(key, { rest, value });
+  if (!timers.has(key)) {
+    timers.set(key, setTimeout(() => {
+      timers.delete(key);
+      const pending = queued.get(key);
+      if (pending !== void 0) {
+        queued.delete(key);
+        const at2 = key.indexOf("\0");
+        void saveBoardValue(pending.rest, key.slice(0, at2), key.slice(at2 + 1), pending.value);
+      }
+    }, DOOR_DELAY));
+  }
+}
+function forgetBlock(blockId) {
+  const prefix = `${blockId}\0`;
+  for (const [key, item] of [...queued]) {
+    if (!key.startsWith(prefix)) continue;
+    queued.delete(key);
+    const timer = timers.get(key);
+    if (timer !== void 0) clearTimeout(timer);
+    timers.delete(key);
+    void saveBoardValue(item.rest, blockId, key.slice(prefix.length), item.value);
+  }
+  living.delete(blockId);
+  migratedWalk.delete(blockId);
+}
+function trailsFrom(prev, next) {
+  const trails = /* @__PURE__ */ new Map();
+  if (prev === null) return trails;
+  const prevFull = /* @__PURE__ */ new Map();
+  const prevFlat = /* @__PURE__ */ new Map();
+  eachSlot(prev, (block, full, flat) => {
+    prevFull.set(block, full);
+    const position = block.path;
+    const seen = prevFlat.get(flat);
+    if (seen === void 0) {
+      prevFlat.set(flat, { from: full, position: typeof position === "string" ? position : void 0, count: 1 });
+    } else {
+      seen.count += 1;
+    }
+  });
+  eachSlot(next, (block, full, flat) => {
+    const src = carrySource(block);
+    if (src !== void 0) {
+      const was = prevFull.get(src);
+      if (was !== void 0) {
+        const position = src.path;
+        trails.set(block, { from: was, position: typeof position === "string" ? position : void 0 });
+      }
+      return;
+    }
+    const cand = prevFlat.get(flat);
+    if (cand !== void 0 && cand.count === 1 && cand.from !== full) {
+      trails.set(block, { from: cand.from, position: cand.position });
+    }
+  });
+  return trails;
+}
+async function promoteOnUpdate(rest, blockId, prev, next) {
+  living.add(blockId);
+  const trails = trailsFrom(prev, next);
+  eachSlot(next, (block, full) => {
+    const came = trails.get(block);
+    if (came === void 0 || came.from === full) return;
+    const from = `${blockId}\0${came.from}`;
+    for (const [key, value] of [...stored]) {
+      if (!key.startsWith(from)) continue;
+      const suffix = key.slice(from.length);
+      if (suffix !== "" && suffix[0] !== "/" && suffix[0] !== "~") continue;
+      const target = `${blockId}\0${full}${suffix}`;
+      if (!stored.has(target)) stored.set(target, value);
+    }
+  });
+  if (rest === void 0) return;
+  const board = boards.get(blockId);
+  if (board !== void 0 && board.ready) {
+    fileDoor(board, blockId, rest, next, trails);
+    return;
+  }
+  await loadBoardState(rest, blockId);
+  const now = boards.get(blockId);
+  if (now !== void 0) fileDoor(now, blockId, rest, next, trails);
+}
+function fileDoor(board, blockId, rest, next, trails) {
+  const state = board.state;
+  const claimed = /* @__PURE__ */ new Set();
+  let dirty = false;
+  const prefix = `${blockId}\0`;
+  for (const [key, value] of stored) {
+    if (!key.startsWith(prefix)) continue;
+    const dk = kkey(key.slice(prefix.length));
+    if (state[dk] === void 0) {
+      state[dk] = value;
+      dirty = true;
+    }
+  }
+  eachSlot(next, (block, full) => {
+    const key = kkey(full);
+    if (state[key] !== void 0) return;
+    const came = trails.get(block);
+    if (came === void 0) return;
+    const moved = came.from === full ? void 0 : state[kkey(came.from)];
+    if (moved !== void 0) {
+      state[key] = moved;
+      dirty = true;
+      return;
+    }
+    if (came.position !== void 0 && state[came.position] !== void 0 && !claimed.has(came.position)) {
+      state[key] = state[came.position];
+      claimed.add(came.position);
+      dirty = true;
+    }
+  });
+  if (!dirty) return;
+  const snapshot = { ...state };
+  board.saving = board.saving.then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } })).then(() => {
+  }, () => {
+  });
+}
+var POSITION_KEY = /^\d+(?:\.[A-Za-z_]+(?:\.\d+)*)*$/;
+function splitKKey(key) {
+  const slot = key.slice(2);
+  const tilde = slot.indexOf("~");
+  return tilde < 0 ? { chain: slot, field: "" } : { chain: slot.slice(0, tilde), field: slot.slice(tilde) };
+}
+async function migrateArchived(rest, blockId, loadVersion, next, version2) {
+  living.add(blockId);
+  if (rest === void 0 || version2 < 2) return;
+  if ((migratedWalk.get(blockId) ?? 0) >= version2) return;
+  migratedWalk.set(blockId, version2);
+  await loadBoardState(rest, blockId);
+  const board = boards.get(blockId);
+  if (board === void 0 || !board.ready) return;
+  const state = board.state;
+  const here = /* @__PURE__ */ new Set();
+  eachSlot(next, (_block, full) => here.add(full));
+  const orphans = [];
+  for (const key of Object.keys(state)) {
+    if (POSITION_KEY.test(key)) {
+      orphans.push(key);
+    } else if (key.startsWith("k:")) {
+      if (!here.has(splitKKey(key).chain)) orphans.push(key);
+    }
+  }
+  if (orphans.length === 0) return;
+  const specs = /* @__PURE__ */ new Map([[version2, next]]);
+  const specOf = async (v) => {
+    if (!specs.has(v)) {
+      let read = null;
+      try {
+        const answer = await loadVersion(v);
+        if (answer !== null && answer.length > 0) read = answer;
+      } catch {
+        read = null;
+      }
+      specs.set(v, read);
+    }
+    return specs.get(v) ?? null;
+  };
+  const chainsAt = async (v) => {
+    const spec = await specOf(v);
+    if (spec === null) return null;
+    const set = /* @__PURE__ */ new Set();
+    eachSlot(spec, (_block, full) => set.add(full));
+    return set;
+  };
+  const stepMap = async (from, to) => {
+    const prev = await specOf(from);
+    const nx = await specOf(to);
+    if (prev === null || nx === null) return null;
+    const trails = trailsFrom(prev, nx);
+    const map = /* @__PURE__ */ new Map();
+    eachSlot(nx, (block, full) => {
+      const came = trails.get(block);
+      if (came !== void 0) map.set(came.from, full);
+    });
+    return map;
+  };
+  let position1;
+  const positionsOfV1 = async () => {
+    if (position1 === void 0) {
+      const spec = await specOf(1);
+      position1 = spec === null ? null : (() => {
+        const map = /* @__PURE__ */ new Map();
+        eachSlot(spec, (block, full) => {
+          const at2 = block.path;
+          if (typeof at2 === "string") map.set(at2, full);
+        });
+        return map;
+      })();
+    }
+    return position1;
+  };
+  let dirty = false;
+  for (const key of orphans) {
+    const value = state[key];
+    let chain;
+    let field = "";
+    let origin;
+    if (key.startsWith("k:")) {
+      const parts = splitKKey(key);
+      chain = parts.chain;
+      field = parts.field;
+      origin = -1;
+      for (let v = version2 - 1; v >= 1; v--) {
+        const at2 = await chainsAt(v);
+        if (at2 !== null && at2.has(chain)) {
+          origin = v;
+          break;
+        }
+      }
+      if (origin < 0) continue;
+    } else {
+      const slots = await positionsOfV1();
+      if (slots === null) continue;
+      const from = slots.get(key);
+      if (from === void 0) continue;
+      chain = from;
+      origin = 1;
+    }
+    let cur = chain;
+    let lost = false;
+    for (let v = origin + 1; v <= version2; v++) {
+      const at2 = await chainsAt(v);
+      if (at2 === null) {
+        lost = true;
+        break;
+      }
+      if (at2.has(cur)) continue;
+      const moved = (await stepMap(v - 1, v))?.get(cur);
+      if (moved === void 0) {
+        lost = true;
+        break;
+      }
+      cur = moved;
+    }
+    if (lost || !here.has(cur)) continue;
+    const target = kkey(cur + field);
+    if (state[target] === void 0) {
+      state[target] = value;
+      dirty = true;
+    }
+  }
+  if (!dirty) return;
+  const snapshot = { ...state };
+  board.saving = board.saving.then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } })).then(() => {
+  }, () => {
+  });
+}
+function toggleTick(ticks, i) {
+  if (ticks.includes(i)) return ticks.filter((t) => t !== i);
+  return [...ticks, i].sort((a, b) => a - b);
+}
+function readTicks(saved, count) {
+  if (!Array.isArray(saved)) return null;
+  const ticks = /* @__PURE__ */ new Set();
+  for (const t of saved) {
+    if (Number.isInteger(t) && t >= 0 && t < count) ticks.add(t);
+  }
+  return [...ticks].sort((a, b) => a - b);
+}
+
+// src/core/blockState.ts
+var BlockSlot = createContext3(null);
+function useStoredValue(spec) {
+  const { rest, blockId } = useContext3(BlockActions);
+  const chain = useContext3(BlockSlot);
+  const living2 = blockId !== void 0 && chain !== null && isLiving(blockId);
+  const idKey = chain === null ? null : `${chain}${spec.field ?? ""}`;
+  const legacy = `${spec.path ?? ""}${spec.field ?? ""}`;
+  const transient = spec.door === "identity";
+  const byIdentity = transient ? idKey !== null : living2 && idKey !== null;
+  const doorKey = byIdentity && idKey !== null ? kkey(idKey) : legacy;
+  const touched = useRef(false);
+  const [value, setValue] = useState3(() => {
+    if (blockId === void 0 || idKey === null) return spec.initial();
+    if (!byIdentity) return spec.initial();
+    const held = peekStored(blockId, idKey);
+    if (held === void 0) return spec.initial();
+    return spec.revive(held.value) ?? spec.initial();
+  });
+  useEffect(() => {
+    if (!rest || blockId === void 0) return;
+    if (transient && idKey === null) return;
+    let live = true;
+    void loadBoardState(rest, blockId).then((state) => {
+      if (!live || touched.current || (spec.skip?.() ?? false)) return;
+      const saved = seedValue(state, doorKey);
+      if (saved === void 0) return;
+      const revived = spec.revive(saved);
+      if (revived !== null) setValue(revived);
+    });
+    return () => {
+      live = false;
+    };
+  }, [rest, blockId, doorKey, living2]);
+  const commit = (next, isTouched = true) => {
+    if (isTouched) touched.current = true;
+    setValue(next);
+    if (blockId === void 0) return;
+    if (!isTouched) return;
+    if (transient && idKey === null) return;
+    const door = !rest ? "never" : spec.door === "always" ? "now" : "coalesce";
+    recordValue(rest, blockId, idKey, doorKey, spec.stored(next), door);
+  };
+  return [value, commit];
+}
 
 // src/blocks/chart/geometry.ts
 function textWidth(text, size = 11) {
@@ -1108,7 +1682,7 @@ function tryParse(formula) {
 }
 
 // src/blocks/chart/Chart.tsx
-import { useId, useMemo as useMemo2, useRef as useRef5, useState as useState7 } from "react";
+import { useId, useMemo as useMemo2, useRef as useRef6, useState as useState8 } from "react";
 
 // src/blocks/chart/layout.ts
 var COLUMNS_H = 210;
@@ -1282,10 +1856,10 @@ function tipNote(spec, i) {
 }
 
 // src/blocks/chart/useWidth.ts
-import { useLayoutEffect, useState as useState3 } from "react";
+import { useLayoutEffect, useState as useState4 } from "react";
 var UNMEASURED_WIDTH = 560;
 function useWidth(ref) {
-  const [width, setWidth] = useState3(0);
+  const [width, setWidth] = useState4(0);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -1330,7 +1904,7 @@ function pickKeys(n, at2, pick2, rows2 = false, activate) {
 }
 
 // src/blocks/chart/ChartTip.tsx
-import { useLayoutEffect as useLayoutEffect2, useRef, useState as useState4 } from "react";
+import { useLayoutEffect as useLayoutEffect2, useRef as useRef2, useState as useState5 } from "react";
 import { Fragment as Fragment2, jsx as jsx6, jsxs as jsxs3 } from "react/jsx-runtime";
 var GAP = 12;
 function tipPlace(x, y, tipWidth, tipHeight, boxWidth) {
@@ -1341,8 +1915,8 @@ function tipPlace(x, y, tipWidth, tipHeight, boxWidth) {
   return { left, top };
 }
 function ChartTip({ tip }) {
-  const card = useRef(null);
-  const [kept, setKept] = useState4(tip);
+  const card = useRef2(null);
+  const [kept, setKept] = useState5(tip);
   if (tip && tip !== kept) setKept(tip);
   const shown = tip ?? kept;
   useLayoutEffect2(() => {
@@ -1365,7 +1939,7 @@ function ChartTip({ tip }) {
 }
 
 // src/blocks/chart/ChartDetail.tsx
-import { useEffect, useRef as useRef2 } from "react";
+import { useEffect as useEffect2, useRef as useRef3 } from "react";
 
 // src/core/overlays.ts
 var seq = 0;
@@ -1397,14 +1971,14 @@ var KIND_WORDS = {
   histogram: "Bin"
 };
 function ChartDetail({ detail, onClose }) {
-  const close = useRef2(null);
-  const layer = useRef2(0);
-  useEffect(() => {
+  const close = useRef3(null);
+  const layer = useRef3(0);
+  useEffect2(() => {
     const id = pushLayer();
     layer.current = id;
     return () => popLayer(id);
   }, []);
-  useEffect(() => {
+  useEffect2(() => {
     close.current?.focus();
     const onKey = (e) => {
       if (e.key === "Escape") {
@@ -1693,7 +2267,7 @@ function ScatterMarks({ spec, layout, hover }) {
 }
 
 // src/blocks/chart/HBarChart.tsx
-import { Fragment as Fragment3, useRef as useRef3, useState as useState5 } from "react";
+import { Fragment as Fragment3, useRef as useRef4, useState as useState6 } from "react";
 
 // src/blocks/chart/hbarLayout.ts
 function hbarSpan(spec) {
@@ -1711,12 +2285,12 @@ function hbarBarOf(v, span, zeroAt) {
 // src/blocks/chart/HBarChart.tsx
 import { Fragment as Fragment4, jsx as jsx13, jsxs as jsxs10 } from "react/jsx-runtime";
 function HBarChart({ spec }) {
-  const [tip, setTip] = useState5(null);
-  const [picked, setPicked] = useState5(null);
-  const [drill, setDrill] = useState5(null);
-  const box = useRef3(null);
-  const grid = useRef3(null);
-  const tracks = useRef3([]);
+  const [tip, setTip] = useState6(null);
+  const [picked, setPicked] = useState6(null);
+  const [drill, setDrill] = useState6(null);
+  const box = useRef4(null);
+  const grid = useRef4(null);
+  const tracks = useRef4([]);
   const { lo, span, zeroAt } = hbarSpan(spec);
   const single = spec.series.length === 1;
   const signed = lo < 0;
@@ -1817,7 +2391,7 @@ function HBarChart({ spec }) {
 }
 
 // src/blocks/chart/PieChart.tsx
-import { useRef as useRef4, useState as useState6 } from "react";
+import { useRef as useRef5, useState as useState7 } from "react";
 import { Fragment as Fragment5, jsx as jsx14, jsxs as jsxs11 } from "react/jsx-runtime";
 var BOX = 168;
 var C = BOX / 2;
@@ -1846,10 +2420,10 @@ function sliceColour(label, i) {
   return partColour(i);
 }
 function PieChart({ spec }) {
-  const [picked, setPicked] = useState6(null);
-  const [tip, setTip] = useState6(null);
-  const [drill, setDrill] = useState6(null);
-  const svg = useRef4(null);
+  const [picked, setPicked] = useState7(null);
+  const [tip, setTip] = useState7(null);
+  const [drill, setDrill] = useState7(null);
+  const svg = useRef5(null);
   const values = spec.series[0].data;
   const total = values.reduce((sum, v) => sum + v, 0);
   const unit = spec.series[0].unit ?? spec.unit;
@@ -1968,12 +2542,12 @@ function Chart({ spec }) {
   return /* @__PURE__ */ jsx15(XYChart, { spec });
 }
 function XYChart({ spec }) {
-  const plot = useRef5(null);
-  const svg = useRef5(null);
+  const plot = useRef6(null);
+  const svg = useRef6(null);
   const width = useWidth(plot);
-  const [hover, setHover] = useState7(null);
-  const [drill, setDrill] = useState7(null);
-  const down = useRef5(null);
+  const [hover, setHover] = useState8(null);
+  const [drill, setDrill] = useState8(null);
+  const down = useRef6(null);
   const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const n = spec.x.length;
   const piled = spec.type === "stacked" || spec.type === "area";
@@ -1988,7 +2562,7 @@ function XYChart({ spec }) {
     }
     return by;
   }, [spec, layout]);
-  const cycle = useRef5(null);
+  const cycle = useRef6(null);
   function pickAt(e) {
     const r = svg.current?.getBoundingClientRect();
     if (!r || !r.width) return;
@@ -2112,7 +2686,7 @@ function Headline({ spec, hover }) {
   const shown = hover ?? lastIndex(spec);
   const big = piled ? totalAt(spec.series, shown) : spec.type === "histogram" && hover === null ? totalOf(spec.series[0].data) : spec.series[0].data[shown] ?? null;
   const bigUnit = piled ? spec.unit : spec.series[0].unit ?? spec.unit;
-  const listed = piled ? [] : spec.series.slice(1);
+  const listed2 = piled ? [] : spec.series.slice(1);
   const withFigure = spec.figure !== false;
   return /* @__PURE__ */ jsxs12(Fragment6, { children: [
     /* @__PURE__ */ jsxs12("figcaption", { className: "hb-chart-head", children: [
@@ -2128,7 +2702,7 @@ function Headline({ spec, hover }) {
       /* @__PURE__ */ jsx15("span", { className: "hb-chart-big", children: big === null ? "\u2013" : fmt(big, bigUnit) }),
       /* @__PURE__ */ jsxs12("span", { className: "hb-chart-at", children: [
         hover !== null ? spec.x[shown] : "",
-        listed.map((s, k) => {
+        listed2.map((s, k) => {
           const v = s.data[shown] ?? null;
           return v === null ? null : /* @__PURE__ */ jsxs12("span", { className: "hb-chart-other", children: [
             s.name ? `${s.name} ` : "",
@@ -2148,8 +2722,22 @@ function XLabels({ spec, layout }) {
 // src/blocks/calculator/Calculator.tsx
 import { jsx as jsx16, jsxs as jsxs13 } from "react/jsx-runtime";
 function Calculator({ title, inputs, outputs, chart }) {
-  const [values, setValues] = useState8(() => new Map(inputs.map((x) => [x.id, x.value])));
-  const move = (id, v) => setValues((all) => new Map(all).set(id, v));
+  const [answers, write] = useStoredValue({
+    door: "identity",
+    initial: () => Object.fromEntries(inputs.map((x) => [x.id, x.value])),
+    revive: (saved) => {
+      if (!saved || typeof saved !== "object" || Array.isArray(saved)) return null;
+      const known = new Set(inputs.map((x) => x.id));
+      const out = {};
+      for (const [id, v] of Object.entries(saved)) {
+        if (known.has(id) && typeof v === "number" && isFinite(v)) out[id] = v;
+      }
+      return out;
+    },
+    stored: (value) => value
+  });
+  const values = useMemo3(() => new Map(inputs.map((x) => [x.id, answers[x.id] ?? x.value])), [inputs, answers]);
+  const move = (id, v) => write({ ...answers, [id]: v });
   const spec = useMemo3(() => chart ? calcChartSpec(chart, values) : null, [chart, values]);
   return /* @__PURE__ */ jsxs13("div", { className: "hb-card hb-calc", children: [
     title && /* @__PURE__ */ jsx16("div", { className: "hb-card-title", children: /* @__PURE__ */ jsx16(InlineText, { text: title }) }),
@@ -2352,61 +2940,6 @@ function readSeries(s, k, type, chartUnit) {
 }
 
 // src/blocks/checklist/Checklist.tsx
-import { useContext as useContext3, useEffect as useEffect2, useRef as useRef6, useState as useState9 } from "react";
-
-// src/blocks/checklist/savedState.ts
-var boards = /* @__PURE__ */ new Map();
-function stateIn(answer) {
-  const state = answer?.state;
-  if (state && typeof state === "object" && !Array.isArray(state)) return { ...state };
-  return {};
-}
-function loadBoardState(rest, blockId) {
-  const known = boards.get(blockId);
-  if (known) return known.loaded;
-  const board = { state: {}, loaded: Promise.resolve({}), saving: Promise.resolve() };
-  board.loaded = rest(`/blocks/${blockId}/state`).then(
-    (answer) => {
-      board.state = stateIn(answer);
-      return board.state;
-    },
-    () => {
-      boards.delete(blockId);
-      return {};
-    }
-  );
-  boards.set(blockId, board);
-  return board.loaded;
-}
-async function saveBoardValue(rest, blockId, key, value) {
-  await loadBoardState(rest, blockId);
-  const board = boards.get(blockId);
-  if (!board) return;
-  board.state = { ...board.state, [key]: value };
-  const state = board.state;
-  board.saving = board.saving.then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state } })).then(() => {
-  }, () => {
-  });
-  await board.saving;
-}
-function toggleTick(ticks, i) {
-  if (ticks.includes(i)) return ticks.filter((t) => t !== i);
-  return [...ticks, i].sort((a, b) => a - b);
-}
-function readTicks(saved, count) {
-  if (!Array.isArray(saved)) return null;
-  const ticks = /* @__PURE__ */ new Set();
-  for (const t of saved) {
-    if (Number.isInteger(t) && t >= 0 && t < count) ticks.add(t);
-  }
-  return [...ticks].sort((a, b) => a - b);
-}
-function ticksAfterLoad(saved, onScreen, tapped) {
-  if (tapped) return onScreen;
-  return saved ?? onScreen;
-}
-
-// src/blocks/checklist/Checklist.tsx
 import { jsx as jsx18, jsxs as jsxs15 } from "react/jsx-runtime";
 function Checklist({ title, numbered, items, ticked, path }) {
   const [ticks, tap] = useSavedTicks(path, ticked, items.length);
@@ -2443,29 +2976,14 @@ function startsGroup(items, i) {
   return items[i - 1]?.group !== group;
 }
 function useSavedTicks(path, ticked, count) {
-  const { rest, blockId } = useContext3(BlockActions);
-  const [ticks, setTicks] = useState9(ticked);
-  const shown = useRef6(ticked);
-  const tapped = useRef6(false);
-  shown.current = ticks;
-  useEffect2(() => {
-    if (!rest || !blockId) return;
-    let live = true;
-    loadBoardState(rest, blockId).then((state) => {
-      if (live) setTicks(ticksAfterLoad(readTicks(state[path], count), shown.current, tapped.current));
-    });
-    return () => {
-      live = false;
-    };
-  }, [rest, blockId, path, count]);
-  function tap(i) {
-    tapped.current = true;
-    const next = toggleTick(shown.current, i);
-    shown.current = next;
-    setTicks(next);
-    if (rest && blockId) void saveBoardValue(rest, blockId, path, next);
-  }
-  return [ticks, tap];
+  const [ticks, setTicks] = useStoredValue({
+    path,
+    door: "always",
+    initial: () => ticked,
+    revive: (saved) => readTicks(saved, count),
+    stored: (value) => value
+  });
+  return [ticks, (i) => setTicks(toggleTick(ticks, i))];
 }
 
 // src/blocks/checklist/read.ts
@@ -2518,7 +3036,7 @@ function readItem(item, groupLabel) {
 }
 
 // src/blocks/flip/Flip.tsx
-import { useState as useState10 } from "react";
+import { useState as useState9 } from "react";
 
 // src/blocks/flip/columns.ts
 function flipColumns(cards) {
@@ -2530,7 +3048,7 @@ function flipColumns(cards) {
 // src/blocks/flip/Flip.tsx
 import { jsx as jsx19, jsxs as jsxs16 } from "react/jsx-runtime";
 function Flip({ title, cards }) {
-  const [turned, setTurned] = useState10(() => cards.map(() => false));
+  const [turned, setTurned] = useState9(() => cards.map(() => false));
   const toggle = (i) => setTurned((was) => was.map((t, k) => k === i ? !t : t));
   const tall = cards.some((c) => c.image);
   return /* @__PURE__ */ jsxs16("div", { className: "hb-flip", children: [
@@ -2546,7 +3064,7 @@ function Flip({ title, cards }) {
   ] });
 }
 function Card({ card, place, turned, onTurn }) {
-  const [photoFailed, setPhotoFailed] = useState10(false);
+  const [photoFailed, setPhotoFailed] = useState9(false);
   const photo = card.image && !photoFailed ? card.image : void 0;
   const label = turned ? `${card.front}: ${card.back}` : `${card.front}, tap to see the answer`;
   return /* @__PURE__ */ jsx19("button", { type: "button", className: "hb-flip-card", onClick: onTurn, "aria-pressed": turned, "aria-label": label, children: /* @__PURE__ */ jsxs16("span", { className: turned ? "hb-flip-inner hb-flip-turned" : "hb-flip-inner", children: [
@@ -2586,11 +3104,11 @@ function readFlip(raw, here) {
 }
 
 // src/blocks/flow/Flow.tsx
-import { Fragment as Fragment7, useId as useId2, useLayoutEffect as useLayoutEffect3, useMemo as useMemo4, useRef as useRef7, useState as useState11 } from "react";
+import { Fragment as Fragment7, useId as useId2, useLayoutEffect as useLayoutEffect3, useMemo as useMemo4, useRef as useRef7, useState as useState10 } from "react";
 
 // src/lib/motion.ts
-import { createContext as createContext3, useContext as useContext4 } from "react";
-var MotionScope = createContext3("full");
+import { createContext as createContext4, useContext as useContext4 } from "react";
+var MotionScope = createContext4("full");
 function lessMotion() {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -2684,7 +3202,7 @@ function Flow({ id, title, direction, nodes, groups = [] }) {
   const packet = useRef7(null);
   const boxes = useRef7([]);
   const width = useWidth(box);
-  const [open, setOpen] = useState11(null);
+  const [open, setOpen] = useState10(null);
   const walk = useWalk(id);
   const steps = walk?.steps ?? NO_STEPS;
   const target = useMemo4(() => flowState(nodes, groups, steps, walk?.at ?? 0), [nodes, groups, steps, walk?.at]);
@@ -2741,7 +3259,7 @@ function Counter({ layer, count }) {
   return /* @__PURE__ */ jsx20("span", { className: "hb-chip hb-chip-soft hb-flow-count", children: layer ? `layer ${layer} of ${count}` : `\xD7 ${count}` });
 }
 function useTravel(walk, nodes, groups, target, packet, boxes, frame) {
-  const [travelling, setTravelling] = useState11(null);
+  const [travelling, setTravelling] = useState10(null);
   const less = useLessMotion();
   useLayoutEffect3(() => {
     const step = walk && walk.from !== null && walk.at === walk.from + 1 ? walk.steps[walk.at] : void 0;
@@ -2921,7 +3439,7 @@ function readChips(raw, here) {
 }
 
 // src/blocks/form/Form.tsx
-import { useContext as useContext5, useEffect as useEffect3, useRef as useRef8, useState as useState12 } from "react";
+import { useContext as useContext5 } from "react";
 
 // src/blocks/form/read.ts
 var MAX_FIELDS = 12;
@@ -3115,6 +3633,17 @@ function readSent(saved, form) {
   }
   return values;
 }
+function draftFits(saved, form) {
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return null;
+  const given = saved;
+  const values = startingValues(form);
+  for (const field of form.fields) {
+    if (!Object.prototype.hasOwnProperty.call(given, field.id)) continue;
+    const kept = fitting(field, given[field.id]);
+    if (kept !== void 0) values[field.id] = kept;
+  }
+  return values;
+}
 function fitting(field, value) {
   if (field.kind === "slider") return typeof value === "number" && isFinite(value) ? onStep(value, field.min, field.max, field.step) : void 0;
   if (field.kind === "text") return typeof value === "string" && value.length <= TEXT_VALUE ? value : void 0;
@@ -3131,12 +3660,27 @@ function fitting(field, value) {
 import { jsx as jsx21, jsxs as jsxs18 } from "react/jsx-runtime";
 function Form(form) {
   const { send } = useContext5(BlockActions);
-  const [values, setValues] = useState12(() => startingValues(form));
-  const [sent, markSent] = useSentForm(form, setValues);
+  const [draft, writeDraft] = useStoredValue({
+    door: "identity",
+    field: "~v",
+    initial: () => startingValues(form),
+    revive: (saved) => draftFits(saved, form),
+    stored: (value) => value
+  });
+  const [record, setRecord] = useStoredValue({
+    path: form.path,
+    door: "always",
+    initial: () => null,
+    revive: (saved) => readSent(saved, form) !== null ? saved : null,
+    stored: (value) => value
+  });
+  const sent = record !== null;
+  const answers = record !== null ? readSent(record, form) : null;
+  const values = answers ?? draft;
   const ready = canSend(form, values, sent);
   function onSend() {
     if (!ready) return;
-    markSent(values);
+    setRecord(sentRecord(values));
     send(answerMessage(form, values));
   }
   return /* @__PURE__ */ jsxs18(
@@ -3152,7 +3696,14 @@ function Form(form) {
         form.title && /* @__PURE__ */ jsx21("div", { className: "hb-card-title", children: /* @__PURE__ */ jsx21(InlineText, { text: form.title }) }),
         /* @__PURE__ */ jsx21("fieldset", { disabled: sent, children: form.fields.map((field, i) => /* @__PURE__ */ jsxs18("div", { children: [
           startsGroup2(form.fields, i) && /* @__PURE__ */ jsx21("div", { className: "hb-form-group", children: /* @__PURE__ */ jsx21(InlineText, { text: field.group }) }),
-          /* @__PURE__ */ jsx21(FieldView, { field, value: values[field.id], onChange: (v) => setValues((all) => ({ ...all, [field.id]: v })) })
+          /* @__PURE__ */ jsx21(
+            FieldView,
+            {
+              field,
+              value: values[field.id],
+              onChange: (v) => writeDraft({ ...values, [field.id]: v })
+            }
+          )
         ] }, field.id)) }),
         /* @__PURE__ */ jsxs18("div", { className: "hb-form-foot", children: [
           sent && /* @__PURE__ */ jsx21("span", { className: "hb-form-done", children: "\u2713 Sent" }),
@@ -3161,33 +3712,6 @@ function Form(form) {
       ]
     }
   );
-}
-function useSentForm(form, setValues) {
-  const { rest, blockId } = useContext5(BlockActions);
-  const [sent, setSent] = useState12(false);
-  const sentHere = useRef8(false);
-  const latest = useRef8(form);
-  latest.current = form;
-  useEffect3(() => {
-    if (!rest || !blockId) return;
-    let live = true;
-    loadBoardState(rest, blockId).then((state) => {
-      if (!live || sentHere.current) return;
-      const answers = readSent(state[latest.current.path], latest.current);
-      if (!answers) return;
-      setValues(answers);
-      setSent(true);
-    });
-    return () => {
-      live = false;
-    };
-  }, [rest, blockId, form.path, setValues]);
-  function markSent(values) {
-    sentHere.current = true;
-    setSent(true);
-    if (rest && blockId) void saveBoardValue(rest, blockId, form.path, sentRecord(values));
-  }
-  return [sent, markSent];
 }
 function FieldView({ field, value, onChange }) {
   if (field.kind === "slider") {
@@ -3268,7 +3792,7 @@ function Pills({ field, value, onChange }) {
 }
 
 // src/blocks/heatmap/Heatmap.tsx
-import { Fragment as Fragment9, useState as useState13 } from "react";
+import { Fragment as Fragment9, useState as useState11 } from "react";
 
 // src/blocks/heatmap/heatmapColour.ts
 var FAINT = 10;
@@ -3314,7 +3838,7 @@ function cellText(value, unit) {
 import { jsx as jsx22, jsxs as jsxs19 } from "react/jsx-runtime";
 var SHOW_NUMBERS_UP_TO = 6;
 function Heatmap({ title, rows: rows2, cols, values, unit, scale }) {
-  const [picked, setPicked] = useState13(null);
+  const [picked, setPicked] = useState11(null);
   const range = rangeOf(values);
   const numbersInCells = cols.length <= SHOW_NUMBERS_UP_TO;
   return /* @__PURE__ */ jsxs19("div", { className: "hb-card hb-heatmap", children: [
@@ -3412,7 +3936,7 @@ function scaleOf(asked, values) {
 }
 
 // src/blocks/images/Images.tsx
-import { useEffect as useEffect4, useRef as useRef9, useState as useState14 } from "react";
+import { useEffect as useEffect3, useRef as useRef8, useState as useState12 } from "react";
 
 // src/blocks/images/localImage.ts
 var MAX_PATH = 500;
@@ -3449,13 +3973,13 @@ function readGeneratedImageDataUrl(path) {
 // src/blocks/images/Images.tsx
 import { jsx as jsx23, jsxs as jsxs20 } from "react/jsx-runtime";
 function Images({ block }) {
-  const [failed, setFailed] = useState14(/* @__PURE__ */ new Set());
-  const [dataUrls, setDataUrls] = useState14({});
-  const [open, setOpen] = useState14(null);
+  const [failed, setFailed] = useState12(/* @__PURE__ */ new Set());
+  const [dataUrls, setDataUrls] = useState12({});
+  const [open, setOpen] = useState12(null);
   const fail = (url) => setFailed((before) => new Set(before).add(url));
   const srcOf = (p) => isGeneratedImagePath(p.url) ? dataUrls[p.url] : p.url;
-  const asked = useRef9(/* @__PURE__ */ new Set());
-  useEffect4(() => {
+  const asked = useRef8(/* @__PURE__ */ new Set());
+  useEffect3(() => {
     for (const p of block.images) {
       if (!isGeneratedImagePath(p.url) || asked.current.has(p.url)) continue;
       asked.current.add(p.url);
@@ -3483,7 +4007,7 @@ function Images({ block }) {
   ] });
 }
 function Overlay({ shown, onClose }) {
-  useEffect4(() => {
+  useEffect3(() => {
     const layer = pushLayer();
     const onKey = (e) => {
       if (e.key !== "Escape" || !isTopLayer(layer)) return;
@@ -3621,20 +4145,24 @@ function readStat(raw, here) {
 }
 
 // src/blocks/layout/Containers.tsx
-import { useState as useState15 } from "react";
+import { isValidElement, useState as useState13 } from "react";
 import { jsx as jsx25, jsxs as jsxs22 } from "react/jsx-runtime";
+function cellKey(child, i) {
+  const k = isValidElement(child) ? child.key : null;
+  return `c:${k ?? i}`;
+}
 var OWN_WIDTH_KINDS = ["badge", "button", "link"];
 function Row({ kinds, children }) {
-  return /* @__PURE__ */ jsx25("div", { className: "hb-row", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: OWN_WIDTH_KINDS.includes(kinds[i]) ? "hb-row-cell hb-row-cell-own" : "hb-row-cell", children: child }, i)) });
+  return /* @__PURE__ */ jsx25("div", { className: "hb-row", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: OWN_WIDTH_KINDS.includes(kinds[i]) ? "hb-row-cell hb-row-cell-own" : "hb-row-cell", children: child }, cellKey(child, i))) });
 }
 function Grid({ children }) {
-  return /* @__PURE__ */ jsx25("div", { className: "hb-grid", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: "hb-grid-cell", children: child }, i)) });
+  return /* @__PURE__ */ jsx25("div", { className: "hb-grid", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: "hb-grid-cell", children: child }, cellKey(child, i))) });
 }
 function Columns({ children }) {
-  return /* @__PURE__ */ jsx25("div", { className: "hb-columns", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: "hb-column", children: child }, i)) });
+  return /* @__PURE__ */ jsx25("div", { className: "hb-columns", children: children.map((child, i) => /* @__PURE__ */ jsx25("div", { className: "hb-column", children: child }, cellKey(child, i))) });
 }
 function Section({ title, collapsed, children }) {
-  const [open, setOpen] = useState15(!collapsed);
+  const [open, setOpen] = useState13(!collapsed);
   if (!collapsed) {
     return /* @__PURE__ */ jsxs22("div", { className: "hb-card hb-section", children: [
       title && /* @__PURE__ */ jsx25("div", { className: "hb-card-title", children: /* @__PURE__ */ jsx25(InlineText, { text: title }) }),
@@ -3777,7 +4305,7 @@ function readTabChildren(list, here, depth, readChild) {
 }
 
 // src/blocks/layout/Tabs.tsx
-import { useId as useId3, useRef as useRef10, useState as useState16 } from "react";
+import { useId as useId3, useRef as useRef9 } from "react";
 import { jsx as jsx26, jsxs as jsxs23 } from "react/jsx-runtime";
 function tabAfterKey(current, count, key) {
   if (key === "ArrowRight") return (current + 1) % count;
@@ -3785,14 +4313,20 @@ function tabAfterKey(current, count, key) {
   return current;
 }
 function Tabs({ labels: labels2, panel }) {
-  const [picked, setPicked] = useState16(0);
-  const buttons = useRef10([]);
+  const [answer, pick2] = useStoredValue({
+    door: "identity",
+    initial: () => 0,
+    revive: (saved) => Number.isInteger(saved) && saved >= 0 ? saved : null,
+    stored: (value) => value
+  });
+  const picked = answer < labels2.length ? answer : 0;
+  const buttons = useRef9([]);
   const base = useId3().replace(/[^a-zA-Z0-9]/g, "");
   const onKey = (e) => {
     const next = tabAfterKey(picked, labels2.length, e.key);
     if (next === picked) return;
     e.preventDefault();
-    setPicked(next);
+    pick2(next);
     buttons.current[next]?.focus();
   };
   return /* @__PURE__ */ jsxs23("div", { className: "hb-tabs", children: [
@@ -3809,7 +4343,7 @@ function Tabs({ labels: labels2, panel }) {
         ref: (el) => {
           buttons.current[i] = el;
         },
-        onClick: () => setPicked(i),
+        onClick: () => pick2(i),
         children: /* @__PURE__ */ jsx26(InlineText, { text: label })
       },
       i
@@ -3819,7 +4353,7 @@ function Tabs({ labels: labels2, panel }) {
 }
 
 // src/blocks/list/List.tsx
-import { useContext as useContext6, useState as useState17 } from "react";
+import { useContext as useContext6, useState as useState14 } from "react";
 
 // src/blocks/list/rowAvatar.ts
 var AVATAR_COLOURS = [1, 3, 8, 4, 6];
@@ -3854,7 +4388,7 @@ function List({ title, ranked, items }) {
 }
 function ListRow({ item, rank }) {
   const { send } = useContext6(BlockActions);
-  const [photoFailed, setPhotoFailed] = useState17(false);
+  const [photoFailed, setPhotoFailed] = useState14(false);
   const lead = rowLead(item, rank !== null, photoFailed);
   const body = /* @__PURE__ */ jsxs24(Fragment10, { children: [
     rank !== null && /* @__PURE__ */ jsx27("span", { className: "hb-list-rank", children: rank }),
@@ -3897,10 +4431,10 @@ function Chevron() {
 }
 
 // src/blocks/layers/Layers.tsx
-import { useEffect as useEffect6, useRef as useRef11, useState as useState19 } from "react";
+import { useEffect as useEffect5, useRef as useRef10, useState as useState16 } from "react";
 
 // src/lib/canvas.ts
-import { useEffect as useEffect5, useState as useState18 } from "react";
+import { useEffect as useEffect4, useState as useState15 } from "react";
 function fitCanvas(canvas, height) {
   const ctx = canvas.getContext?.("2d");
   if (!ctx) return null;
@@ -3920,8 +4454,8 @@ function colourOf(el, token) {
   return colour;
 }
 function useTheme() {
-  const [version, setVersion] = useState18(0);
-  useEffect5(() => {
+  const [version2, setVersion] = useState15(0);
+  useEffect4(() => {
     const bump = () => setVersion((v) => v + 1);
     const watcher = typeof MutationObserver === "undefined" ? null : new MutationObserver(bump);
     watcher?.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] });
@@ -3932,7 +4466,7 @@ function useTheme() {
       scheme?.removeEventListener?.("change", bump);
     };
   }, []);
-  return version;
+  return version2;
 }
 
 // src/blocks/layers/geometry.ts
@@ -4004,18 +4538,18 @@ var TONE_TOKEN = {
 };
 var rad = (deg) => deg * Math.PI / 180;
 function Layers({ title, caption, layers }) {
-  const canvas = useRef11(null);
-  const shapes = useRef11([]);
-  const drag = useRef11(null);
-  const [at2, setAt] = useState19(0);
-  const [yaw, setYaw] = useState19(START_YAW);
+  const canvas = useRef10(null);
+  const shapes = useRef10([]);
+  const drag = useRef10(null);
+  const [at2, setAt] = useState16(0);
+  const [yaw, setYaw] = useState16(START_YAW);
   const open = useOpening(at2, layers.length);
   const width = useWidth(canvas);
   const theme = useTheme();
   const layer = layers[at2];
   const go = (i) => setAt(Math.max(0, Math.min(layers.length - 1, i)));
   const turn = (by) => setYaw((was) => Math.max(-TURN, Math.min(TURN, was + by)));
-  useEffect6(() => {
+  useEffect5(() => {
     const el = canvas.current;
     const fit = el && fitCanvas(el);
     if (!el || !fit) return;
@@ -4098,11 +4632,11 @@ function Layers({ title, caption, layers }) {
   ] });
 }
 function useOpening(at2, n) {
-  const [open, setOpen] = useState19(() => Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0));
+  const [open, setOpen] = useState16(() => Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0));
   const less = useLessMotion();
-  const now = useRef11(open);
+  const now = useRef10(open);
   now.current = open;
-  useEffect6(() => {
+  useEffect5(() => {
     const target = Array.from({ length: n }, (_, i) => i === at2 ? 1 : 0);
     if (less || typeof requestAnimationFrame !== "function") return setOpen(target);
     const from = now.current;
@@ -4364,7 +4898,7 @@ function readPile(p, names, here) {
 }
 
 // src/blocks/simulate/Simulate.tsx
-import { useEffect as useEffect8, useMemo as useMemo5, useRef as useRef14, useState as useState20 } from "react";
+import { useEffect as useEffect7, useMemo as useMemo5, useRef as useRef13, useState as useState17 } from "react";
 
 // src/blocks/source/Source.tsx
 import { jsx as jsx30 } from "react/jsx-runtime";
@@ -4374,7 +4908,7 @@ function Source({ text, url }) {
 }
 
 // src/blocks/simulate/Piles.tsx
-import { useEffect as useEffect7, useRef as useRef12 } from "react";
+import { useEffect as useEffect6, useRef as useRef11 } from "react";
 
 // src/blocks/simulate/sim.ts
 var MAX_DOTS = 600;
@@ -4439,8 +4973,8 @@ function Piles({ piles, amounts, start, per, most, playing, unit, label }) {
   ] });
 }
 function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, unit }) {
-  const canvas = useRef12(null);
-  const born = useRef12([]);
+  const canvas = useRef11(null);
+  const born = useRef11([]);
   const width = useWidth(canvas);
   const theme = useTheme();
   const less = useLessMotion();
@@ -4449,7 +4983,7 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
   const size = width / cols;
   const height = Math.ceil(tallest / cols) * size;
   const shown = amount2 === null ? "\u2013" : fmt(amount2, unit, { full: true });
-  useEffect7(() => {
+  useEffect6(() => {
     const el = canvas.current;
     if (!el) return;
     const grow = playing && !less;
@@ -4484,12 +5018,12 @@ function Pile({ k, name, amount: amount2, counts, startDots, tallest, playing, u
 }
 
 // src/blocks/simulate/SimChart.tsx
-import { useRef as useRef13 } from "react";
+import { useRef as useRef12 } from "react";
 import { jsx as jsx32, jsxs as jsxs28 } from "react/jsx-runtime";
 var HEIGHT = 220;
 var PAD = { left: 52, right: 12, top: 10, bottom: 22 };
 function SimChart({ piles, lines, times, index, unit }) {
-  const box = useRef13(null);
+  const box = useRef12(null);
   const width = useWidth(box);
   const to = times[times.length - 1];
   const top = Math.max(1e-9, ...lines.flat().map((v) => v ?? 0));
@@ -4533,12 +5067,12 @@ function valueText(v, unit) {
 import { jsx as jsx33, jsxs as jsxs29 } from "react/jsx-runtime";
 function Simulate(block) {
   const { title, t: time, inputs, values: fixed, piles, unit, source } = block;
-  const root = useRef14(null);
-  const clock = useRef14(time.to);
-  const [sliders, setSliders] = useState20(() => new Map(inputs.map((x) => [x.id, x.value])));
-  const [view, setView] = useState20(block.view);
-  const [at2, setAt] = useState20(time.to);
-  const [playing, setPlaying] = useState20(false);
+  const root = useRef13(null);
+  const clock = useRef13(time.to);
+  const [sliders, setSliders] = useState17(() => new Map(inputs.map((x) => [x.id, x.value])));
+  const [view, setView] = useState17(block.view);
+  const [at2, setAt] = useState17(time.to);
+  const [playing, setPlaying] = useState17(false);
   const trees = useMemo5(() => piles.map((p) => parseFormula(p.formula)), [piles]);
   const names = useMemo5(() => new Map([...fixed, ...sliders]), [fixed, sliders]);
   const times = useMemo5(() => timesOf(time.to, time.step), [time]);
@@ -4620,7 +5154,7 @@ function valuesOver(trees, names, tName, times) {
   return trees.map((tree) => times.map((t) => evaluate(tree, new Map(names).set(tName, t), budget)));
 }
 function usePlay(playing, stop, clock, time, show) {
-  useEffect8(() => {
+  useEffect7(() => {
     if (!playing) return;
     let last = performance.now();
     let frame = requestAnimationFrame(function tick(now) {
@@ -4634,10 +5168,10 @@ function usePlay(playing, stop, clock, time, show) {
   }, [playing]);
 }
 function usePauseWhenHidden(root, playing, pause) {
-  useEffect8(() => {
+  useEffect7(() => {
     if (!playing || !root.current || typeof IntersectionObserver === "undefined") return;
-    const watcher = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) pause();
+    const watcher = new IntersectionObserver(([entry2]) => {
+      if (!entry2.isIntersecting) pause();
     });
     watcher.observe(root.current);
     return () => watcher.disconnect();
@@ -4695,20 +5229,20 @@ function readHolds(raw, here) {
 }
 
 // src/blocks/steps/Steps.tsx
-import { useEffect as useEffect9, useRef as useRef15, useState as useState21 } from "react";
+import { useEffect as useEffect8, useRef as useRef14, useState as useState18 } from "react";
 import { jsx as jsx34, jsxs as jsxs30 } from "react/jsx-runtime";
 function Steps({ title, for: flow, items }) {
-  const [at2, setAt] = useState21(0);
-  const [failed, setFailed] = useState21(() => /* @__PURE__ */ new Set());
+  const [at2, setAt] = useState18(0);
+  const [failed, setFailed] = useState18(() => /* @__PURE__ */ new Set());
   const setWalk = useSetWalk();
-  const before = useRef15(null);
+  const before = useRef14(null);
   const step = items[at2];
   const go = (to) => setAt(Math.max(0, Math.min(items.length - 1, to)));
-  useEffect9(() => {
+  useEffect8(() => {
     if (flow !== void 0) setWalk(flow, { steps: items, at: at2, from: before.current });
     before.current = at2;
   }, [flow, items, at2, setWalk]);
-  useEffect9(() => () => {
+  useEffect8(() => () => {
     if (flow !== void 0) setWalk(flow, void 0);
   }, [flow, setWalk]);
   function onKeyDown(e) {
@@ -4901,7 +5435,7 @@ function isIndex(n, length) {
 }
 
 // src/blocks/table/Table.tsx
-import { useContext as useContext7, useRef as useRef16, useState as useState22 } from "react";
+import { useContext as useContext7, useRef as useRef15, useState as useState19 } from "react";
 
 // src/blocks/table/sort.ts
 function cellNumber(cell) {
@@ -4990,11 +5524,11 @@ function pickedMessage(caption, columns, rows2, picked) {
 import { jsx as jsx36, jsxs as jsxs32 } from "react/jsx-runtime";
 var MINI_BARS_FROM = 3;
 function Table({ columns, rows: rows2, highlight, caption, interactive }) {
-  const [sort, setSort] = useState22(null);
-  const [query, setQuery] = useState22("");
-  const [picked, setPicked] = useState22([]);
-  const [sent, setSent] = useState22(null);
-  const taps = useRef16(0);
+  const [sort, setSort] = useState19(null);
+  const [query, setQuery] = useState19("");
+  const [picked, setPicked] = useState19([]);
+  const [sent, setSent] = useState19(null);
+  const taps = useRef15(0);
   const { send } = useContext7(BlockActions);
   const order = sortedOrder(rows2, sort);
   const visible = interactive ? order.filter((r) => rowMatches(rows2[r], query)) : order;
@@ -5158,7 +5692,7 @@ function readTile(item) {
 }
 
 // src/blocks/tiles/Tiles.tsx
-import { useContext as useContext8, useState as useState23 } from "react";
+import { useContext as useContext8, useState as useState20 } from "react";
 import { Fragment as Fragment13, jsx as jsx37, jsxs as jsxs33 } from "react/jsx-runtime";
 var WASHES = [1, 4, 8, 3, 6];
 function Tiles({ items }) {
@@ -5171,7 +5705,7 @@ function tapOf(tile, send, fill) {
 }
 function Tile({ tile, wash }) {
   const { send, fill } = useContext8(BlockActions);
-  const [photoFailed, setPhotoFailed] = useState23(false);
+  const [photoFailed, setPhotoFailed] = useState20(false);
   const tap = tapOf(tile, send, fill);
   const colour = `var(--hb-chart-${wash})`;
   const content = /* @__PURE__ */ jsxs33(Fragment13, { children: [
@@ -5319,6 +5853,9 @@ function readBlocksNoted(data) {
   let boardDensity;
   let boardPalette;
   let boardMotion;
+  let boardVersion;
+  let boardUpdatedAt;
+  let boardLinks;
   const top = new Trail();
   if (isObject(list) && Array.isArray(list.blocks)) {
     if (typeof list.type !== "string") {
@@ -5330,6 +5867,9 @@ function readBlocksNoted(data) {
       asOf = str(list.as_of, 80);
       live = typeof list.live === "boolean" ? list.live : void 0;
       followUps = readFollowUps(list.follow_ups, top.at("follow_ups"));
+      boardVersion = version(list.version);
+      boardUpdatedAt = str(list.updated_at, 40);
+      boardLinks = readBoardLinks(list.links, top.at("links"));
     }
     list = list.blocks;
   }
@@ -5350,7 +5890,10 @@ function readBlocksNoted(data) {
     followUps,
     density: boardDensity,
     palette: boardPalette,
-    motion: boardMotion
+    motion: boardMotion,
+    version: boardVersion,
+    updatedAt: boardUpdatedAt,
+    links: boardLinks
   };
 }
 function alignOf(block) {
@@ -5381,18 +5924,34 @@ function readFollowUps(value, here) {
 function isObject(v) {
   return v !== null && typeof v === "object" && !Array.isArray(v);
 }
+function readBoardLinks(value, here) {
+  if (!Array.isArray(value)) return void 0;
+  const items = [];
+  value.forEach((item, i) => {
+    const id = boardId(typeof item === "string" ? item : item?.id);
+    if (!id) {
+      here.at(i).drop("a link must name a board by its address");
+      return;
+    }
+    const note = typeof item === "object" && item !== null ? str(item.note, 80) : void 0;
+    if (note === void 0 && typeof item === "object" && item !== null && "note" in item && item.note !== void 0 && typeof item.note !== "string") here.at(i).drop("the link's note must be one line of text");
+    items.push(note ? { id, note } : { id });
+  });
+  const kept = keepFirst(items, 3, here, "links");
+  return kept.length ? kept : void 0;
+}
 function readOne(raw, here, depth) {
   if (!isObject(raw)) {
     here.drop("not a block object");
     return [];
   }
   const kind = raw.type;
-  const entry = Object.hasOwn(REGISTRY, kind) ? REGISTRY[kind] : void 0;
-  if (!entry) {
+  const entry2 = Object.hasOwn(REGISTRY, kind) ? REGISTRY[kind] : void 0;
+  if (!entry2) {
     here.drop(`unknown type "${kind}"`);
     return [];
   }
-  const read = entry.read(raw, here, depth, readOne);
+  const read = entry2.read(raw, here, depth, readOne);
   if (!read) return [];
   const blocks = Array.isArray(read) ? read : [read];
   const asked = align(raw.align);
@@ -5439,13 +5998,13 @@ function provenanceLine(p) {
 }
 
 // src/core/FollowUps.tsx
-import { useContext as useContext9, useRef as useRef17, useState as useState24 } from "react";
+import { useContext as useContext9, useRef as useRef16, useState as useState21 } from "react";
 import { jsx as jsx40, jsxs as jsxs35 } from "react/jsx-runtime";
 var PENDING_WORD = "Pending\u2026";
 function FollowUps({ items, place }) {
   const { send } = useContext9(BlockActions);
-  const [said, setSaid] = useState24(null);
-  const taps = useRef17(0);
+  const [said, setSaid] = useState21(null);
+  const taps = useRef16(0);
   const cls = ["hb-followups"];
   if (place === "center") cls.push("hb-followups-center");
   if (place === "right") cls.push("hb-followups-right");
@@ -5477,35 +6036,58 @@ function FollowUps({ items, place }) {
 // src/core/Blocks.tsx
 import { jsx as jsx41, jsxs as jsxs36 } from "react/jsx-runtime";
 var motionPref = (word) => word === "reduced" ? "reduced" : "full";
-var AlignScope = createContext4({ board: void 0, text: void 0 });
+var AlignScope = createContext5({ board: void 0, text: void 0 });
 var TEXT_BEARING = /* @__PURE__ */ new Set(["heading", "text", "stat", "callout"]);
 function BlockView({ block }) {
-  const entry = REGISTRY[block.type];
-  if (!entry) return null;
-  const { Component } = entry;
+  const entry2 = REGISTRY[block.type];
+  if (!entry2) return null;
+  const { Component } = entry2;
   return /* @__PURE__ */ jsx41(Component, { block, draw: drawAll });
 }
-function Placed({ block }) {
+function Placed({ block, flat }) {
+  const parent = useContext10(BlockSlot);
+  const slot = parent === null ? flat : `${parent}/${flat}`;
   const { board, text } = useContext10(AlignScope);
   const at2 = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
-  const view = /* @__PURE__ */ jsx41(BlockView, { block });
-  if (at2 === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at2 !== "left") cls.push(`hb-place-${at2}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
-  return /* @__PURE__ */ jsx41(
+  if (at2 === "left" && ta === "left") cls.push("hb-bare");
+  return /* @__PURE__ */ jsx41(BlockSlot.Provider, { value: slot, children: /* @__PURE__ */ jsx41(
     "div",
     {
       className: cls.join(" "),
       ...at2 !== "left" ? { "data-align": at2 } : {},
       ...ta !== "left" ? { "data-text-align": ta } : {},
-      children: view
+      children: /* @__PURE__ */ jsx41(BlockView, { block })
     }
-  );
+  ) });
+}
+function blockKey(b, id, occ, carried2) {
+  const asked = carriedKey(b);
+  if (asked !== void 0) {
+    noteMounted(b, asked);
+    return asked;
+  }
+  if (carried2) {
+    const fresh = mintKey(b);
+    noteMounted(b, fresh);
+    return fresh;
+  }
+  const legacy = `${id}:${occ}`;
+  noteMounted(b, legacy);
+  return legacy;
 }
 function drawAll(blocks) {
-  return blocks.map((b, i) => /* @__PURE__ */ jsx41(Placed, { block: b }, i));
+  const seen = /* @__PURE__ */ new Map();
+  const carried2 = blocks.some((b) => carriedKey(b) !== void 0);
+  return blocks.map((b) => {
+    const id = identityOf(b);
+    const occ = seen.get(id) ?? 0;
+    seen.set(id, occ + 1);
+    return /* @__PURE__ */ jsx41(Placed, { block: b, flat: `${id}:${occ}` }, blockKey(b, id, occ, carried2));
+  });
 }
 function Provenance({ source, chartSources, asOf, live }) {
   const parts = [];
@@ -5521,7 +6103,7 @@ function Provenance({ source, chartSources, asOf, live }) {
     add("live", /* @__PURE__ */ jsx41("span", { className: "hb-provenance-badge", "data-live": live ? "live" : "snapshot", children: live ? "Live" : "Snapshot" }));
   }
   return /* @__PURE__ */ jsxs36("div", { className: "hb-provenance", children: [
-    source && /* @__PURE__ */ jsx41(Placed, { block: source }),
+    source && /* @__PURE__ */ jsx41(Placed, { block: source, flat: `${identityOf(source)}:0` }),
     /* @__PURE__ */ jsx41("div", { className: "hb-provenance-line", children: parts })
   ] });
 }
@@ -5548,8 +6130,224 @@ function Blocks({
   ] }) }) });
 }
 
+// src/core/boardRoster.ts
+var entries = /* @__PURE__ */ new Map();
+function entry(id) {
+  let e = entries.get(id);
+  if (!e) entries.set(id, e = { owner: null, pointers: [], meta: {}, listeners: /* @__PURE__ */ new Set(), pokers: /* @__PURE__ */ new Set() });
+  return e;
+}
+function shout(e) {
+  for (const cb of e.listeners) cb();
+}
+function claim(id, token) {
+  const e = entry(id);
+  if (e.owner === token) return true;
+  if (e.pointers.includes(token)) return false;
+  if (e.owner === null) {
+    e.owner = token;
+    shout(e);
+    return true;
+  }
+  e.pointers.push(token);
+  return false;
+}
+function release(id, token) {
+  const e = entries.get(id);
+  if (e !== void 0) {
+    if (e.owner === token) {
+      e.owner = e.pointers.shift() ?? null;
+      shout(e);
+    } else {
+      const at2 = e.pointers.indexOf(token);
+      if (at2 >= 0) e.pointers.splice(at2, 1);
+    }
+    if (e.owner === null && e.pointers.length === 0 && e.listeners.size === 0 && e.pokers.size === 0) {
+      entries.delete(id);
+      return true;
+    }
+  }
+  return !occupied(id);
+}
+function occupied(id) {
+  const e = entries.get(id);
+  return e !== void 0 && (e.owner !== null || e.pointers.length > 0);
+}
+function owns(id, token) {
+  const e = entries.get(id);
+  return !!e && e.owner === token;
+}
+function listed(id, token) {
+  const e = entries.get(id);
+  return !!e && (e.owner === token || e.pointers.includes(token));
+}
+function setMeta(id, meta) {
+  const e = entry(id);
+  const same = e.meta.version === meta.version && e.meta.updatedAt === meta.updatedAt;
+  e.meta = meta;
+  if (!same) shout(e);
+}
+function getMeta(id) {
+  return entry(id).meta;
+}
+function poke(id) {
+  const e = entries.get(id);
+  if (e && e.owner !== null) for (const cb of e.pokers) cb();
+}
+function onPoke(id, cb) {
+  const e = entry(id);
+  e.pokers.add(cb);
+  return () => {
+    e.pokers.delete(cb);
+    if (e.owner === null && e.pointers.length === 0 && e.listeners.size === 0 && e.pokers.size === 0) {
+      entries.delete(id);
+    }
+  };
+}
+function subscribe(id, cb) {
+  const e = entry(id);
+  e.listeners.add(cb);
+  return () => {
+    e.listeners.delete(cb);
+    if (e.owner === null && e.pointers.length === 0 && e.listeners.size === 0 && e.pokers.size === 0) {
+      entries.delete(id);
+    }
+  };
+}
+
+// src/core/LivingBoards.tsx
+import { useContext as useContext11, useEffect as useEffect9, useState as useState22 } from "react";
+import { jsx as jsx42, jsxs as jsxs37 } from "react/jsx-runtime";
+var HISTORY_SHOWN = 4;
+function LiveRow({ id, version: version2, updatedAt, links, viewing, onShow, canReach }) {
+  const older = version2 != null ? Array.from({ length: Math.min(version2 - 1, HISTORY_SHOWN) }, (_, i) => version2 - 1 - i) : [];
+  return /* @__PURE__ */ jsxs37("div", { className: "hb-live", "data-board": id, children: [
+    /* @__PURE__ */ jsxs37("div", { className: "hb-live-line", children: [
+      /* @__PURE__ */ jsx42("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
+      version2 != null && /* @__PURE__ */ jsx42("span", { className: "hb-live-version", children: viewing === null ? `v${version2}` : `viewing v${viewing}` }),
+      updatedAt && viewing === null && /* @__PURE__ */ jsx42("span", { className: "hb-live-when", children: updatedAt.slice(0, 10) }),
+      /* @__PURE__ */ jsxs37("code", { className: "hb-live-addr", children: [
+        "#",
+        id
+      ] }),
+      canReach && older.map((n) => /* @__PURE__ */ jsxs37(
+        "button",
+        {
+          type: "button",
+          className: "hb-live-history",
+          "aria-pressed": viewing === n,
+          onClick: () => onShow(viewing === n ? null : n),
+          children: [
+            "v",
+            n,
+            " \u21A9"
+          ]
+        },
+        n
+      )),
+      viewing !== null && /* @__PURE__ */ jsx42("button", { type: "button", className: "hb-live-back", onClick: () => onShow(null), children: "current" })
+    ] }),
+    !!links?.length && /* @__PURE__ */ jsxs37("div", { className: "hb-links", children: [
+      /* @__PURE__ */ jsx42("span", { className: "hb-links-label", children: "linked across time \xB7 AI-suggested" }),
+      links.map((l) => /* @__PURE__ */ jsx42(LinkChip, { link: l }, l.id))
+    ] })
+  ] });
+}
+function LinkChip({ link }) {
+  const [open, setOpen] = useState22(false);
+  return /* @__PURE__ */ jsxs37("div", { className: "hb-link", children: [
+    /* @__PURE__ */ jsx42(
+      "button",
+      {
+        type: "button",
+        className: "hb-link-chip",
+        "aria-expanded": open,
+        title: link.note ? `${link.note} \u2014 board #${link.id}` : `board #${link.id}`,
+        onClick: () => setOpen((o) => !o),
+        children: link.note ?? `#${link.id}`
+      }
+    ),
+    open && /* @__PURE__ */ jsx42(LinkedBoard, { link })
+  ] });
+}
+function LinkedBoard({ link }) {
+  const actions = useContext11(BlockActions);
+  const rest = actions.rest;
+  const [board, setBoard] = useState22("loading");
+  useEffect9(() => {
+    if (!rest) {
+      setBoard(null);
+      return;
+    }
+    let live = true;
+    rest(`/blocks/${link.id}`).then((data) => {
+      const noted = readBlocksNoted(data);
+      if ((noted.version ?? 0) >= 2) markLiving(link.id);
+      if (live) setBoard(noted.blocks.length ? noted : null);
+    }).catch(() => {
+      if (live) setBoard(null);
+    });
+    return () => {
+      live = false;
+    };
+  }, [link.id, rest]);
+  if (board === "loading") {
+    return /* @__PURE__ */ jsxs37("div", { className: "hb-linked hb-linked-loading", children: [
+      "Fetching #",
+      link.id,
+      " from the store\u2026"
+    ] });
+  }
+  if (!board) {
+    return /* @__PURE__ */ jsxs37("div", { className: "hb-linked hb-linked-gone", children: [
+      "#",
+      link.id,
+      " is not a board on this machine."
+    ] });
+  }
+  return /* @__PURE__ */ jsxs37("div", { className: "hb-linked", "data-linked": link.id, children: [
+    /* @__PURE__ */ jsxs37("div", { className: "hb-linked-head", children: [
+      /* @__PURE__ */ jsx42("span", { "aria-hidden": "true", children: "\u25C8" }),
+      /* @__PURE__ */ jsx42("span", { children: link.note ? link.note : "linked board" }),
+      /* @__PURE__ */ jsxs37("code", { children: [
+        "#",
+        link.id
+      ] })
+    ] }),
+    /* @__PURE__ */ jsx42(BlockActions.Provider, { value: { ...actions, blockId: link.id }, children: /* @__PURE__ */ jsx42(
+      Blocks,
+      {
+        blocks: board.blocks,
+        boardAlign: board.align,
+        boardTextAlign: board.textAlign,
+        boardAsOf: board.asOf,
+        boardLive: board.live,
+        boardFollowUps: board.followUps,
+        boardDensity: board.density,
+        boardPalette: board.palette,
+        boardMotion: board.motion
+      }
+    ) })
+  ] });
+}
+function LivePointer({ id, address }) {
+  const meta = getMeta(address);
+  return /* @__PURE__ */ jsxs37("div", { className: "hb-tag hb-live-pointer", "data-pointer": id, children: [
+    /* @__PURE__ */ jsx42("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
+    /* @__PURE__ */ jsxs37("span", { children: [
+      "The same live board",
+      meta.version ? ` \xB7 v${meta.version}` : "",
+      " \u2014 its live view is where its first tag stands above."
+    ] }),
+    /* @__PURE__ */ jsxs37("code", { className: "hb-live-addr", children: [
+      "#",
+      id
+    ] })
+  ] });
+}
+
 // src/host/ExportChrome.tsx
-import { useContext as useContext11, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useRef as useRef18, useState as useState25 } from "react";
+import { useContext as useContext12, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useRef as useRef17, useState as useState23 } from "react";
 
 // src/lib/csv.ts
 function csvCell(value) {
@@ -5872,8 +6670,8 @@ function provenanceText(p) {
   if (p.live !== void 0) parts.push(p.live ? "Live" : "Snapshot");
   return parts.join(" \xB7 ");
 }
-function jsonFile(stored) {
-  return `${JSON.stringify(stored, null, 2)}
+function jsonFile(stored2) {
+  return `${JSON.stringify(stored2, null, 2)}
 `;
 }
 function fileBase(name, fallback) {
@@ -6620,8 +7418,8 @@ function textForm(block) {
     const options = isList(f.options) ? f.options : [];
     const picked = chosen(f, options);
     const value = picked ? withUnit(picked, safeText(f.unit, 20)) : "";
-    const listed = options.slice(0, 12).map(optionText).filter(Boolean).join(" / ");
-    lines.push(`- ${label}${value ? `: ${value}` : ""}${listed ? ` (${listed})` : ""}`);
+    const listed2 = options.slice(0, 12).map(optionText).filter(Boolean).join(" / ");
+    lines.push(`- ${label}${value ? `: ${value}` : ""}${listed2 ? ` (${listed2})` : ""}`);
   }
   if (!lines.length) return "";
   const title = safeText(block.title);
@@ -6713,7 +7511,7 @@ function blocksAsMarkdown(blocks) {
 }
 
 // src/host/ExportChrome.tsx
-import { Fragment as Fragment15, jsx as jsx42, jsxs as jsxs37 } from "react/jsx-runtime";
+import { Fragment as Fragment15, jsx as jsx43, jsxs as jsxs38 } from "react/jsx-runtime";
 var CONTAINER = ["row", "section", "grid", "columns", "tabs"];
 function blocksOf(board) {
   if (Array.isArray(board)) return board;
@@ -6723,18 +7521,18 @@ function blocksOf(board) {
   return [];
 }
 function useExportChrome(args) {
-  const { blocks, asOf, live, stored, expanded, getBoard, getHost } = args;
-  const actions = useContext11(BlockActions);
+  const { blocks, asOf, live, stored: stored2, expanded, getBoard, getHost } = args;
+  const actions = useContext12(BlockActions);
   const provenance = provenanceOf(blocks, asOf, live);
   const line = provenanceLine(provenance);
-  const [found, setFound] = useState25([]);
-  const foundRef = useRef18([]);
-  const [lit, setLit] = useState25(null);
-  const [said, setSaid] = useState25(null);
-  const [open, setOpen] = useState25(false);
-  const [failed, setFailed] = useState25(null);
-  const menuButtonRef = useRef18(null);
-  const menuRef = useRef18(null);
+  const [found, setFound] = useState23([]);
+  const foundRef = useRef17([]);
+  const [lit, setLit] = useState23(null);
+  const [said, setSaid] = useState23(null);
+  const [open, setOpen] = useState23(false);
+  const [failed, setFailed] = useState23(null);
+  const menuButtonRef = useRef17(null);
+  const menuRef = useRef17(null);
   function scan() {
     const board = getBoard();
     const host2 = getHost();
@@ -6793,7 +7591,7 @@ function useExportChrome(args) {
     walk(provenance.list, [...board.children]);
     commit(out);
   }
-  const scanRef = useRef18(scan);
+  const scanRef = useRef17(scan);
   scanRef.current = scan;
   useLayoutEffect4(() => {
     scanRef.current();
@@ -6861,17 +7659,17 @@ function useExportChrome(args) {
     else setSaid(found.indexOf(c));
   }
   function runBoard(kind) {
-    if (stored === null || stored === void 0) {
+    if (stored2 === null || stored2 === void 0) {
       setFailed("Nothing was exported.");
       return;
     }
     const base = `board-${actions.blockId ?? "board"}`;
     if (kind === "markdown") {
-      saveBlob(new Blob([markdownFile(blocksAsMarkdown(blocksOf(stored)), provenance)], {
+      saveBlob(new Blob([markdownFile(blocksAsMarkdown(blocksOf(stored2)), provenance)], {
         type: "text/markdown;charset=utf-8"
       }), `${base}.md`);
     } else {
-      saveBlob(new Blob([jsonFile(stored)], { type: "application/json" }), `${base}.json`);
+      saveBlob(new Blob([jsonFile(stored2)], { type: "application/json" }), `${base}.json`);
     }
     setFailed(null);
     setOpen(false);
@@ -6886,7 +7684,7 @@ function useExportChrome(args) {
       setLit(null);
     }
   };
-  const menu = /* @__PURE__ */ jsx42(
+  const menu = /* @__PURE__ */ jsx43(
     "button",
     {
       ref: menuButtonRef,
@@ -6899,16 +7697,16 @@ function useExportChrome(args) {
         setOpen((o) => !o);
         setFailed(null);
       },
-      children: /* @__PURE__ */ jsx42(IconDownload, {})
+      children: /* @__PURE__ */ jsx43(IconDownload, {})
     }
   );
-  const popover = open && /* @__PURE__ */ jsxs37("div", { ref: menuRef, className: "hb-export-menu", role: "menu", "aria-label": "Export the whole board", children: [
-    /* @__PURE__ */ jsx42("button", { type: "button", role: "menuitem", onClick: () => runBoard("markdown"), children: "Markdown" }),
-    /* @__PURE__ */ jsx42("button", { type: "button", role: "menuitem", onClick: () => runBoard("json"), children: "JSON" }),
-    failed && /* @__PURE__ */ jsx42("div", { className: "hb-export-failed", role: "status", "aria-live": "polite", children: failed })
+  const popover = open && /* @__PURE__ */ jsxs38("div", { ref: menuRef, className: "hb-export-menu", role: "menu", "aria-label": "Export the whole board", children: [
+    /* @__PURE__ */ jsx43("button", { type: "button", role: "menuitem", onClick: () => runBoard("markdown"), children: "Markdown" }),
+    /* @__PURE__ */ jsx43("button", { type: "button", role: "menuitem", onClick: () => runBoard("json"), children: "JSON" }),
+    failed && /* @__PURE__ */ jsx43("div", { className: "hb-export-failed", role: "status", "aria-live": "polite", children: failed })
   ] });
-  const layer = /* @__PURE__ */ jsxs37("div", { className: "hb-export-layer", children: [
-    found.map((c, i) => /* @__PURE__ */ jsx42(
+  const layer = /* @__PURE__ */ jsxs38("div", { className: "hb-export-layer", children: [
+    found.map((c, i) => /* @__PURE__ */ jsx43(
       "button",
       {
         type: "button",
@@ -6916,11 +7714,11 @@ function useExportChrome(args) {
         style: { left: `${c.left}px`, top: `${c.top}px` },
         "aria-label": `Export ${c.kind === "table" ? "table" : "chart"}${c.name ? ` \u201C${c.name}\u201D` : ""} as ${c.kind === "table" ? "CSV" : "PNG"}`,
         onClick: () => runBlock(c),
-        children: /* @__PURE__ */ jsx42(IconDownload, {})
+        children: /* @__PURE__ */ jsx43(IconDownload, {})
       },
       i
     )),
-    said !== null && found[said] && /* @__PURE__ */ jsx42(
+    said !== null && found[said] && /* @__PURE__ */ jsx43(
       "span",
       {
         className: "hb-export-said",
@@ -6931,14 +7729,14 @@ function useExportChrome(args) {
       }
     )
   ] });
-  const whole2 = /* @__PURE__ */ jsxs37(Fragment15, { children: [
+  const whole2 = /* @__PURE__ */ jsxs38(Fragment15, { children: [
     menu,
     popover
   ] });
   return { bind, menu: expanded ? null : whole2, dialogMenu: expanded ? whole2 : null, layer };
 }
 function IconDownload() {
-  return /* @__PURE__ */ jsx42(
+  return /* @__PURE__ */ jsx43(
     "svg",
     {
       width: "14",
@@ -6950,13 +7748,13 @@ function IconDownload() {
       strokeLinecap: "round",
       strokeLinejoin: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx42("path", { d: "M12 4v10m0 0l-4-4m4 4l4-4M4 19h16" })
+      children: /* @__PURE__ */ jsx43("path", { d: "M12 4v10m0 0l-4-4m4 4l4-4M4 19h16" })
     }
   );
 }
 
 // src/host/LibraryChrome.tsx
-import { useCallback as useCallback2, useContext as useContext12, useEffect as useEffect11, useRef as useRef19, useState as useState26 } from "react";
+import { useCallback as useCallback2, useContext as useContext13, useEffect as useEffect11, useRef as useRef18, useState as useState24 } from "react";
 
 // src/host/tabbable.ts
 function tabbableIn(root) {
@@ -6987,11 +7785,11 @@ function dialogKeys(root, layer, onEscape) {
 }
 
 // src/host/LibraryChrome.tsx
-import { Fragment as Fragment16, jsx as jsx43, jsxs as jsxs38 } from "react/jsx-runtime";
+import { Fragment as Fragment16, jsx as jsx44, jsxs as jsxs39 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function LibraryEntry() {
   const library = useLibraryChrome({ standalone: true, drawn: false, expanded: false });
-  return /* @__PURE__ */ jsxs38(Fragment16, { children: [
+  return /* @__PURE__ */ jsxs39(Fragment16, { children: [
     library.controls,
     library.dialog
   ] });
@@ -7017,24 +7815,24 @@ function rows(data) {
   }));
 }
 function useLibraryChrome(args) {
-  const actions = useContext12(BlockActions);
+  const actions = useContext13(BlockActions);
   const rest = actions.rest;
   const valid = typeof args.id === "string" && ID_PATTERN.test(args.id);
-  const [entries, setEntries] = useState26(null);
-  const [pinned, setPinned] = useState26(false);
-  const [said, setSaid] = useState26(null);
-  const [open, setOpen] = useState26(false);
-  const [view, setView] = useState26({ kind: "list" });
-  const [opened, setOpened] = useState26(null);
-  const [openedSaid, setOpenedSaid] = useState26(null);
-  const [editing, setEditing] = useState26(null);
-  const [draft, setDraft] = useState26("");
-  const [attached, setAttached] = useState26(null);
-  const pinRef = useRef19(null);
-  const askedOnce = useRef19(false);
-  const libRef = useRef19(null);
-  const closeRef = useRef19(null);
-  const dialogRef = useRef19(null);
+  const [entries2, setEntries] = useState24(null);
+  const [pinned, setPinned] = useState24(false);
+  const [said, setSaid] = useState24(null);
+  const [open, setOpen] = useState24(false);
+  const [view, setView] = useState24({ kind: "list" });
+  const [opened, setOpened] = useState24(null);
+  const [openedSaid, setOpenedSaid] = useState24(null);
+  const [editing, setEditing] = useState24(null);
+  const [draft, setDraft] = useState24("");
+  const [attached, setAttached] = useState24(null);
+  const pinRef = useRef18(null);
+  const askedOnce = useRef18(false);
+  const libRef = useRef18(null);
+  const closeRef = useRef18(null);
+  const dialogRef = useRef18(null);
   const ask = (path, init) => {
     if (!rest) return null;
     try {
@@ -7090,11 +7888,12 @@ function useLibraryChrome(args) {
     setOpened(e.id);
     setOpenedSaid(null);
     answer.then((data) => {
-      const { blocks, align: align2, textAlign, asOf, live, followUps, density: density2, palette: palette2, motion: motion2 } = readBlocksNoted(data);
+      const { blocks, align: align2, textAlign, asOf, live, followUps, density: density2, palette: palette2, motion: motion2, version: version2 } = readBlocksNoted(data);
       if (!blocks.length) {
         setOpenedSaid("This board could not be reopened.");
         return;
       }
+      if ((version2 ?? 0) >= 2) markLiving(e.id);
       setView({
         kind: "board",
         id: e.id,
@@ -7144,7 +7943,7 @@ function useLibraryChrome(args) {
     };
   }, [open, view.kind]);
   if (!valid && !args.standalone) return { controls: null, dialog: null };
-  const libButton = /* @__PURE__ */ jsxs38(
+  const libButton = /* @__PURE__ */ jsxs39(
     "button",
     {
       ref: libRef,
@@ -7155,21 +7954,21 @@ function useLibraryChrome(args) {
       "aria-disabled": !rest,
       onClick: openLibrary,
       children: [
-        /* @__PURE__ */ jsx43(IconShelf, {}),
-        args.standalone && /* @__PURE__ */ jsx43("span", { className: "hb-lib-entry-label", children: "Library" })
+        /* @__PURE__ */ jsx44(IconShelf, {}),
+        args.standalone && /* @__PURE__ */ jsx44("span", { className: "hb-lib-entry-label", children: "Library" })
       ]
     }
   );
-  const saidWord = said !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-said", role: "status", "aria-live": "polite", children: said });
+  const saidWord = said !== null && /* @__PURE__ */ jsx44("div", { className: "hb-library-said", role: "status", "aria-live": "polite", children: said });
   const controls = args.expanded ? null : args.standalone ? (
     // The new-chat entry is always visible and in flow: a quiet pill standing where the empty chat
     // invites the first move — not a hover-revealed corner over a board that is not here.
-    /* @__PURE__ */ jsxs38("span", { className: "hb-library-entry", children: [
+    /* @__PURE__ */ jsxs39("span", { className: "hb-library-entry", children: [
       libButton,
       saidWord
     ] })
-  ) : /* @__PURE__ */ jsxs38(Fragment16, { children: [
-    /* @__PURE__ */ jsx43(
+  ) : /* @__PURE__ */ jsxs39(Fragment16, { children: [
+    /* @__PURE__ */ jsx44(
       "button",
       {
         ref: pinRef,
@@ -7180,7 +7979,7 @@ function useLibraryChrome(args) {
         "aria-disabled": !rest,
         title: rest ? void 0 : "Nothing to save here",
         onClick: togglePin,
-        children: /* @__PURE__ */ jsx43(IconPin, { filled: pinned })
+        children: /* @__PURE__ */ jsx44(IconPin, { filled: pinned })
       }
     ),
     libButton,
@@ -7188,7 +7987,7 @@ function useLibraryChrome(args) {
   ] });
   if (!open) return { controls, dialog: null };
   const groups = [];
-  const list = entries ?? [];
+  const list = entries2 ?? [];
   const favorites = list.filter((e) => e.favorite);
   if (favorites.length) groups.push({ head: "Favorites", items: favorites });
   const shelf = list.filter((e) => !e.favorite);
@@ -7197,8 +7996,8 @@ function useLibraryChrome(args) {
   const unfiled = shelf.filter((e) => !e.folder);
   if (unfiled.length) groups.push({ head: "Unfiled", items: unfiled });
   const row = (e) => {
-    const editor = editing && editing.id === e.id && /* @__PURE__ */ jsxs38("span", { className: "hb-library-edit", children: [
-      /* @__PURE__ */ jsx43(
+    const editor = editing && editing.id === e.id && /* @__PURE__ */ jsxs39("span", { className: "hb-library-edit", children: [
+      /* @__PURE__ */ jsx44(
         "input",
         {
           type: "text",
@@ -7217,14 +8016,14 @@ function useLibraryChrome(args) {
           }
         }
       ),
-      /* @__PURE__ */ jsx43("button", { type: "button", onClick: () => {
+      /* @__PURE__ */ jsx44("button", { type: "button", onClick: () => {
         putWords(e.id, { [editing.field]: draft });
         setEditing(null);
       }, children: "Save" }),
-      /* @__PURE__ */ jsx43("button", { type: "button", onClick: () => setEditing(null), children: "Cancel" })
+      /* @__PURE__ */ jsx44("button", { type: "button", onClick: () => setEditing(null), children: "Cancel" })
     ] });
-    return /* @__PURE__ */ jsxs38("div", { className: "hb-library-row", "data-board": e.id, children: [
-      /* @__PURE__ */ jsxs38(
+    return /* @__PURE__ */ jsxs39("div", { className: "hb-library-row", "data-board": e.id, children: [
+      /* @__PURE__ */ jsxs39(
         "button",
         {
           type: "button",
@@ -7233,14 +8032,14 @@ function useLibraryChrome(args) {
           disabled: !e.exists,
           title: e.exists ? "Reopen this saved board" : "This board is not on this machine",
           children: [
-            /* @__PURE__ */ jsx43("span", { className: "hb-library-name", children: e.title || "Board" }),
-            !e.exists && /* @__PURE__ */ jsx43("span", { className: "hb-library-missing", children: " \u2014 not on this machine" }),
-            e.id === args.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-here", children: " \u2014 this board" })
+            /* @__PURE__ */ jsx44("span", { className: "hb-library-name", children: e.title || "Board" }),
+            !e.exists && /* @__PURE__ */ jsx44("span", { className: "hb-library-missing", children: " \u2014 not on this machine" }),
+            e.id === args.id && /* @__PURE__ */ jsx44("span", { className: "hb-library-here", children: " \u2014 this board" })
           ]
         }
       ),
-      /* @__PURE__ */ jsxs38("span", { className: "hb-library-tools", children: [
-        /* @__PURE__ */ jsx43(
+      /* @__PURE__ */ jsxs39("span", { className: "hb-library-tools", children: [
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7250,7 +8049,7 @@ function useLibraryChrome(args) {
             children: "\u2605"
           }
         ),
-        /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7262,7 +8061,7 @@ function useLibraryChrome(args) {
             children: "Rename"
           }
         ),
-        /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7274,7 +8073,7 @@ function useLibraryChrome(args) {
             children: "Folder"
           }
         ),
-        /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7284,7 +8083,7 @@ function useLibraryChrome(args) {
             children: "Add to chat"
           }
         ),
-        /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7294,12 +8093,12 @@ function useLibraryChrome(args) {
           }
         )
       ] }),
-      attached?.id === e.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word }),
+      attached?.id === e.id && /* @__PURE__ */ jsx44("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word }),
       editor
     ] }, e.id);
   };
-  const dialog = /* @__PURE__ */ jsx43("div", { className: "hb-library-overlay", onClick: (e) => e.target === e.currentTarget && closeLibrary(), children: /* @__PURE__ */ jsxs38("div", { ref: dialogRef, className: "hb-library-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Board Library", children: [
-    /* @__PURE__ */ jsx43(
+  const dialog = /* @__PURE__ */ jsx44("div", { className: "hb-library-overlay", onClick: (e) => e.target === e.currentTarget && closeLibrary(), children: /* @__PURE__ */ jsxs39("div", { ref: dialogRef, className: "hb-library-dialog", role: "dialog", "aria-modal": "true", "aria-label": "Board Library", children: [
+    /* @__PURE__ */ jsx44(
       "button",
       {
         ref: closeRef,
@@ -7307,12 +8106,12 @@ function useLibraryChrome(args) {
         className: "hb-overlay-close hb-library-close",
         "aria-label": "Close Library",
         onClick: closeLibrary,
-        children: /* @__PURE__ */ jsx43(IconClose, {})
+        children: /* @__PURE__ */ jsx44(IconClose, {})
       }
     ),
-    view.kind === "board" ? /* @__PURE__ */ jsxs38("div", { className: "hb-library-board", "data-board": view.id, children: [
-      /* @__PURE__ */ jsxs38("div", { className: "hb-library-boardhead", children: [
-        /* @__PURE__ */ jsx43(
+    view.kind === "board" ? /* @__PURE__ */ jsxs39("div", { className: "hb-library-board", "data-board": view.id, children: [
+      /* @__PURE__ */ jsxs39("div", { className: "hb-library-boardhead", children: [
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7321,8 +8120,8 @@ function useLibraryChrome(args) {
             children: "\u2190 Library"
           }
         ),
-        /* @__PURE__ */ jsx43("span", { className: "hb-library-boardtitle", children: view.title || "Board" }),
-        /* @__PURE__ */ jsx43(
+        /* @__PURE__ */ jsx44("span", { className: "hb-library-boardtitle", children: view.title || "Board" }),
+        /* @__PURE__ */ jsx44(
           "button",
           {
             type: "button",
@@ -7331,9 +8130,9 @@ function useLibraryChrome(args) {
             children: "Add to chat"
           }
         ),
-        attached?.id === view.id && /* @__PURE__ */ jsx43("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word })
+        attached?.id === view.id && /* @__PURE__ */ jsx44("span", { className: "hb-library-attached", role: "status", "aria-live": "polite", children: attached.word })
       ] }),
-      /* @__PURE__ */ jsx43(BlockActions.Provider, { value: { ...actions, blockId: view.id }, children: /* @__PURE__ */ jsx43(
+      /* @__PURE__ */ jsx44(BlockActions.Provider, { value: { ...actions, blockId: view.id }, children: /* @__PURE__ */ jsx44(
         Blocks,
         {
           blocks: view.board.blocks,
@@ -7347,21 +8146,21 @@ function useLibraryChrome(args) {
           boardMotion: view.board.boardMotion
         }
       ) })
-    ] }) : /* @__PURE__ */ jsxs38("div", { className: "hb-library-list", children: [
-      /* @__PURE__ */ jsx43("div", { className: "hb-library-title", children: "Library" }),
-      entries === null ? /* @__PURE__ */ jsx43("div", { className: "hb-library-note", children: "The Library did not answer." }) : !list.length ? /* @__PURE__ */ jsx43("div", { className: "hb-library-note", children: "Nothing saved yet. Save a board with the pin beside it \u2014 it stays on this machine." }) : groups.map((g) => /* @__PURE__ */ jsxs38("div", { className: "hb-library-group", children: [
-        /* @__PURE__ */ jsx43("div", { className: "hb-library-head", children: g.head }),
+    ] }) : /* @__PURE__ */ jsxs39("div", { className: "hb-library-list", children: [
+      /* @__PURE__ */ jsx44("div", { className: "hb-library-title", children: "Library" }),
+      entries2 === null ? /* @__PURE__ */ jsx44("div", { className: "hb-library-note", children: "The Library did not answer." }) : !list.length ? /* @__PURE__ */ jsx44("div", { className: "hb-library-note", children: "Nothing saved yet. Save a board with the pin beside it \u2014 it stays on this machine." }) : groups.map((g) => /* @__PURE__ */ jsxs39("div", { className: "hb-library-group", children: [
+        /* @__PURE__ */ jsx44("div", { className: "hb-library-head", children: g.head }),
         g.items.map(row)
       ] }, g.head)),
-      opened !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: "Reopening\u2026" }),
-      openedSaid !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: openedSaid }),
-      said !== null && /* @__PURE__ */ jsx43("div", { className: "hb-library-note", role: "status", children: said })
+      opened !== null && /* @__PURE__ */ jsx44("div", { className: "hb-library-note", role: "status", children: "Reopening\u2026" }),
+      openedSaid !== null && /* @__PURE__ */ jsx44("div", { className: "hb-library-note", role: "status", children: openedSaid }),
+      said !== null && /* @__PURE__ */ jsx44("div", { className: "hb-library-note", role: "status", children: said })
     ] })
   ] }) });
   return { controls, dialog };
 }
 function IconPin({ filled }) {
-  return /* @__PURE__ */ jsx43(
+  return /* @__PURE__ */ jsx44(
     "svg",
     {
       width: "14",
@@ -7373,12 +8172,12 @@ function IconPin({ filled }) {
       strokeLinecap: "round",
       strokeLinejoin: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx43("path", { d: "M6 3h12v18l-6-4-6 4z" })
+      children: /* @__PURE__ */ jsx44("path", { d: "M6 3h12v18l-6-4-6 4z" })
     }
   );
 }
 function IconShelf() {
-  return /* @__PURE__ */ jsx43(
+  return /* @__PURE__ */ jsx44(
     "svg",
     {
       width: "14",
@@ -7390,12 +8189,12 @@ function IconShelf() {
       strokeLinecap: "round",
       strokeLinejoin: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx43("path", { d: "M4 19h16M6 19V9m6 10V5m6 14v-6" })
+      children: /* @__PURE__ */ jsx44("path", { d: "M4 19h16M6 19V9m6 10V5m6 14v-6" })
     }
   );
 }
 function IconClose() {
-  return /* @__PURE__ */ jsx43(
+  return /* @__PURE__ */ jsx44(
     "svg",
     {
       width: "16",
@@ -7406,13 +8205,13 @@ function IconClose() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx43("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx44("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
 
 // src/host/BlockTag.tsx
-import { jsx as jsx44, jsxs as jsxs39 } from "react/jsx-runtime";
+import { jsx as jsx45, jsxs as jsxs40 } from "react/jsx-runtime";
 var ID_PATTERN2 = /^[0-9a-f]{8}$/;
 function isEnvelopeCarrying(data) {
   return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
@@ -7420,16 +8219,48 @@ function isEnvelopeCarrying(data) {
 var NO_BLOCKS = [];
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN2.test(id);
-  const actions = useContext13(BlockActions);
-  const [state, setState] = useState27({ kind: "loading" });
-  const [expanded, setExpanded] = useState27(false);
-  const hostRef = useRef20(null);
-  const expandRef = useRef20(null);
-  const closeRef = useRef20(null);
-  useEffect12(() => {
+  const actions = useContext14(BlockActions);
+  const address = validId ? `${actions.sessionScope ?? ""}|${id}` : "";
+  const [state, setState] = useState25({ kind: "loading" });
+  const [expanded, setExpanded] = useState25(false);
+  const [viewing, setViewing] = useState25(null);
+  const hostRef = useRef19(null);
+  const expandRef = useRef19(null);
+  const closeRef = useRef19(null);
+  const drawn = useRef19(null);
+  const self = useRef19(null);
+  if (self.current === null) self.current = { token: /* @__PURE__ */ Symbol("hb-tag") };
+  const [role, setRole] = useState25("unknown");
+  const [refresh, setRefresh] = useState25(0);
+  const [, force] = useReducer((x) => x + 1, 0);
+  const [live, setLive] = useState25({});
+  useLayoutEffect5(() => {
     if (streaming || !validId) return;
-    let live = true;
-    load(id).then((data) => {
+    const token = self.current.token;
+    const claim2 = claim(address, token);
+    setRole(claim2 ? "home" : "pointer");
+    if (!claim2) poke(address);
+    const recompute = () => {
+      const mine = owns(address, token);
+      setRole(mine ? "home" : listed(address, token) ? "pointer" : "unknown");
+      force();
+    };
+    const unsub = subscribe(address, recompute);
+    const offPoke = onPoke(address, () => {
+      setViewing(null);
+      setRefresh((r) => r + 1);
+    });
+    return () => {
+      unsub();
+      offPoke();
+      if (release(address, token)) forgetBlock(id);
+    };
+  }, [address, id, streaming, validId]);
+  useEffect12(() => {
+    if (streaming || !validId || role !== "home") return;
+    let alive = true;
+    const ask = viewing === null || !actions.rest ? load(id) : actions.rest(`/blocks/${id}?version=${viewing}`);
+    Promise.resolve(ask).then((data) => {
       const {
         blocks,
         align: boardAlign,
@@ -7439,29 +8270,72 @@ function BlockTag({ id, streaming, load }) {
         followUps: boardFollowUps,
         density: boardDensity,
         palette: boardPalette,
-        motion: boardMotion
+        motion: boardMotion,
+        version: boardVersion,
+        updatedAt: boardUpdatedAt,
+        links: boardLinks
       } = readBlocksNoted(data);
       const envelope = isEnvelopeCarrying(data) ? data.stored : data;
-      if (live) setState(blocks.length ? {
-        kind: "drawn",
-        blocks,
-        boardAlign,
-        boardTextAlign,
-        boardAsOf,
-        boardLive,
-        boardFollowUps,
-        boardDensity,
-        boardPalette,
-        boardMotion,
-        stored: envelope
-      } : { kind: "failed" });
+      if (!alive) return;
+      if (blocks.length) {
+        const headless = drawn.current === null && viewing === null && (boardVersion ?? 0) >= 2;
+        const commitDraw = () => {
+          if (!alive) return;
+          if (drawn.current) carryBlocks(drawn.current, blocks);
+          if (drawn.current && viewing === null) void promoteOnUpdate(actions.rest, id, drawn.current, blocks);
+          if (viewing === null && (boardVersion ?? 0) >= 2) markLiving(id);
+          drawn.current = blocks;
+          setState({
+            kind: "drawn",
+            blocks,
+            boardAlign,
+            boardTextAlign,
+            boardAsOf,
+            boardLive,
+            boardFollowUps,
+            boardDensity,
+            boardPalette,
+            boardMotion,
+            boardVersion,
+            boardUpdatedAt,
+            boardLinks,
+            stored: envelope
+          });
+          if (viewing === null) {
+            setLive({ version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks });
+            setMeta(address, { version: boardVersion, updatedAt: boardUpdatedAt });
+          }
+        };
+        if (headless && actions.rest !== void 0) {
+          const rest = actions.rest;
+          void migrateArchived(
+            rest,
+            id,
+            async (v) => {
+              const answer = await rest(`/blocks/${id}?version=${v}`);
+              const read = readBlocksNoted(answer).blocks;
+              return read.length > 0 ? read : null;
+            },
+            blocks,
+            boardVersion ?? 2
+          ).then(commitDraw, commitDraw);
+        } else {
+          commitDraw();
+        }
+      } else if (viewing === null) {
+        setState({ kind: "failed" });
+      } else {
+        setViewing(null);
+      }
     }).catch(() => {
-      if (live) setState({ kind: "failed" });
+      if (!alive) return;
+      if (viewing === null) setState({ kind: "failed" });
+      else setViewing(null);
     });
     return () => {
-      live = false;
+      alive = false;
     };
-  }, [id, streaming, validId]);
+  }, [address, id, streaming, validId, role, refresh, viewing]);
   const close = () => {
     setExpanded(false);
     expandRef.current?.focus();
@@ -7496,11 +8370,13 @@ function BlockTag({ id, streaming, load }) {
     };
   }, [expanded]);
   if (!validId && !streaming) return null;
-  if (streaming || state.kind === "loading") return /* @__PURE__ */ jsx44(Note, { text: "drawing\u2026", pulse: true });
+  if (streaming || role === "unknown") return /* @__PURE__ */ jsx45(Note, { text: "drawing\u2026", pulse: true });
+  if (role === "pointer") return /* @__PURE__ */ jsx45(LivePointer, { id, address });
+  if (state.kind === "loading") return /* @__PURE__ */ jsx45(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
   const board = state;
-  return /* @__PURE__ */ jsx44(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs39("div", { className: "hb-tag", ...chrome.bind, children: [
-    /* @__PURE__ */ jsx44(
+  return /* @__PURE__ */ jsx45(BlockActions.Provider, { value: { ...actions, blockId: id }, children: /* @__PURE__ */ jsxs40("div", { className: "hb-tag", ...chrome.bind, children: [
+    /* @__PURE__ */ jsx45(
       "button",
       {
         ref: expandRef,
@@ -7509,12 +8385,12 @@ function BlockTag({ id, streaming, load }) {
         "aria-label": "Expand board",
         "aria-haspopup": "dialog",
         onClick: () => setExpanded(true),
-        children: /* @__PURE__ */ jsx44(IconExpand, {})
+        children: /* @__PURE__ */ jsx45(IconExpand, {})
       }
     ),
     chrome.menu,
     library.controls,
-    /* @__PURE__ */ jsxs39(
+    /* @__PURE__ */ jsxs40(
       "div",
       {
         ref: hostRef,
@@ -7522,7 +8398,7 @@ function BlockTag({ id, streaming, load }) {
         ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
         onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
         children: [
-          expanded && /* @__PURE__ */ jsx44(
+          expanded && /* @__PURE__ */ jsx45(
             "button",
             {
               ref: closeRef,
@@ -7530,11 +8406,11 @@ function BlockTag({ id, streaming, load }) {
               className: "hb-overlay-close",
               "aria-label": "Close expanded board",
               onClick: close,
-              children: /* @__PURE__ */ jsx44(IconClose2, {})
+              children: /* @__PURE__ */ jsx45(IconClose2, {})
             }
           ),
           chrome.dialogMenu,
-          /* @__PURE__ */ jsx44(
+          /* @__PURE__ */ jsx45(
             Blocks,
             {
               blocks: board.blocks,
@@ -7548,6 +8424,18 @@ function BlockTag({ id, streaming, load }) {
               boardMotion: board.boardMotion
             }
           ),
+          (live.version != null || live.links) && /* @__PURE__ */ jsx45(
+            LiveRow,
+            {
+              id,
+              version: live.version,
+              updatedAt: live.updatedAt,
+              links: live.links,
+              viewing,
+              onShow: setViewing,
+              canReach: Boolean(actions.rest)
+            }
+          ),
           chrome.layer
         ]
       }
@@ -7556,10 +8444,10 @@ function BlockTag({ id, streaming, load }) {
   ] }) });
 }
 function Note({ text, pulse = false }) {
-  return /* @__PURE__ */ jsx44("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+  return /* @__PURE__ */ jsx45("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
 }
 function IconExpand() {
-  return /* @__PURE__ */ jsx44(
+  return /* @__PURE__ */ jsx45(
     "svg",
     {
       width: "15",
@@ -7570,12 +8458,12 @@ function IconExpand() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx44("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+      children: /* @__PURE__ */ jsx45("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
     }
   );
 }
 function IconClose2() {
-  return /* @__PURE__ */ jsx44(
+  return /* @__PURE__ */ jsx45(
     "svg",
     {
       width: "16",
@@ -7586,7 +8474,7 @@ function IconClose2() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx44("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx45("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
@@ -7703,6 +8591,12 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
    and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
    .hb-place at all. */
 .hb-place { display: flow-root; }
+/* Round 4 (living updates, review defect 1): placement is a class change, never a re-wrap. Every block
+   sits in ONE stable .hb-place root; when nothing was asked the root carries .hb-bare and generates no
+   box at all \u2014 its block lays out, measures and exports exactly where an unwrapped block has always
+   sat, so an unsaid board renders byte-identically while a flip to or from center cannot remount the
+   live subtree. */
+.hb-place.hb-bare { display: contents; }
 .hb-place-center > * { margin-inline: auto; }
 .hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
 /* Text voice: how the words inside a block read (the model's \`text_align\`, the block's word or the board's
@@ -7867,6 +8761,10 @@ var blockTag_default = `/* The block tag's own states */
    export rework's real-browser coverage of a board taller than the viewport (t_bff8178a round 2): the table
    card collapsed to 6px and the grid slid up over its corner. One rule, inline boards untouched. */
 .hb-board-overlay .hb-blocks > * { flex-shrink: 0; }
+/* A bare (display:contents) root generates no box, so in the dialog column the flex item is the block
+   INSIDE it: pass the no-shrink through. A placed (flow-root) root is itself the item and ignores the
+   rule on its child, so this never changes an asked block's number. */
+.hb-board-overlay .hb-blocks > .hb-place > * { flex-shrink: 0; }
 /* The wider container, in the ONE shipped rule the swap experiment comments out: the expanded board box is a
    single element now \u2014 it sheds the reading cap and margin (folded into the panel's own padding) and carries
    the paper its old separate body used to draw. The caps are .hb-blocks > X rules, scoped to the board
@@ -8208,6 +9106,7 @@ var blockTag_default = `/* The block tag's own states */
    expand dialog proved necessary (a shrink fight is not a scroll), and no extra caps \u2014 the board's
    own .hb-blocks rules keep their numbers, so a reopen lays out the way the board laid out inline. */
 .hb-library-board .hb-blocks > * { flex-shrink: 0; }
+.hb-library-board .hb-blocks > .hb-place > * { flex-shrink: 0; }  /* bare contents root: pass through */
 .hb-library-boardhead {
   display: flex;
   flex-wrap: wrap;
@@ -8230,6 +9129,80 @@ var blockTag_default = `/* The block tag's own states */
   color: var(--foreground, #1f2328);
 }
 .hb-library-boardtitle { font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+
+/* --- Living Boards v1 (enhancement #9) -----------------------------------------------------------
+   The quiet row a live board says under itself, and the pointer a later tag of the same address
+   draws instead of a second board. Both sit OUTSIDE .hb-blocks (the board's own DOM is untouched)
+   and animate nothing: with no motion of their own there is nothing for prefers-reduced-motion
+   to still. Colors ride the app's own variables with fallbacks, as the chrome row's do. */
+.hb-live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background, #ffffff) 60%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.hb-live-line { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hb-live-mark { color: var(--ui-success, #1a7f37); }
+.hb-live-version { font-weight: 600; color: var(--foreground, #1f2328); }
+.hb-live-addr {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+}
+.hb-live-history, .hb-live-back, .hb-link-chip {
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+.hb-live-history[aria-pressed="true"], .hb-link-chip[aria-expanded="true"] {
+  border-color: var(--theme-primary, #e0a83c);
+  color: var(--foreground, #1f2328);
+}
+.hb-links { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hb-links-label { font-style: italic; }
+.hb-link { display: contents; }
+.hb-linked {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--foreground, #1f2328) 22%, transparent);
+  border-radius: 10px;
+}
+.hb-linked-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.hb-linked-gone { color: var(--ui-text-tertiary, #6b7280); font-style: italic; }
+.hb-live-pointer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
 `;
 
 // src/blocks/atoms/atoms.css
@@ -8248,7 +9221,7 @@ var kpis_default = "/* Headline numbers */\n/* Cards keep a readable width (130-
 var timeline_default = "/* Timeline */\n.hb-timeline { display: flex; flex-direction: column; gap: 14px; }\n.hb-timeline-group { display: flex; flex-direction: column; }\n.hb-timeline-group > .hb-chip { margin-bottom: 10px; }\n.hb-stop { display: grid; grid-template-columns: 46px 22px 1fr; column-gap: 8px; }\n.hb-stop-time {\n  padding-top: 2px;\n  text-align: right;\n  font-size: 12.5px;\n  font-weight: 600;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n}\n.hb-stop-rail { display: flex; flex-direction: column; align-items: center; }\n.hb-stop-dot {\n  display: grid;\n  place-items: center;\n  flex: none;\n  width: 22px;\n  height: 22px;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n}\n.hb-stop-pip { width: 6px; height: 6px; border-radius: 999px; background: var(--hb-accent); }\n.hb-stop-line { flex: 1; width: 1px; margin: 4px 0; background: var(--hb-line); }\n.hb-stop-body { min-width: 0; }\n.hb-stop-body-gap { padding-bottom: 14px; }\n.hb-stop-title { font-size: 14.5px; line-height: 21px; font-weight: 600; }\n.hb-stop-place {\n  display: flex;\n  align-items: center;\n  gap: 4px;\n  margin-top: 1px;\n  font-size: 12.5px;\n  color: var(--hb-muted);\n}\n.hb-stop-note { margin-top: 3px; font-size: 13px; line-height: 18px; color: var(--hb-ink-2); }\n";
 
 // src/blocks/layout/layout.css
-var layout_default = "/* Containers. A row's small cards (stats, badges) end at the same height; a tall block never sits in a row\n   (layout/read.ts draws that row as a stack). */\n.hb-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }\n.hb-row-cell { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell > * { flex: 1; }\n/* A block placed inside a row cell: the wrapper takes the flex:1 above and the block fills it, ending at the same\n   height it would have sitting there directly. */\n.hb-row-cell > .hb-place > * { height: 100%; }\n/* Grid: each cell keeps its block's own height, top-aligned in its row. */\n.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: start; }\n.hb-grid-cell { min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell-own { flex: none; align-self: center; }\n.hb-section { display: flex; flex-direction: column; gap: 8px; }\n.hb-section-body { display: flex; flex-direction: column; gap: 10px; }\n.hb-section .hb-card { background: var(--hb-well); border-color: transparent; }\n.hb-section-toggle {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  width: 100%;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-section-toggle .hb-card-title { flex: 1; min-width: 0; }\n.hb-chevron { flex: none; color: var(--hb-muted); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }\n.hb-chevron-open { transform: rotate(90deg); }\n/* Tabs: underlined tab buttons in a bar that scrolls sideways when they don't fit, above one panel of blocks. */\n.hb-tabs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n.hb-tab-bar {\n  display: flex;\n  gap: 2px;\n  overflow-x: auto;\n  scrollbar-width: none;\n  border-bottom: 1px solid var(--hb-line);\n}\n.hb-tab-bar::-webkit-scrollbar { display: none; }\n.hb-tab {\n  flex: none;\n  margin-bottom: -1px;\n  padding: 7px 12px 8px;\n  border: 0;\n  border-bottom: 2px solid transparent;\n  border-radius: 8px 8px 0 0;\n  background: none;\n  color: var(--hb-muted);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: color 0.15s, border-color 0.15s, background 0.15s;\n}\n.hb-tab:hover { color: var(--hb-ink-2); background: var(--hb-well); }\n.hb-tab-on, .hb-tab-on:hover { color: var(--hb-accent-ink); border-bottom-color: var(--hb-accent); background: none; }\n.hb-tab:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: -2px; }\n.hb-tab-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n\n/* Columns: dashboards side by side, each block at its own height (a short card beside a tall one stays short). */\n.hb-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 10px; align-items: start; }\n.hb-column { min-width: 0; display: flex; flex-direction: column; gap: 10px; }\n/* Beside other blocks a table's card fills its column or cell (on its own it hugs its columns); a place around it\n   changes nothing about that. */\n:is(.hb-column, .hb-grid-cell) > .hb-table-card,\n:is(.hb-column, .hb-grid-cell) > .hb-place > .hb-table-card { width: auto; }\n";
+var layout_default = "/* Containers. A row's small cards (stats, badges) end at the same height; a tall block never sits in a row\n   (layout/read.ts draws that row as a stack). */\n.hb-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }\n.hb-row-cell { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell > * { flex: 1; }\n/* A block placed inside a row cell: the wrapper takes the flex:1 above and the block fills it, ending at the\n   same height it would have sitting there directly. A bare round-4 root is NOT a box: the block it names is\n   the cell's flex child, so the flex:1 rule above never reaches it \u2014 pass the property through instead, and\n   leave the height rule to the placed wrappers it was written for. */\n.hb-row-cell > .hb-place:not(.hb-bare) > * { height: 100%; }\n.hb-row-cell > .hb-bare > * { flex: 1; }\n/* Grid: each cell keeps its block's own height, top-aligned in its row. */\n.hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: start; }\n.hb-grid-cell { min-width: 0; display: flex; flex-direction: column; }\n.hb-row-cell-own { flex: none; align-self: center; }\n.hb-section { display: flex; flex-direction: column; gap: 8px; }\n.hb-section-body { display: flex; flex-direction: column; gap: 10px; }\n.hb-section .hb-card { background: var(--hb-well); border-color: transparent; }\n.hb-section-toggle {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  width: 100%;\n  padding: 0;\n  border: 0;\n  background: none;\n  color: inherit;\n  font: inherit;\n  text-align: left;\n  cursor: pointer;\n}\n.hb-section-toggle .hb-card-title { flex: 1; min-width: 0; }\n.hb-chevron { flex: none; color: var(--hb-muted); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }\n.hb-chevron-open { transform: rotate(90deg); }\n/* Tabs: underlined tab buttons in a bar that scrolls sideways when they don't fit, above one panel of blocks. */\n.hb-tabs { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n.hb-tab-bar {\n  display: flex;\n  gap: 2px;\n  overflow-x: auto;\n  scrollbar-width: none;\n  border-bottom: 1px solid var(--hb-line);\n}\n.hb-tab-bar::-webkit-scrollbar { display: none; }\n.hb-tab {\n  flex: none;\n  margin-bottom: -1px;\n  padding: 7px 12px 8px;\n  border: 0;\n  border-bottom: 2px solid transparent;\n  border-radius: 8px 8px 0 0;\n  background: none;\n  color: var(--hb-muted);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  white-space: nowrap;\n  cursor: pointer;\n  transition: color 0.15s, border-color 0.15s, background 0.15s;\n}\n.hb-tab:hover { color: var(--hb-ink-2); background: var(--hb-well); }\n.hb-tab-on, .hb-tab-on:hover { color: var(--hb-accent-ink); border-bottom-color: var(--hb-accent); background: none; }\n.hb-tab:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: -2px; }\n.hb-tab-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }\n\n/* Columns: dashboards side by side, each block at its own height (a short card beside a tall one stays short). */\n.hb-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 10px; align-items: start; }\n.hb-column { min-width: 0; display: flex; flex-direction: column; gap: 10px; }\n/* Beside other blocks a table's card fills its column or cell (on its own it hugs its columns); a place around it\n   changes nothing about that. */\n:is(.hb-column, .hb-grid-cell) > .hb-table-card,\n:is(.hb-column, .hb-grid-cell) > .hb-place > .hb-table-card { width: auto; }\n";
 
 // src/blocks/chart/chart.css
 var chart_default = "/* Charts are drawn at their real width and fill their place inside a layout block (a column, a cell, a tab). At the\n   top of a reply, placed or not, they stop at 720px; a long line (60+ points) takes the board's full width. */\n.hb-chart { margin: 0; padding: 14px 16px 10px; }\n.hb-blocks > .hb-chart:not(.hb-chart-wide),\n.hb-blocks > .hb-place > .hb-chart:not(.hb-chart-wide) { max-width: 720px; }\n.hb-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }\n.hb-chart-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--hb-muted);\n}\n.hb-chart-figure { display: flex; align-items: baseline; gap: 8px; margin-top: 2px; min-width: 0; }\n.hb-chart-big {\n  font-size: 28px;\n  line-height: 1.15;\n  font-weight: 800;\n  letter-spacing: -0.03em;\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-at {\n  min-width: 0;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  font-size: 12px;\n  color: var(--hb-muted);\n  font-variant-numeric: tabular-nums;\n}\n.hb-chart-other { margin-left: 8px; }\n.hb-chart-plot { position: relative; margin-top: 8px; }\n.hb-chart-svg { display: block; width: 100%; overflow: visible; touch-action: none; user-select: none; }\n.hb-chart-svg:focus-visible, .hb-pie-svg:focus-visible, .hb-hbar-grid:focus-visible {\n  outline: 2px solid var(--hb-accent);\n  outline-offset: 4px;\n  border-radius: 4px;\n}\n.hb-chart-source { margin-top: 2px; text-align: right; font-size: 11px; color: var(--hb-muted); }\n\n/* Marks and text inside the drawings */\n.hb-chart-axis, .hb-chart-tick { font-size: 11px; fill: var(--hb-muted); font-variant-numeric: tabular-nums; }\n.hb-chart-value { font-size: 11.5px; font-weight: 500; fill: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n.hb-chart-end { font-size: 11.5px; font-weight: 600; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n/* Text drawn over lines (a change line's Start label): a rim of the page's colour behind the letters. */\n.hb-chart-halo { paint-order: stroke; stroke: var(--hb-surface); stroke-width: 3px; stroke-linejoin: round; }\n.hb-chart-rule { stroke: var(--hb-line); }\n.hb-chart-rule-strong { stroke: var(--hb-line-strong); }\n.hb-chart-dot { stroke: var(--hb-surface); stroke-width: 2; }\n/* A spot where several points coincide: a small \xD7n badge beside the dot (the dots never move; a repeated\n   click cycles the spot's points \u2014 Chart.tsx). A rim of the page colour keeps it readable over the dots. */\n.hb-chart-cluster { font-size: 9.5px; font-weight: 700; pointer-events: none; paint-order: stroke;\n  stroke: var(--hb-surface); stroke-width: 3px; stroke-linejoin: round; }\n.hb-chart-svg g, .hb-hbar-bar { transition: opacity 0.15s; }\n.hb-chart-draw { animation: hb-chart-draw 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }\n@keyframes hb-chart-draw { to { stroke-dashoffset: 0; } }\n\n/* The hover card (ChartTip) */\n.hb-tip {\n  position: absolute;\n  top: 0;\n  left: 0;\n  z-index: 5;\n  display: flex;\n  flex-direction: column;\n  gap: 4px;\n  min-width: 120px;\n  padding: 8px 10px;\n  border: 1px solid var(--hb-line);\n  border-radius: 8px;\n  background: var(--hb-surface);\n  box-shadow: var(--hb-shadow);\n  color: var(--hb-ink);\n  font-size: 12.5px;\n  line-height: 1.35;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n  pointer-events: none;\n  opacity: 0;\n  transition: opacity 120ms ease;\n}\n.hb-tip-on { opacity: 1; }\n.hb-tip-title, .hb-tip-note { font-size: 11.5px; color: var(--hb-muted); }\n.hb-tip-row { display: flex; align-items: center; gap: 8px; }\n.hb-tip-row i { flex: none; width: 8px; height: 8px; border-radius: 2px; }\n.hb-tip-name { flex: 1; color: var(--hb-ink-2); }\n.hb-tip-value { margin-left: 12px; font-weight: 600; }\n\n@media (prefers-reduced-motion: reduce) {\n  .hb-chart-draw { animation: none; stroke-dashoffset: 0; }\n  .hb-tip, .hb-chart-svg g, .hb-hbar-bar, .hb-slice, .hb-pie-legend tr { transition: none; }\n}\n\n.hb-legend {\n  display: flex;\n  flex-wrap: wrap;\n  gap: 4px 12px;\n  margin-top: 6px;\n  font-size: 12px;\n  line-height: 16px;\n  color: var(--hb-muted);\n}\n.hb-legend-item { display: inline-flex; align-items: center; gap: 6px; }\n.hb-legend-dot { flex: none; width: 10px; height: 10px; border-radius: 999px; }\n.hb-legend-value { color: var(--hb-ink-2); font-variant-numeric: tabular-nums; }\n\n/* Pie and donut: the legend sits beside the drawing from 440px wide, below it when narrower. It stops at 420px so\n   amounts stay near their names when the donut fills a wide section. */\n.hb-pie { container-type: inline-size; }\n.hb-pie-body { position: relative; display: flex; flex-direction: column; gap: 14px; margin-top: 10px; }\n@container (min-width: 440px) {\n  .hb-pie-body { flex-direction: row; align-items: center; gap: 20px; }\n  .hb-pie-body .hb-pie-svg { margin: 0; }\n}\n.hb-pie-svg { display: block; flex: none; margin: 0 auto; user-select: none; }\n.hb-pie-total { font-size: 17px; font-weight: 650; fill: var(--hb-ink); font-variant-numeric: tabular-nums; }\n.hb-slice { cursor: pointer; stroke: var(--hb-surface); stroke-width: 2; stroke-linejoin: round; transition: opacity 0.15s; }\n.hb-pie-legend { flex: 1; min-width: 0; max-width: 420px; border-collapse: collapse; font-size: 13px; line-height: 18px; font-variant-numeric: tabular-nums; }\n.hb-pie-legend tr { cursor: pointer; transition: opacity 0.15s; }\n.hb-pie-legend td { padding: 3px 12px 3px 0; vertical-align: top; }\n.hb-pie-legend td:last-child { padding-right: 0; }\n.hb-pie-swatch { width: 10px; }\n.hb-pie-swatch i { display: block; width: 10px; height: 10px; margin-top: 4px; border-radius: 3px; }\n.hb-pie-name { width: 100%; color: var(--hb-ink-2); overflow-wrap: anywhere; }\n.hb-pie-value { text-align: right; font-weight: 600; white-space: nowrap; }\n.hb-pie-share { text-align: right; color: var(--hb-muted); white-space: nowrap; }\n\n/* Horizontal bars: label | bar | value on each row. */\n.hb-hbar-box { position: relative; margin: 10px 0 4px; }\n.hb-hbar-grid {\n  display: grid;\n  grid-template-columns: fit-content(40%) minmax(0, 1fr) max-content;\n  gap: 8px 12px;\n  align-items: center;\n  font-size: 13px;\n}\n.hb-hbar-label { min-width: 64px; line-height: 17px; color: var(--hb-ink-2); }\n.hb-hbar-tracks, .hb-hbar-values { display: flex; flex-direction: column; gap: 4px; }\n.hb-hbar-track { position: relative; height: 14px; }\n.hb-hbar-zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--hb-line-strong); }\n.hb-hbar-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; }\n.hb-hbar-value { line-height: 14px; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }\n.hb-hbar-many .hb-hbar-track { height: 12px; }\n.hb-hbar-many .hb-hbar-value { font-size: 12px; line-height: 12px; }\n.hb-hbar-up { color: var(--hb-good); }\n.hb-hbar-down { color: var(--hb-warn); }\n\n/* The drill-down detail (ChartDetail.tsx): one datum, focused, over the whole window \u2014 the same scrim, the same\n   z and appear as the photo strip's full-size view and the host's expanded board, and the same close control. It\n   mounts BESIDE the chart figure, never inside the card: a card that transforms or contains its own box \u2014 every\n   entrance animation does, and Chrome measures a fixed descendant then resolving to that box, not the window\n   (probed on Chrome 157; the container-type the pie already carries alone does NOT contain fixed) \u2014 would shrink\n   an inside-mounted overlay to the card. Out of flow, the sibling mount costs the board's widths nothing \u2014\n   Chrome measures exactly that (tests/test_chart_drilldown_overlay.py). */\n.hb-chart-detail {\n  position: fixed;\n  inset: 0;\n  z-index: 2147483000;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  padding: 32px;\n  background: rgba(0, 0, 0, 0.82);\n  animation: hb-appear 0.18s ease-out;\n}\n/* Gate its own entrance AFTER the rule that declares it, so the cascade actually settles it: with reduced\n   motion the scrim rests at the window's true corner (Chrome measures the -4px the animation starts at). */\n@media (prefers-reduced-motion: reduce) {\n  .hb-chart-detail { animation: none; }\n}\n.hb-chart-detail-card {\n  box-sizing: border-box;\n  width: min(440px, 100%);\n  max-height: 100%;\n  overflow: auto;\n  padding: 20px 22px 18px;\n  border-radius: 16px;\n  background: var(--hb-surface);\n  box-shadow: var(--hb-shadow);\n  color: var(--hb-ink);\n}\n.hb-chart-detail-where { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--hb-muted); }\n.hb-chart-detail-title { margin-top: 2px; font-size: 24px; line-height: 1.15; font-weight: 800; letter-spacing: -0.02em; overflow-wrap: anywhere; }\n.hb-detail-row {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  margin-top: 10px;\n  padding-top: 10px;\n  border-top: 1px solid var(--hb-line);\n  font-size: 14px;\n  font-variant-numeric: tabular-nums;\n}\n.hb-detail-row i { flex: none; width: 10px; height: 10px; border-radius: 3px; }\n.hb-detail-name { flex: 1; min-width: 0; color: var(--hb-ink-2); overflow-wrap: anywhere; }\n.hb-detail-value { font-weight: 700; text-align: right; overflow-wrap: anywhere; }\n.hb-detail-note { margin-top: 10px; font-size: 12.5px; color: var(--hb-muted); }\n.hb-detail-source { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--hb-line); font-size: 11.5px; text-align: right; color: var(--hb-muted); }\n";
@@ -8567,7 +9540,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx45 } from "react/jsx-runtime";
+import { jsx as jsx46 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -8593,14 +9566,14 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, streaming }) => /* @__PURE__ */ jsx45(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id }, children: /* @__PURE__ */ jsx45(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, sessionId, streaming }) => /* @__PURE__ */ jsx46(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id, sessionScope: sessionId }, children: /* @__PURE__ */ jsx46(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
       }
     });
     ctx.register({
       id: "hermes-genui-shelf",
       area: CHAT_EMPTY_AREA,
       data: {
-        render: () => /* @__PURE__ */ jsx45(BlockActions.Provider, { value: { send, fill, rest }, children: /* @__PURE__ */ jsx45(LibraryEntry, {}) })
+        render: () => /* @__PURE__ */ jsx46(BlockActions.Provider, { value: { send, fill, rest }, children: /* @__PURE__ */ jsx46(LibraryEntry, {}) })
       }
     });
   }

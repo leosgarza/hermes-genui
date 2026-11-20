@@ -3,9 +3,12 @@
 .hb-row { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
 .hb-row-cell { flex: 1 1 140px; min-width: 0; display: flex; flex-direction: column; }
 .hb-row-cell > * { flex: 1; }
-/* A block placed inside a row cell: the wrapper takes the flex:1 above and the block fills it, ending at the same
-   height it would have sitting there directly. */
-.hb-row-cell > .hb-place > * { height: 100%; }
+/* A block placed inside a row cell: the wrapper takes the flex:1 above and the block fills it, ending at the
+   same height it would have sitting there directly. A bare round-4 root is NOT a box: the block it names is
+   the cell's flex child, so the flex:1 rule above never reaches it — pass the property through instead, and
+   leave the height rule to the placed wrappers it was written for. */
+.hb-row-cell > .hb-place:not(.hb-bare) > * { height: 100%; }
+.hb-row-cell > .hb-bare > * { flex: 1; }
 /* Grid: each cell keeps its block's own height, top-aligned in its row. */
 .hb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-items: start; }
 .hb-grid-cell { min-width: 0; display: flex; flex-direction: column; }

@@ -26,7 +26,7 @@ def _runner():
     return module
 
 
-EVIDENCE = json.loads((ROOT / "evals" / "evidence" / "model-choice-2026-11-19.json").read_text(encoding="utf-8"))
+EVIDENCE = json.loads((ROOT / "evals" / "evidence" / "model-choice-living-2026-11-19.json").read_text(encoding="utf-8"))
 
 
 def test_the_transcript_was_taken_against_this_tree_teaching():
@@ -86,3 +86,20 @@ def test_the_choices_are_varied_not_one_answer_for_everything():
     assert said["wall_dashboard"] == {"'reduced'"}
     for reply in said["mrr_answer"]:
         assert "compact" not in reply and "cool" not in reply and "warm" not in reply and "reduced" not in reply
+
+
+def test_the_model_lives_its_boards_update_link_or_draw_fresh_by_its_own_judgement():
+    """Living Boards v1, the same disposition as F1 for the NEW choice: from the shipped teaching alone, the
+    model must UPDATE the addressed board when its content is extended ('add NVDA... to that board'), reach
+    BACK by address when a comparison names a prior board, and stay CREATIVE-FRESH (no target, no links) on
+    an unrelated ask in the same chat. The #7 lesson holds: this is real recorded output — the bar is the
+    same at least 2 of 3 independent runs, judged by the runner's own recomputable verdicts."""
+    by_case = {}
+    for row in EVIDENCE["rows"]:
+        by_case.setdefault(row["case"], []).append(row)
+    upd = by_case["update_portfolio"]
+    assert sum(1 for r in upd if r["pass"] and r["said"] == "a1b2c3d4") >= 2
+    fresh = by_case["fresh_topic"]
+    assert sum(1 for r in fresh if r["pass"] and not r["said"]) >= 2
+    link = by_case["reach_back_q3"]
+    assert sum(1 for r in link if r["pass"] and "b2c3d4e5" in (r["said"] or "")) >= 2

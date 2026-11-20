@@ -67,6 +67,10 @@
    export rework's real-browser coverage of a board taller than the viewport (t_bff8178a round 2): the table
    card collapsed to 6px and the grid slid up over its corner. One rule, inline boards untouched. */
 .hb-board-overlay .hb-blocks > * { flex-shrink: 0; }
+/* A bare (display:contents) root generates no box, so in the dialog column the flex item is the block
+   INSIDE it: pass the no-shrink through. A placed (flow-root) root is itself the item and ignores the
+   rule on its child, so this never changes an asked block's number. */
+.hb-board-overlay .hb-blocks > .hb-place > * { flex-shrink: 0; }
 /* The wider container, in the ONE shipped rule the swap experiment comments out: the expanded board box is a
    single element now — it sheds the reading cap and margin (folded into the panel's own padding) and carries
    the paper its old separate body used to draw. The caps are .hb-blocks > X rules, scoped to the board
@@ -408,6 +412,7 @@
    expand dialog proved necessary (a shrink fight is not a scroll), and no extra caps — the board's
    own .hb-blocks rules keep their numbers, so a reopen lays out the way the board laid out inline. */
 .hb-library-board .hb-blocks > * { flex-shrink: 0; }
+.hb-library-board .hb-blocks > .hb-place > * { flex-shrink: 0; }  /* bare contents root: pass through */
 .hb-library-boardhead {
   display: flex;
   flex-wrap: wrap;
@@ -430,3 +435,77 @@
   color: var(--foreground, #1f2328);
 }
 .hb-library-boardtitle { font-size: 14px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+
+/* --- Living Boards v1 (enhancement #9) -----------------------------------------------------------
+   The quiet row a live board says under itself, and the pointer a later tag of the same address
+   draws instead of a second board. Both sit OUTSIDE .hb-blocks (the board's own DOM is untouched)
+   and animate nothing: with no motion of their own there is nothing for prefers-reduced-motion
+   to still. Colors ride the app's own variables with fallbacks, as the chrome row's do. */
+.hb-live {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: center;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background, #ffffff) 60%, transparent);
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.hb-live-line { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hb-live-mark { color: var(--ui-success, #1a7f37); }
+.hb-live-version { font-weight: 600; color: var(--foreground, #1f2328); }
+.hb-live-addr {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--foreground, #1f2328) 7%, transparent);
+}
+.hb-live-history, .hb-live-back, .hb-link-chip {
+  border: 1px solid color-mix(in srgb, var(--foreground, #1f2328) 14%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 10px;
+  cursor: pointer;
+}
+.hb-live-history[aria-pressed="true"], .hb-link-chip[aria-expanded="true"] {
+  border-color: var(--theme-primary, #e0a83c);
+  color: var(--foreground, #1f2328);
+}
+.hb-links { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.hb-links-label { font-style: italic; }
+.hb-link { display: contents; }
+.hb-linked {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px dashed color-mix(in srgb, var(--foreground, #1f2328) 22%, transparent);
+  border-radius: 10px;
+}
+.hb-linked-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.hb-linked-gone { color: var(--ui-text-tertiary, #6b7280); font-style: italic; }
+.hb-live-pointer {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 6px 0;
+  color: var(--ui-text-tertiary, #6b7280);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

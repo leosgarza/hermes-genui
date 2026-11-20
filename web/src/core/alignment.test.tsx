@@ -2,8 +2,9 @@
 // placed, a board default from the stored envelope cascades to every block that didn't ask, wherever it sits, and
 // the block's own word beats it. The model's cascade is the whole rule: there is no reader override anywhere.
 // Placement resolves recursively: containers draw their children through the same path, so a nested block is
-// placed inside its own cell and the container keeps the layout it owns. A placed block is drawn inside a .hb-place
-// wrapper; left is how blocks sit already, so an unplaced board keeps the DOM exactly as it was.
+// placed inside its own cell and the container keeps the layout it owns. Since round 4 every block sits in ONE
+// stable .hb-place root (a living flip of the ask must not re-wrap the tree); with no ask the root is .hb-bare —
+// display: contents, no box — and the board renders exactly as it always did.
 import { cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import catalog from "../../../core/catalog.json";
@@ -37,12 +38,17 @@ const CALC = { type: "calculator", sliders: [{ name: "p", title: "Loan", max: 10
 describe("block placement", () => {
   afterEach(cleanup);
 
-  it("leaves the board alone when nobody asks: no wrapper, blocks fill the column as they always did", () => {
+  it("leaves the board alone when nobody asks: no placement box, blocks fill the column as they always did", () => {
+    // Round 4 contract (Sol's disposition): every block sits in ONE stable .hb-place root; asked or
+    // not, the element tree never changes. With no ask the root is .hb-bare — display: contents, no
+    // box, zero layout voice — so the blocks fill the column exactly where they always did.
     const root = draw([TEXT, CALC]);
-    expect(root.querySelector(".hb-place")).toBeNull();
+    expect(root.querySelector(".hb-place:not(.hb-bare)")).toBeNull();  // nothing asked, no place box
     const blocks = root.querySelector(".hb-blocks")!;
-    expect(blocks.children.length).toBe(2);
-    expect(blocks.firstElementChild!.classList.contains("hb-text")).toBe(true);
+    expect(blocks.children.length).toBe(2);                             // one stable root per block
+    expect([...blocks.children].every((c) => c.classList.contains("hb-place") && c.classList.contains("hb-bare"))).toBe(true);
+    expect(getComputedStyle(blocks.firstElementChild!).display).toBe("contents");  // the bare root grows no box
+    expect(blocks.firstElementChild!.firstElementChild!.classList.contains("hb-text")).toBe(true);
   });
 
   it("draws a block that asks for center inside a centered place", () => {
@@ -59,7 +65,7 @@ describe("block placement", () => {
 
   it("asks for left the way a board already sits, so it needs no place at all", () => {
     const root = draw([{ ...TEXT, align: "left" }]);
-    expect(root.querySelector(".hb-place")).toBeNull();
+    expect(root.querySelector(".hb-place:not(.hb-bare)")).toBeNull();
   });
 
   it("cascades the board's default to every block that didn't ask", () => {
@@ -71,7 +77,7 @@ describe("block placement", () => {
 
   it("lets a block's own word override the board's default", () => {
     const root = draw({ align: "center", blocks: [{ ...TEXT, align: "left" }, { ...CALC, align: "right" }, CALC] });
-    const places = [...root.querySelectorAll(".hb-place")];
+    const places = [...root.querySelectorAll(".hb-place:not(.hb-bare)")];
     expect(places.map((p) => p.getAttribute("data-align"))).toEqual(["right", "center"]);  // left block sits unplaced; right beats center
   });
 
@@ -136,7 +142,7 @@ describe("placement within the column's widths", () => {
 
   it("lets a full-width table hug its columns, placed or not", () => {
     expect(style(draw([{ ...example("table"), align: "center" }]), ".hb-blocks > .hb-place > .hb-table-card").width).toBe("fit-content");
-    expect(style(draw([example("table")]), ".hb-blocks > .hb-table-card").width).toBe("fit-content");
+    expect(style(draw([example("table")]), ".hb-blocks > .hb-place > .hb-table-card").width).toBe("fit-content");
   });
 
   it("reaches inside a container without taking over its cells", () => {
@@ -173,7 +179,7 @@ describe("text alignment", () => {
 
   it("asks for left text the way words read anyway, so nothing is wrapped", () => {
     const root = draw([{ ...TEXT, text_align: "left" }]);
-    expect(root.querySelector(".hb-place")).toBeNull();
+    expect(root.querySelector(".hb-place:not(.hb-bare)")).toBeNull();
   });
 
   it("keeps an align-only board byte-identical: places exist, the text voice never does", () => {

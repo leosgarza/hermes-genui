@@ -31,7 +31,9 @@ inside a sentence, list or code block. Keep the words around it short; the block
 and image URLs a tool returned.
 Blocks are rich and interactive (tabs, side-by-side columns, buttons, calculators with live charts, checklists, \
 forms, sortable tables). For anything visual or "interactive", never write an HTML page, ::preview widget or code \
-block."""
+block. A board you drew stays live: its tag's id is its address. When the user asks to change, extend or tighten \
+THAT board, call show_blocks again with target set to that id — the live board updates in place, history kept, no \
+duplicate; when a comparison with an earlier board genuinely helps, connect them with links. Most turns need neither."""
 
 
 DRAW = draw_rule(shipped())

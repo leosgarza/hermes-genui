@@ -9,9 +9,12 @@ from ..blocks.common import (
     PALETTE,
     align_word,
     as_of_line,
+    board_address,
     choice_word,
     follow_up_problems,
     follow_up_words,
+    link_problems,
+    link_words,
     live_flag,
 )
 from ..core import store, surface
@@ -178,6 +181,47 @@ def too_big(blocks: list | dict) -> str | None:
             "Draw less or split it.")
 
 
+def _target_address(raw: object, problems: list[str]) -> str | None:
+    """The board address a `target` word names, or None with a problem added. Nothing said is not a problem —
+    it just means a fresh board; a wrong word is a problem the model must see, because silently drawing fresh
+    would be the duplicate board the whole feature exists to prevent."""
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    addr = board_address(raw)
+    if addr is None:
+        problems.append('target: not a board address — the 8 characters of an earlier tag id, as "7f3a09bc". '
+                        "Leave target out to draw a new board.")
+        return None
+    if store.find_root(addr) is None:
+        problems.append(f"target: no stored board with address {addr} — draw a new board (leave target out) "
+                        "instead of naming an address that answers nothing.")
+        return None
+    return addr
+
+
+def _link_addresses(raw: object, target: str | None, problems: list[str]) -> list[dict] | None:
+    """The links to store, after shape and existence are both answered: every linked address must name a
+    real board (a link to nothing is a broken promise the reader would click), and a board never links to
+    itself."""
+    shape = link_problems(raw)
+    if shape:
+        problems += shape
+        return None
+    if not isinstance(raw, list):
+        return None
+    for i, item in enumerate(raw):
+        addr = board_address(item if isinstance(item, str) else item.get("id"))
+        if addr is None:
+            continue  # link_problems has already said why this one is not an address
+        if addr == target:
+            problems.append("links: a board can't link to itself")
+        elif store.find_root(addr) is None:
+            problems.append(f"links.{i}: no stored board with address {addr}")
+    if problems:
+        return None
+    return link_words(raw)
+
+
 def show_blocks(params: dict, **kwargs) -> str:
     if not surface.can_draw(session_id=str(kwargs.get("session_id") or "")):
         return surface.CANT_DRAW
@@ -187,6 +231,8 @@ def show_blocks(params: dict, **kwargs) -> str:
     if not blocks:
         return _not_drawn(["blocks: give at least one block"])
     problems = check_blocks(blocks) + follow_up_problems(params.get("follow_ups"))
+    target = _target_address(params.get("target"), problems)
+    links = _link_addresses(params.get("links"), target, problems) if params.get("links") is not None else None
     if not problems:
         blocks = resolve_includes(blocks, problems)
     if not problems:  # an included board can take the whole one past the nesting limit
@@ -211,6 +257,8 @@ def show_blocks(params: dict, **kwargs) -> str:
         envelope["live"] = live
     if (ups := follow_up_words(params.get("follow_ups"))) is not None:  # checked by follow_up_problems above
         envelope["follow_ups"] = ups
+    if links:  # checked by _link_addresses above: every one names a stored board
+        envelope["links"] = links
     if envelope:  # the board's own words ride beside its blocks, in one envelope
         board = {**envelope, "blocks": blocks}
     refusal = too_big(board)
@@ -219,6 +267,12 @@ def show_blocks(params: dict, **kwargs) -> str:
     problems = unknown_photos(blocks, store.known_photo_urls())
     if problems:
         return _not_drawn(problems)
+    if target is not None:  # update-in-place: a new version at the SAME address, the old ones archived
+        block_id = store.update(target, board)
+        version = store.version_of(store.load(block_id, store.find_root(block_id)))
+        return (f"Updated the same live board {block_id} to v{version} — the tag below is that same address: "
+                f"paste it where the update belongs and the board updates in place, keeping the versions "
+                f"before this one retrievable.\n" + paste_instruction(block_id))
     return paste_instruction(store.save(board))
 
 
@@ -228,7 +282,9 @@ SHOW_BLOCKS_SCHEMA = {
         "Draw visual blocks in the reply (Hermes Desktop): itineraries, trends, comparisons, headline numbers, "
         "photos. Use it when the answer reads better drawn than written. "
         "Paste the returned tag on its own line exactly as returned. "
-        "Use only numbers and image URLs a tool returned.\n\n" + describe()
+        "Use only numbers and image URLs a tool returned. "
+        "Boards live: the id in a board's tag is its address, so a board you drew earlier can be updated in "
+        "place (target) or connected to (links) instead of redrawn. See target and links.\n\n" + describe()
     ),
     "parameters": {
         "type": "object",
@@ -300,6 +356,26 @@ SHOW_BLOCKS_SCHEMA = {
                 "controls. Offer them when one more exchange would genuinely help (a next step, a deeper cut, a "
                 "fix to a flaw the board itself shows); skip them when the answer is finished. A message Hermes "
                 "acts on before the model (starting / @ or !, or carrying an @-reference) is refused.",
+            },
+            "target": {
+                "type": "string",
+                "description": "Optional. The address of a board you drew earlier in this conversation — the 8-"
+                "character id inside its ::blocks tag (e.g. \"7f3a09bc\"). Set it when the user asks to change, "
+                "extend or tighten THAT board (\"add NVDA\", \"make it compact\", \"update the numbers\"): the "
+                "board updates in place at the same address, keeps a version history (the older version stays "
+                "retrievable), and the reply pastes its same tag — not a new board. Leave it out for anything "
+                "new; a wrong address is refused, never silently redrawn fresh. Most turns need no target.",
+            },
+            "links": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Optional. 1-3 boards this one connects to, each an address (\"7f3a09bc\") or "
+                "{\"id\": \"7f3a09bc\", \"note\": \"last quarter\"}. Use it when reaching back genuinely helps — "
+                "a comparison the user asked for (\"how does this quarter compare to last?\"), or a prior board "
+                "this one updates — and name the stored board the user's earlier tag carried: the reader can "
+                "open the linked board from this one without it being redrawn. Every address must be a board "
+                "that exists; a board never links to itself. The note is the connection as you suggest it, one "
+                "short line. Most turns need no links.",
             },
         },
         "required": ["blocks"],
