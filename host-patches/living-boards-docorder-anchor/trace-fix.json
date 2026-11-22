@@ -1,0 +1,34 @@
+{
+ "trace": [
+  {
+   "r": 0,
+   "markers": 1,
+   "cardInLast": true,
+   "msgs": 16
+  }
+ ],
+ "atBottomPre": {
+  "card": true,
+  "cardInLast": true,
+  "markers": 0,
+  "msgCount": 5,
+  "cardText": "",
+  "lastText": "Updated to v16 — final state. This occurrence is the LAST in the transcript."
+ },
+ "atTop": {
+  "card": true,
+  "cardInLast": true,
+  "markers": 1,
+  "msgCount": 16,
+  "cardText": "",
+  "lastText": "Updated to v16 — final state. This occurrence is the LAST in the transcript."
+ },
+ "atBottomPost": {
+  "card": true,
+  "cardInLast": true,
+  "markers": 1,
+  "msgCount": 16,
+  "cardText": "",
+  "lastText": "Updated to v16 — final state. This occurrence is the LAST in the transcript."
+ }
+}

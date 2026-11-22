@@ -120,10 +120,29 @@ The process is part of the product story. Five gates, in order:
 
 ---
 
+## (g) The scroll-up fix — published host patch
+
+The long-thread scroll-up edge is fixed and the patch is public:
+
+👉 **[host-patches/living-boards-docorder-anchor](https://github.com/leosgarza/hermes-genui/tree/main/host-patches/living-boards-docorder-anchor)**
+
+- **What changed:** the follow-along anchor now wins by *transcript document order*, not React mount order — so lazy-mounting an older reply while scrolling up can no longer strand the board at the earlier spot.
+- **Patch SHA-256:** `76d6a2eabdb0fcce1973630e797ea4959b26d21c183c7dd4ffca50409db35ac3`
+- **Live install stamp:** `e069063d63` (branch `fix/living-boards-docorder-anchor`), code signature verified.
+- **Proof:** same-start lazy-mount DOM traces (base: card not in last occurrence → fixed: card in last occurrence), 46 focused UI tests, two byte-identical pinned-clock builds.
+- **Scope:** this is the Hermes-app host complement to plugin PR #55; it applies on top of the follow-along host feature, not as a standalone plugin change.
+
+Sandbox placement captures (fixture board host is empty in this harness — these prove anchor/marker placement, not a populated board):
+
+![before: scroll-up can strand the anchor](https://raw.githubusercontent.com/leosgarza/hermes-genui/main/host-patches/living-boards-docorder-anchor/before-scrollup.png)
+![after: document-order anchor keeps the latest occurrence](https://raw.githubusercontent.com/leosgarza/hermes-genui/main/host-patches/living-boards-docorder-anchor/after-scrollup.png)
+
+---
+
 ### Capture provenance (honesty note)
 
 - **Live captures:** `live-app-nvidia-board-and-marker.png` is a screenshot of the *running* Hermes desktop app on the owner's Mac (install stamp `91d815b1`), showing the owner's real conversation.
 - **Sandbox captures:** the `sandbox-*.png` series comes from the isolated second app instance (fixture transcripts, offline stub model, no owner data). They are used to show the *ordered journey* (before → streaming → settled → click → reload) deterministically.
 - **Answer-first captures:** rendered from the repo's own recipe example with the shipped CSS, byte-reproducible.
 
-**Known edge (being polished):** in very long conversations, scrolling back up can occasionally re-show an earlier copy of a board instead of the latest. Normal use, short threads, and live updates follow along exactly as shown above.
+**Scroll-up edge — now fixed:** in very long conversations, scrolling back up used to occasionally re-show an earlier copy of a board instead of the latest. That is fixed by choosing the anchor in transcript document order (see §g below); the fix is live on the owner's install.
