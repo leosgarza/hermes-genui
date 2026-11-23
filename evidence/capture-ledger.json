@@ -1,0 +1,79 @@
+{
+ "kpis-align-center": {
+  "scenario": "kpis-align-center",
+  "base": {
+   "png_sha256": "29ae19b842fb76defa0063c38b47c4976cc1c464640bcdbce5c1e5c25608f63e",
+   "repeat_sha256": "29ae19b842fb76defa0063c38b47c4976cc1c464640bcdbce5c1e5c25608f63e",
+   "reproducible": true,
+   "rect_count": 5,
+   "facts": {
+    "first_card_x": 0.0,
+    "last_card_right": 616.0,
+    "row_width": 800.0
+   }
+  },
+  "candidate": {
+   "png_sha256": "62efa65fa0df3a961590ac4c2541697a23989c629da71df6febe993866a86dd5",
+   "repeat_sha256": "62efa65fa0df3a961590ac4c2541697a23989c629da71df6febe993866a86dd5",
+   "reproducible": true,
+   "rect_count": 5,
+   "facts": {
+    "first_card_x": 92.0,
+    "last_card_right": 708.0,
+    "row_width": 800.0
+   }
+  }
+ },
+ "center-one-block": {
+  "scenario": "center-one-block",
+  "base": {
+   "png_sha256": "35e2e05ca3dd5f1e9af46f4311be596b827607f5486a88cf789f3da75fe3aa53",
+   "repeat_sha256": "35e2e05ca3dd5f1e9af46f4311be596b827607f5486a88cf789f3da75fe3aa53",
+   "reproducible": true,
+   "rect_count": 8,
+   "facts": {
+    "calc_x": 0.0,
+    "calc_w": 800.0,
+    "kpis_first_card_x": 0.0
+   }
+  },
+  "candidate": {
+   "png_sha256": "77ebddf8e270868935b155d4e551b44ec288617233b3e998d19e28f48bffad8c",
+   "repeat_sha256": "77ebddf8e270868935b155d4e551b44ec288617233b3e998d19e28f48bffad8c",
+   "reproducible": true,
+   "rect_count": 8,
+   "facts": {
+    "calc_x": 40.0,
+    "calc_w": 720.0,
+    "kpis_first_card_x": 0.0
+   }
+  }
+ },
+ "whole-board": {
+  "scenario": "whole-board",
+  "base": {
+   "png_sha256": "35e2e05ca3dd5f1e9af46f4311be596b827607f5486a88cf789f3da75fe3aa53",
+   "repeat_sha256": "35e2e05ca3dd5f1e9af46f4311be596b827607f5486a88cf789f3da75fe3aa53",
+   "reproducible": true,
+   "rect_count": 8,
+   "facts": {
+    "calc_x": 0.0,
+    "calc_w": 800.0,
+    "kpis_first_card_x": 0.0,
+    "kpis_last_card_right": 616.0
+   }
+  },
+  "candidate": {
+   "png_sha256": "6fd48c2d972d2d25ec9a7ef2e6b769947710e02cb35ae485ebdfc42f68495202",
+   "repeat_sha256": "6fd48c2d972d2d25ec9a7ef2e6b769947710e02cb35ae485ebdfc42f68495202",
+   "reproducible": true,
+   "rect_count": 8,
+   "facts": {
+    "calc_x": 40.0,
+    "calc_w": 720.0,
+    "kpis_first_card_x": 92.0,
+    "kpis_last_card_right": 708.0
+   }
+  }
+ }
+}
