@@ -15,10 +15,16 @@
 // callout): `text_align` per block, `boardTextAlign` for every block that didn't ask, left when neither says.
 // A block wrapped for placement, for its text voice, or for both, gets the one wrapper; a board with no ask
 // anywhere draws the same DOM it always did.
+// A board whose envelope offers follow-ups (boardFollowUps, readBlocks.ts) also grows a quiet strip beneath
+// its blocks: up to four tappable prompts the AI chose so the reader can continue the conversation in one tap.
+// Their drawing is core/FollowUps.tsx; the row costs a fit-content hug zero width and wraps long labels rather
+// than clipping them. Nothing offered, no strip: the same DOM as always.
 import { Component as ReactComponent, createContext, useContext, type ErrorInfo, type ReactNode } from "react";
 import { FlowLightBoard } from "../blocks/flow/highlight";
 import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
+import type { FollowUp } from "./readBlocks";
+import { FollowUps } from "./FollowUps";
 import { BlockSlot } from "./blockState";
 import { carriedKey, identityOf, mintKey, noteMounted } from "./living-identity";
 import type { Align } from "./fields";
@@ -114,13 +120,14 @@ function Placed({ block }: { block: Block }) {
   );
 }
 
-export function Blocks({ blocks, boardAlign, boardTextAlign }: {
-  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align;
+export function Blocks({ blocks, boardAlign, boardTextAlign, boardFollowUps }: {
+  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardFollowUps?: FollowUp[];
 }) {
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
       <div className="hb-blocks">
         <FlowLightBoard>{drawAll(blocks)}</FlowLightBoard>
+        {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} />}
       </div>
     </AlignScope.Provider>
   );

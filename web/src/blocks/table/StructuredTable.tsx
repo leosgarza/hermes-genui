@@ -9,7 +9,7 @@
 // refresh that keeps the data (pick.ts has the whole rule). A table without that word draws exactly what it
 // drew before it existed.
 import { useContext, useMemo, useRef, useState } from "react";
-import { BlockActions, type SendResult } from "../../host/actions";
+import { BlockActions, SENT_WORDS, type SendResult } from "../../host/actions";
 import { Icon } from "../../lib/Icon";
 import { formatNumber } from "../../lib/format";
 import { shownCell } from "./cells";
@@ -17,16 +17,6 @@ import { livePicks, pickedMessage, rowKey, rowMatches, selectedRows } from "./pi
 import type { Aggregate, AggregateOp, StructuredRow, StructuredTable as TableBlock } from "./read";
 
 const PAGE = 10;
-
-/** Where the last tap went, in as few words as stay true. A word never claims more than the host
- *  acknowledged: no draft without an ack, no send without a yes, and a refusal that kept nothing says so. */
-const SENT_WORDS: Record<SendResult, string> = {
-  sent: "Sent to chat.",
-  drafted: "In the composer. Press Send.",
-  blocked: "In the composer. Blocked from sending.",
-  failed: "Send failed. Nothing was kept.",
-  nowhere: "No chat here.",
-};
 
 function aggregateValue(rows: StructuredRow[], a: Aggregate): number | null {
   const values = rows.map((r) => r.cells[a.column]?.value).filter((v): v is number => v !== undefined);

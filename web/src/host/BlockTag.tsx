@@ -30,14 +30,15 @@ import * as boards from "../core/boardRoster";
 import { carryBlocks } from "../core/living-identity";
 import { forgetBlock, markLiving, migrateArchived, promoteOnUpdate } from "../blocks/checklist/savedState";
 import { LivePointer, LiveRow } from "../core/LivingBoards";
-import { readBlocksNoted, type BoardLink } from "../core/readBlocks";
+import { readBlocksNoted, type BoardLink, type FollowUp } from "../core/readBlocks";
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
-type State = { kind: "loading" } | { kind: "drawn"; blocks: Block[]; align?: Align; textAlign?: Align }
+type State = { kind: "loading" }
+  | { kind: "drawn"; blocks: Block[]; align?: Align; textAlign?: Align; followUps?: FollowUp[] }
   | { kind: "failed" };
 
 /**
@@ -113,8 +114,10 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
       : actions.rest(`/blocks/${id}?version=${viewing}`);
     Promise.resolve(ask)
       .then((data) => {
-        const { blocks, version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks,
-          align: boardAlign, textAlign: boardTextAlign } = readBlocksNoted(data);
+        const {
+          blocks, version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks, followUps: boardFollowUps,
+          align: boardAlign, textAlign: boardTextAlign,
+        } = readBlocksNoted(data);
         if (!alive) return;
         if (blocks.length) {
           // Drawing the answer is a function of the board and the door; the ONE thing that may precede it
@@ -137,7 +140,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
             if (drawn.current && viewing === null) void promoteOnUpdate(actions.rest, id, drawn.current, blocks);
             if (viewing === null && (boardVersion ?? 0) >= 2) markLiving(id);
             drawn.current = blocks;
-            setState({ kind: "drawn", blocks, align: boardAlign, textAlign: boardTextAlign });
+            setState({ kind: "drawn", blocks, align: boardAlign, textAlign: boardTextAlign, followUps: boardFollowUps });
             // Only the LIVE answer says what this address IS now: the live row and the roster's word about
             // the address speak of the current version, whatever older one is being looked at.
             if (viewing === null) {
@@ -229,7 +232,8 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
               <IconClose />
             </button>
           )}
-          <Blocks blocks={state.blocks} boardAlign={state.align} boardTextAlign={state.textAlign} />
+          <Blocks blocks={state.blocks} boardAlign={state.align} boardTextAlign={state.textAlign}
+            boardFollowUps={state.followUps} />
         </div>
       </div>
       {(live.version != null || live.links) && (

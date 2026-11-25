@@ -159,9 +159,9 @@ describe("ticking rows", () => {
 describe("the word after a tap is the host's own", () => {
   const words: Array<[SendResult, string]> = [
     ["sent", "Sent to chat."],
-    ["drafted", "In the composer. Press Send."],
-    ["blocked", "In the composer. Blocked from sending."],
-    ["failed", "Send failed. Nothing was kept."],
+    ["drafted", "In the composer — press Send."],
+    ["blocked", "Blocked from sending — in the composer — press Send."],
+    ["failed", "Send failed — nothing was sent or kept."],
     ["nowhere", "No chat here."],
   ];
 
@@ -180,7 +180,7 @@ describe("the word after a tap is the host's own", () => {
     const { container, send } = draw(table(THREE), vi.fn(async () => "failed" as SendResult));
     tick("Select row A");
     await act(async () => { fireEvent.click(sendButton()); });
-    expect(status(container).textContent).toBe("Send failed. Nothing was kept.");
+    expect(status(container).textContent).toBe("Send failed — nothing was sent or kept.");
     expect((screen.getByRole("checkbox", { name: "Select row A" }) as HTMLInputElement).checked).toBe(true);
     await act(async () => { fireEvent.click(sendButton()); });
     expect(send).toHaveBeenCalledTimes(2);
@@ -218,9 +218,9 @@ describe("the word after a tap is the host's own", () => {
     tick("Select row B");
     act(() => { fireEvent.click(sendButton()); });
     await act(async () => { answers[1]("drafted"); });
-    expect(status(container).textContent).toBe("In the composer. Press Send.");
+    expect(status(container).textContent).toBe("In the composer — press Send.");
     await act(async () => { answers[0]("sent"); }); // the old answer arrives late
-    expect(status(container).textContent).toBe("In the composer. Press Send.");
+    expect(status(container).textContent).toBe("In the composer — press Send.");
   });
 });
 
