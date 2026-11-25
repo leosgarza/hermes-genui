@@ -29,6 +29,8 @@ describe("source list", () => {
   it("draws the line beside items that kept nothing", () => {
     const c = draw([{ type: "source", text: "screener.in", items: [{ note: "no label" }] }]);
     expect(c.querySelectorAll(".hb-source-row").length).toBe(0);
-    expect(screen.getByText("screener.in")).toBeTruthy();
+    // the line draws where it sits — and since the 2026-11-25 maintainer tweak the provenance footer
+    // never echoes a shown source block, this block alone carries the words
+    expect(c.querySelector(".hb-source")!.textContent).toBe("screener.in");
   });
 });

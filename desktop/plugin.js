@@ -193,7 +193,7 @@ function composerActions(composer) {
 import { useContext as useContext15, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useReducer, useRef as useRef17, useState as useState28 } from "react";
 
 // src/core/Blocks.tsx
-import { Component as ReactComponent, createContext as createContext4, useContext as useContext13 } from "react";
+import { Component as ReactComponent, createContext as createContext4, Fragment as Fragment14, useContext as useContext13 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -7933,11 +7933,58 @@ function Placed({ block }) {
     }
   );
 }
-function Blocks({ blocks, boardAlign, boardTextAlign, boardFollowUps }) {
+function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUps }) {
+  const parts2 = showsSourceBlock(blocks) ? [] : provenanceParts(blocks);
   return /* @__PURE__ */ jsx49(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs45("div", { className: "hb-blocks", children: [
     /* @__PURE__ */ jsx49(FlowLightBoard, { children: drawAll(blocks) }),
-    !!boardFollowUps?.length && /* @__PURE__ */ jsx49(FollowUps, { items: boardFollowUps })
+    !!boardFollowUps?.length && /* @__PURE__ */ jsx49(FollowUps, { items: boardFollowUps }),
+    (parts2.length > 0 || live === true) && /* @__PURE__ */ jsx49(ProvenanceFooter, { parts: parts2, live })
   ] }) });
+}
+function showsSourceBlock(blocks) {
+  return blocks.some((b) => b.type === "source");
+}
+var PROVENANCE_PARTS = 8;
+var IS_DATE = /^\d{4}-\d{2}-\d{2}$/;
+function foldWord(v) {
+  return v.replace(/\s+/g, " ").trim();
+}
+function provenanceParts(blocks) {
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
+  const say = (raw) => {
+    const word = raw ? foldWord(raw) : "";
+    if (!word || seen.has(word)) return;
+    seen.add(word);
+    out.push(word);
+  };
+  for (const b of blocks) {
+    if (b.type !== "source") continue;
+    if (b.items?.length) for (const item of b.items) {
+      say(item.label);
+      say(item.accessed);
+    }
+    else say(b.text);
+  }
+  return out;
+}
+function ProvenanceFooter({ parts: parts2, live }) {
+  const nodes = [];
+  const join = (key, node) => {
+    if (nodes.length) {
+      nodes.push(/* @__PURE__ */ jsx49("span", { className: "hb-provenance-dot", "aria-hidden": "true", children: "\xB7" }, `${key}-dot`));
+    }
+    nodes.push(/* @__PURE__ */ jsx49(Fragment14, { children: node }, key));
+  };
+  for (const [i, word] of parts2.entries()) {
+    if (i >= PROVENANCE_PARTS) {
+      join("more", /* @__PURE__ */ jsx49("span", { className: "hb-provenance-more", children: "\u2026" }));
+      break;
+    }
+    join(`part-${i}`, /* @__PURE__ */ jsx49("span", { className: IS_DATE.test(word) ? "hb-provenance-time" : "hb-provenance-source", children: word }));
+  }
+  if (live === true) join("live", /* @__PURE__ */ jsx49("span", { className: "hb-provenance-badge", "data-live": "live", children: "Live" }));
+  return /* @__PURE__ */ jsx49("div", { className: "hb-provenance", children: nodes });
 }
 
 // src/core/boardRoster.ts
@@ -8462,7 +8509,10 @@ function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, r
         title: next.title,
         greeting: next.greeting ?? null,
         blocks: readBlocks(next.title ? next.blocks : EMPTY),
-        live: live.current,
+        // The host's OWN freshness facts — this view is a kept dashboard that refreshes itself (live from the
+        // spec, a job running, or a schedule); no board word and no model judgment feeds this. The badge wears
+        // it; the poll timer still uses the narrower `live.current` (a scheduled page keeps its calm 30 s beat).
+        live: live.current || Boolean(snapshot?.schedule),
         at: /* @__PURE__ */ new Date(),
         snapshot
       });
@@ -8534,7 +8584,7 @@ function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, r
         void reload();
       }
     } }),
-    /* @__PURE__ */ jsx53(BlockActions.Provider, { value: { send, fill, rest, blockId: `dashboard-${sig}` }, children: /* @__PURE__ */ jsx53(Blocks, { blocks: board.blocks }, sig) })
+    /* @__PURE__ */ jsx53(BlockActions.Provider, { value: { send, fill, rest, blockId: `dashboard-${sig}` }, children: /* @__PURE__ */ jsx53(Blocks, { blocks: board.blocks, live: board.live }, sig) })
   ] });
 }
 
@@ -8666,7 +8716,173 @@ async function openAndFill(text, host2, { waitMs = 2e3, stepMs = 100 } = {}) {
 }
 
 // src/styles/tokens.css
-var tokens_default = "/* Hermes GenUI: every class starts with hb- so nothing leaks into the app.\n   Colours come from Hermes's own theme variables, so blocks follow light and dark mode. */\n.hb-blocks {\n  --hb-ink: var(--foreground, #1f2328);\n  --hb-ink-2: color-mix(in srgb, var(--hb-ink) 80%, transparent);\n  --hb-muted: var(--ui-text-tertiary, color-mix(in srgb, var(--hb-ink) 55%, transparent));\n  --hb-line: color-mix(in srgb, var(--hb-ink) 10%, transparent);\n  --hb-card: color-mix(in srgb, var(--hb-ink) 3%, transparent);\n  --hb-well: color-mix(in srgb, var(--hb-ink) 6%, transparent);\n  --hb-accent: var(--theme-primary, #2f6fed);\n  --hb-accent-soft: color-mix(in srgb, var(--hb-accent) 13%, transparent);\n  --hb-accent-ink: color-mix(in srgb, var(--hb-accent) 85%, var(--hb-ink));\n  --hb-good: var(--ui-success, #1a7f37);\n  --hb-warn: #c2410c;\n  /* The one tone the theme has no variable for: a red for a value in a bad band (a load over its limit). */\n  --hb-bad: var(--ui-danger, #b42318);\n  /* The page behind the blocks, for the few marks that must hide what's under them (a progress checkpoint). */\n  --hb-surface: var(--background, Canvas);\n  /* A raised card (a chart's hover card). */\n  --hb-shadow: 0 8px 28px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.1);\n  /* One curve for everything that moves: transform, opacity and entrance animations. A colour or border\n     fade keeps the browser's own ease, which is right for a tint. */\n  --hb-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);\n  /* Series colours in the order they are handed out, checked so neighbours stay apart for colour-blind readers:\n     blue, amber, green, violet, cyan, red, lime, pink. */\n  --hb-chart-1: #4f7cff;\n  --hb-chart-2: #f59e0b;\n  --hb-chart-3: #10b981;\n  --hb-chart-4: #8b5cf6;\n  --hb-chart-5: #06b6d4;\n  --hb-chart-6: #ef4444;\n  --hb-chart-7: #84cc16;\n  --hb-chart-8: #ec4899;\n\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 8px 0;\n  /* A board stops at a comfortable reading width on a wide screen. */\n  max-width: 1100px;\n  color: var(--hb-ink);\n  font-family: var(--dt-font-sans, inherit);\n  font-size: 14px;\n  line-height: 1.45;\n}\n/* Dark mode (Hermes puts .dark on the page): the warning orange lightened to read on a dark background, a deeper\n   shadow. */\n.dark .hb-blocks {\n  --hb-warn: #f0883e;\n  --hb-bad: var(--ui-danger, #f0796c);\n  --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);\n}\n/* A stronger line, for chart axes, checkboxes and inputs. */\n.hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }\n.hb-blocks * { box-sizing: border-box; }\n/* The chat wraps text \"anywhere\", which lets a label in a flex row shrink to one letter per line. Blocks wrap only\n   between words (long words still break when they must). */\n.hb-blocks { overflow-wrap: break-word; }\n/* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */\n.hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }\n/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column\n   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block\n   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and\n   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a\n   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch\n   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no\n   .hb-place at all.\n   The two classes compound on purpose: a block's own root reset (.hb-chart { margin: 0 } in chart.css, the host's\n   figure margin in the line above) ties a single placement class on specificity and wins on load order alone \u2014\n   block css is joined after tokens. Compounded, the ask (0,2,0) outranks every root reset (0,1,0 and 0,1,1), so a\n   chart asked to center centers like every other card (measured in real Chrome: symmetric margins, never flush\n   left). Placed cards keep the width caps their own rules give them; those are duplicated through the wrapper in\n   each block's css. */\n.hb-place { display: flow-root; }\n.hb-place.hb-place-center > * { margin-inline: auto; }\n.hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }\n/* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's\n   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align only\n   moves words that sit in a line box filling the available width, so where a block keeps its words in a\n   shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put it, and\n   only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words read anyway,\n   so a board with no ask grows no class and no wrapper. */\n.hb-ta-center { text-align: center; }\n.hb-ta-right { text-align: right; }\n/* The line width a voice needs: text-align is no property of a shrink-wrapped flex item \u2014 a body that hugs its\n   words has no free line for the words to travel on. heading and text are block boxes that already fill their\n   column; a lone stat card fills its column and its label, value and change lines stretch across the card; only\n   the callout sets its words in a non-growing body beside the fixed icon, so where a voice asks, that body is\n   opened to the row beside the icon. Scoped to the voice classes on purpose: a callout nobody asked about keeps\n   every rect it always had. A new text-bearing kind joins TEXT_BEARING (core/Blocks.tsx) only once its words\n   measure at their voice in the Chrome probe (tests/test_layout_alignment.py). */\n.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }\n/* A placed kpis row (maintainer note 2): the cards are no ordinary card \u2014 the row is one grid whose auto-fill\n   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves\n   (and the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse\n   (auto-fit) and the used ones gather where the ask put them; the grid's box keeps filling the column and a\n   card's own rects stay exactly as the unplaced row measured them. Left asks grow no wrapper at all, so the\n   shipped default row is untouched by these rules \u2014 every selector here sits under a placement class. */\n.hb-place.hb-place-center > .hb-kpis,\n.hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }\n.hb-place.hb-place-center > .hb-kpis { justify-content: center; }\n.hb-place.hb-place-right > .hb-kpis { justify-content: end; }\n/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers\n   follow-ups. The row is width:0 + min-width:100% on purpose \u2014 the same trick a shipped tools row uses:\n   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can\n   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the\n   point of the tap, so no board is too narrow to read one \u2014 height may grow, width never, nothing clips, no\n   nowrap and no ellipsis. Pinned in real Chrome by tests/test_follow_ups_chrome.py. */\n.hb-followups {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px 8px;\n  width: 0;\n  min-width: 100%;\n  box-sizing: border-box;\n  padding: 2px 0 0;\n}\n.hb-followups .hb-pill {\n  flex: 0 1 auto;\n  min-width: 0;\n  min-height: 28px;\n  padding: 4px 12px;\n  font-size: 12px;\n}\n.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }\n/* The word the strip says is only ever the host's own answer to the LAST tap (core/FollowUps.tsx), and it\n   follows the row's rule: WRAP, never clip \u2014 height may grow, width never. At rest it carries no text and\n   costs the board nothing. */\n.hb-followups-said {\n  flex: 0 1 auto;\n  min-width: 0;\n  white-space: normal;\n  overflow-wrap: anywhere;\n  font-size: 12px;\n  color: var(--hb-muted);\n}\n";
+var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing leaks into the app.
+   Colours come from Hermes's own theme variables, so blocks follow light and dark mode. */
+.hb-blocks {
+  --hb-ink: var(--foreground, #1f2328);
+  --hb-ink-2: color-mix(in srgb, var(--hb-ink) 80%, transparent);
+  --hb-muted: var(--ui-text-tertiary, color-mix(in srgb, var(--hb-ink) 55%, transparent));
+  --hb-line: color-mix(in srgb, var(--hb-ink) 10%, transparent);
+  --hb-card: color-mix(in srgb, var(--hb-ink) 3%, transparent);
+  --hb-well: color-mix(in srgb, var(--hb-ink) 6%, transparent);
+  --hb-accent: var(--theme-primary, #2f6fed);
+  --hb-accent-soft: color-mix(in srgb, var(--hb-accent) 13%, transparent);
+  --hb-accent-ink: color-mix(in srgb, var(--hb-accent) 85%, var(--hb-ink));
+  --hb-good: var(--ui-success, #1a7f37);
+  --hb-warn: #c2410c;
+  /* The one tone the theme has no variable for: a red for a value in a bad band (a load over its limit). */
+  --hb-bad: var(--ui-danger, #b42318);
+  /* The page behind the blocks, for the few marks that must hide what's under them (a progress checkpoint). */
+  --hb-surface: var(--background, Canvas);
+  /* A raised card (a chart's hover card). */
+  --hb-shadow: 0 8px 28px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.1);
+  /* One curve for everything that moves: transform, opacity and entrance animations. A colour or border
+     fade keeps the browser's own ease, which is right for a tint. */
+  --hb-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Series colours in the order they are handed out, checked so neighbours stay apart for colour-blind readers:
+     blue, amber, green, violet, cyan, red, lime, pink. */
+  --hb-chart-1: #4f7cff;
+  --hb-chart-2: #f59e0b;
+  --hb-chart-3: #10b981;
+  --hb-chart-4: #8b5cf6;
+  --hb-chart-5: #06b6d4;
+  --hb-chart-6: #ef4444;
+  --hb-chart-7: #84cc16;
+  --hb-chart-8: #ec4899;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 8px 0;
+  /* A board stops at a comfortable reading width on a wide screen. */
+  max-width: 1100px;
+  color: var(--hb-ink);
+  font-family: var(--dt-font-sans, inherit);
+  font-size: 14px;
+  line-height: 1.45;
+}
+/* Dark mode (Hermes puts .dark on the page): the warning orange lightened to read on a dark background, a deeper
+   shadow. */
+.dark .hb-blocks {
+  --hb-warn: #f0883e;
+  --hb-bad: var(--ui-danger, #f0796c);
+  --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* A stronger line, for chart axes, checkboxes and inputs. */
+.hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }
+.hb-blocks * { box-sizing: border-box; }
+/* The chat wraps text "anywhere", which lets a label in a flex row shrink to one letter per line. Blocks wrap only
+   between words (long words still break when they must). */
+.hb-blocks { overflow-wrap: break-word; }
+/* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */
+.hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }
+/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column
+   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block
+   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and
+   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a
+   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch
+   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
+   .hb-place at all.
+   The two classes compound on purpose: a block's own root reset (.hb-chart { margin: 0 } in chart.css, the host's
+   figure margin in the line above) ties a single placement class on specificity and wins on load order alone \u2014
+   block css is joined after tokens. Compounded, the ask (0,2,0) outranks every root reset (0,1,0 and 0,1,1), so a
+   chart asked to center centers like every other card (measured in real Chrome: symmetric margins, never flush
+   left). Placed cards keep the width caps their own rules give them; those are duplicated through the wrapper in
+   each block's css. */
+.hb-place { display: flow-root; }
+.hb-place.hb-place-center > * { margin-inline: auto; }
+.hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* Text voice: how the words inside a block read (the model's \`text_align\`, the block's word or the board's
+   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align only
+   moves words that sit in a line box filling the available width, so where a block keeps its words in a
+   shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put it, and
+   only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words read anyway,
+   so a board with no ask grows no class and no wrapper. */
+.hb-ta-center { text-align: center; }
+.hb-ta-right { text-align: right; }
+/* The line width a voice needs: text-align is no property of a shrink-wrapped flex item \u2014 a body that hugs its
+   words has no free line for the words to travel on. heading and text are block boxes that already fill their
+   column; a lone stat card fills its column and its label, value and change lines stretch across the card; only
+   the callout sets its words in a non-growing body beside the fixed icon, so where a voice asks, that body is
+   opened to the row beside the icon. Scoped to the voice classes on purpose: a callout nobody asked about keeps
+   every rect it always had. A new text-bearing kind joins TEXT_BEARING (core/Blocks.tsx) only once its words
+   measure at their voice in the Chrome probe (tests/test_layout_alignment.py). */
+.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }
+/* A placed kpis row (maintainer note 2): the cards are no ordinary card \u2014 the row is one grid whose auto-fill
+   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves
+   (and the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse
+   (auto-fit) and the used ones gather where the ask put them; the grid's box keeps filling the column and a
+   card's own rects stay exactly as the unplaced row measured them. Left asks grow no wrapper at all, so the
+   shipped default row is untouched by these rules \u2014 every selector here sits under a placement class. */
+.hb-place.hb-place-center > .hb-kpis,
+.hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }
+.hb-place.hb-place-center > .hb-kpis { justify-content: center; }
+.hb-place.hb-place-right > .hb-kpis { justify-content: end; }
+/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers
+   follow-ups. The row is width:0 + min-width:100% on purpose \u2014 the same trick a shipped tools row uses:
+   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can
+   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the
+   point of the tap, so no board is too narrow to read one \u2014 height may grow, width never, nothing clips, no
+   nowrap and no ellipsis. Pinned in real Chrome by tests/test_follow_ups_chrome.py. */
+.hb-followups {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 0 0;
+}
+.hb-followups .hb-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+/* The word the strip says is only ever the host's own answer to the LAST tap (core/FollowUps.tsx), and it
+   follows the row's rule: WRAP, never clip \u2014 height may grow, width never. At rest it carries no text and
+   costs the board nothing. */
+.hb-followups-said {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--hb-muted);
+}
+
+/* The provenance footer: one quiet line a board grows under itself. It speaks only the board's own source
+   data that the flow has not already shown \u2014 a board drawing a source block says its sources there, once,
+   and the line echoes nothing (maintainer note 2026-11-25) \u2014 plus, when and only when the plugin host itself
+   knows this view keeps refreshing (a kept dashboard), the word Live, which stands alone when the page has
+   no source block at all (Today's shape). Nothing new is asked of the model; the parts are plain spans of
+   the line's own voice. The badge always carries its word; colour (the existing good green for Live) only
+   sits beside it. A board with nothing to say and no live host never grows this node at all. */
+.hb-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--hb-muted);
+}
+.hb-provenance-dot { opacity: 0.7; }
+.hb-provenance-badge {
+  padding: 0 7px;
+  border: 1px solid var(--hb-line-strong);
+  border-radius: 999px;
+  font-size: 10.5px;
+  color: var(--hb-ink-2);
+}
+.hb-provenance-badge[data-live="live"] {
+  color: var(--hb-good);
+  border-color: color-mix(in srgb, var(--hb-good) 45%, transparent);
+}
+`;
 
 // src/styles/shared.css
 var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* A block that threw while drawing: a quiet one-line note in its place (core/Blocks.tsx). */\n.hb-block-failed {\n  margin: 0;\n  font-size: 12px;\n  line-height: 18px;\n  color: var(--hb-muted);\n}\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s ease, transform 0.1s var(--hb-ease-out);\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s var(--hb-ease-out); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";

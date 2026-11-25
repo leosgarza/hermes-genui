@@ -47,7 +47,12 @@ describe("Blocks", () => {
   it("draws every non-chart, non-photo catalog example without throwing", () => {
     const kinds = catalog.blocks.map((b) => b.kind).filter((k) => !["chart", "images", "include"].includes(k));
     const { container } = render(<Blocks blocks={readBlocks(kinds.map(example))} />);
-    expect(container.querySelector(".hb-blocks")!.children.length).toBe(kinds.length);
+    // one child per catalog example. After the 2026-11-25 tweak a board that SHOWS a source block grows
+    // no echo footer, so the source example earns no extra node here; the filter stays a guard so the
+    // block count always answers to the blocks alone even if a live host ever added a bare pill line.
+    const drawn = Array.from(container.querySelector(".hb-blocks")!.children)
+      .filter((k) => !k.classList.contains("hb-provenance"));
+    expect(drawn.length).toBe(kinds.length);
   });
 });
 

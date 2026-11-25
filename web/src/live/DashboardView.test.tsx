@@ -18,6 +18,57 @@ function draw(board: Board = BOARD) {
   return { load, fill, saveTicks };
 }
 
+describe("the Live badge on a kept dashboard is the host's own knowledge", () => {
+  const SRC = { type: "source", text: "BLS JOLTS", url: "https://www.bls.gov/jlt" };
+
+  it("a refreshing Today dashboard says Live — a fact the route answered, not the model — and echoes no shown source", async () => {
+    draw({ title: "Today", live: true, blocks: [...BOARD.blocks, SRC] });
+    const badge = await screen.findByText("Live");
+    expect(badge.getAttribute("data-live")).toBe("live");
+    expect(badge.className).toContain("hb-provenance-badge");
+    // tweak 2026-11-25 #1: the SRC block draws its own line above; the footer repeats nothing
+    expect(document.querySelector(".hb-provenance-source")).toBeNull();
+    expect(document.querySelectorAll(".hb-source").length).toBe(1); // shown once, in the flow
+  });
+
+  it("a scheduled page updates itself: pill, whether or not a refresh job is running right now", async () => {
+    const load = vi.fn(async (): Promise<Board> => ({ title: "Executive", live: false, schedule: "07:00",
+      at: "2026-11-15T09:12:00", refreshing: false, error: null, blocks: [SRC] }));
+    render(<DashboardView load={load} fill={vi.fn()} saveTicks={vi.fn(async () => {})} />);
+    expect(await screen.findByText("Live")).toBeTruthy();
+    cleanup();
+    const running = vi.fn(async (): Promise<Board> => ({ title: "Executive", live: false,
+      at: "2026-11-15T09:12:00", refreshing: true, error: null, blocks: [SRC] }));
+    render(<DashboardView load={running} fill={vi.fn()} saveTicks={vi.fn(async () => {})} />);
+    expect(await screen.findByText("Live")).toBeTruthy(); // refreshing counts even without a schedule
+  });
+
+  it("a kept page nobody keeps fresh grows no line at all — its shown source block stands on its own", async () => {
+    const load = vi.fn(async (): Promise<Board> => ({ title: "Static", live: false,
+      blocks: [{ type: "heading", level: 2, text: "Notes" }, SRC] }));
+    render(<DashboardView load={load} fill={vi.fn()} saveTicks={vi.fn(async () => {})} />);
+    await screen.findByText("Notes");
+    expect(document.querySelector(".hb-provenance-badge")).toBeNull();
+    expect(document.querySelector(".hb-provenance")).toBeNull(); // no echo, no claim: the block says it once
+  });
+
+  it("the pill rides every answer of the kept view; the sources it shows are never echoed", async () => {
+    const load = vi.fn(async (): Promise<Board> => ({ title: "Today", live: true, blocks: [SRC,
+      list()]}));
+    render(<DashboardView load={load} fill={vi.fn()} saveTicks={vi.fn(async () => {})} />);
+    const pill = await screen.findByText("Live");
+    expect(pill.closest(".hb-provenance")).toBeTruthy();
+    expect(document.querySelectorAll(".hb-provenance-source").length).toBe(0);
+    expect(document.querySelectorAll(".hb-source").length).toBe(2); // both blocks drew themselves
+    expect(document.querySelector(".hb-provenance")!.children).toHaveLength(1); // the pill, alone
+  });
+});
+
+function list() {
+  return { type: "source", title: "Sources",
+    items: [{ label: "Yahoo Finance", url: "https://finance.yahoo.com", kind: "web", accessed: "2026-11-24" }] };
+}
+
 describe("DashboardView", () => {
   it("draws the assembled board with the plugin's own blocks", async () => {
     draw();

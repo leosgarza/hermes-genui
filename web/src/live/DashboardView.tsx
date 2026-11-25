@@ -76,7 +76,10 @@ export function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, ref
       const snapshot = snapshotOf(next);
       live.current = Boolean(next.live) || Boolean(snapshot?.refreshing);
       setBoard({ title: next.title, greeting: next.greeting ?? null, blocks: readBlocks(next.title ? next.blocks : EMPTY),
-        live: live.current, at: new Date(), snapshot });
+        // The host's OWN freshness facts — this view is a kept dashboard that refreshes itself (live from the
+        // spec, a job running, or a schedule); no board word and no model judgment feeds this. The badge wears
+        // it; the poll timer still uses the narrower `live.current` (a scheduled page keeps its calm 30 s beat).
+        live: live.current || Boolean(snapshot?.schedule), at: new Date(), snapshot });
     } catch {
       setMissing(true); // keep what's on screen; with nothing on screen yet, say why
     }
@@ -157,7 +160,7 @@ export function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, ref
       {/* Keyed by its checklists' items: when they change, the board remounts and ticks start from what's open now,
           so a tick never stays on a list whose items have moved. Same items, same board: tabs and scroll stay. */}
       <BlockActions.Provider value={{ send, fill, rest, blockId: `dashboard-${sig}` }}>
-        <Blocks key={sig} blocks={board.blocks} />
+        <Blocks key={sig} blocks={board.blocks} live={board.live} />
       </BlockActions.Provider>
     </div>
   );
