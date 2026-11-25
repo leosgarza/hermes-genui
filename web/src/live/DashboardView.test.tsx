@@ -79,7 +79,7 @@ describe("DashboardView", () => {
     const first = render(<DashboardView load={async () => page} fill={landed} saveTicks={async () => {}} />);
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select row A" }));
     fireEvent.click(screen.getByRole("button", { name: /to the chat/ }));
-    await vi.waitFor(() => expect(word(first.container)).toBe("In the composer. Press Send."));
+    await vi.waitFor(() => expect(word(first.container)).toBe("In the composer — press Send."));
     expect(landed).toHaveBeenCalled();
     first.unmount();
 
@@ -87,7 +87,7 @@ describe("DashboardView", () => {
     const second = render(<DashboardView load={async () => page} fill={broken} saveTicks={async () => {}} />);
     fireEvent.click(await screen.findByRole("checkbox", { name: "Select row A" }));
     fireEvent.click(screen.getByRole("button", { name: /to the chat/ }));
-    await vi.waitFor(() => expect(word(second.container)).toBe("Send failed. Nothing was kept."));
+    await vi.waitFor(() => expect(word(second.container)).toBe("Send failed — nothing was sent or kept."));
   });
 
   it("a tick is saved by item id, and only the item that changed", async () => {

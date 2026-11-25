@@ -55,7 +55,7 @@ export function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, ref
   /** Opens (or finds) a chat and puts the text in its box. Answers whether the text landed, so a block's send can
    *  report what really happened instead of guessing: a page has no chat to submit into, so a tap here is always a
    *  draft, and an answer of false makes it an honest failure. */
-  fill: (text: string) => void | Promise<unknown>;
+  fill: (text: string) => boolean | void | Promise<unknown>;
   saveTicks: (ticks: Record<string, boolean>) => Promise<void>;
   /** A block's POST to the plugin (the tracker's Reopen); the board reloads after it. */
   post?: Rest;

@@ -142,6 +142,13 @@ function actsBeforeTheModel(message) {
 var BlockActions = createContext({ send: async () => "nowhere", fill: () => {
 } });
 var MAX_SENT = 120;
+var SENT_WORDS = {
+  sent: "Sent to chat.",
+  drafted: "In the composer \u2014 press Send.",
+  blocked: "Blocked from sending \u2014 in the composer \u2014 press Send.",
+  failed: "Send failed \u2014 nothing was sent or kept.",
+  nowhere: "No chat here."
+};
 function composerActions(composer) {
   const insert = async (text) => {
     await composer?.insertText(null, text, { mode: "block" });
@@ -183,10 +190,10 @@ function composerActions(composer) {
 }
 
 // src/host/BlockTag.tsx
-import { useContext as useContext14, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useReducer, useRef as useRef16, useState as useState27 } from "react";
+import { useContext as useContext15, useEffect as useEffect10, useLayoutEffect as useLayoutEffect4, useReducer, useRef as useRef17, useState as useState28 } from "react";
 
 // src/core/Blocks.tsx
-import { Component as ReactComponent, createContext as createContext4, useContext as useContext12 } from "react";
+import { Component as ReactComponent, createContext as createContext4, useContext as useContext13 } from "react";
 
 // src/blocks/flow/highlight.tsx
 import { createContext as createContext2, useCallback, useContext, useMemo, useState } from "react";
@@ -6985,13 +6992,6 @@ function pickedMessage(caption2, columns, rows, picked) {
 // src/blocks/table/StructuredTable.tsx
 import { jsx as jsx40, jsxs as jsxs37 } from "react/jsx-runtime";
 var PAGE = 10;
-var SENT_WORDS = {
-  sent: "Sent to chat.",
-  drafted: "In the composer. Press Send.",
-  blocked: "In the composer. Blocked from sending.",
-  failed: "Send failed. Nothing was kept.",
-  nowhere: "No chat here."
-};
 function aggregateValue(rows, a) {
   const values = rows.map((r) => r.cells[a.column]?.value).filter((v) => v !== void 0);
   if (a.op === "count") return values.length;
@@ -7718,6 +7718,39 @@ var REGISTRY = {
   tabs: { read: readTabs, Component: ({ block, draw }) => /* @__PURE__ */ jsx47(Tabs, { labels: block.tabs.map((t) => t.label), badges: block.tabs.map((t) => t.badge), panel: (i) => draw(block.tabs[i].children) }) }
 };
 
+// src/core/FollowUps.tsx
+import { useContext as useContext12, useRef as useRef16, useState as useState26 } from "react";
+import { jsx as jsx48, jsxs as jsxs44 } from "react/jsx-runtime";
+var PENDING_WORD = "Pending\u2026";
+function FollowUps({ items }) {
+  const { send } = useContext12(BlockActions);
+  const [said, setSaid] = useState26(null);
+  const taps = useRef16(0);
+  return /* @__PURE__ */ jsxs44("div", { className: "hb-followups", children: [
+    items.map((f, i) => /* @__PURE__ */ jsxs44(
+      "button",
+      {
+        type: "button",
+        className: "hb-pill",
+        title: f.run,
+        onClick: () => {
+          const tap = ++taps.current;
+          setSaid("pending");
+          send(f.run, { force: true }).then((where) => {
+            if (tap === taps.current) setSaid(where);
+          });
+        },
+        children: [
+          /* @__PURE__ */ jsx48(Icon, { name: "spark", size: 14, stroke: 2.2 }),
+          /* @__PURE__ */ jsx48("span", { className: "hb-followup-label", children: f.label })
+        ]
+      },
+      i
+    )),
+    /* @__PURE__ */ jsx48("span", { className: "hb-followups-said", role: "status", "aria-live": "polite", children: said === "pending" ? PENDING_WORD : said ? SENT_WORDS[said] : "" })
+  ] });
+}
+
 // src/core/readBlocks.ts
 var BLOCK_TYPES = Object.keys(REGISTRY);
 function readBlocksNoted(data) {
@@ -7727,6 +7760,7 @@ function readBlocksNoted(data) {
   let boardLinks;
   let boardAlign;
   let boardTextAlign;
+  let boardFollowUps;
   const top = new Trail();
   if (isObject2(list) && Array.isArray(list.blocks)) {
     if (typeof list.type !== "string") {
@@ -7735,6 +7769,7 @@ function readBlocksNoted(data) {
       boardLinks = readBoardLinks(list.links, top.at("links"));
       boardAlign = align(list.align);
       boardTextAlign = align(list.text_align);
+      boardFollowUps = readFollowUps(list.follow_ups, top.at("follow_ups"));
     }
     list = list.blocks;
   }
@@ -7751,6 +7786,7 @@ function readBlocksNoted(data) {
   if (boardLinks !== void 0) noted.links = boardLinks;
   if (boardAlign !== void 0) noted.align = boardAlign;
   if (boardTextAlign !== void 0) noted.textAlign = boardTextAlign;
+  if (boardFollowUps !== void 0) noted.followUps = boardFollowUps;
   return noted;
 }
 function readBlocks(data) {
@@ -7778,6 +7814,25 @@ function readBoardLinks(value, here) {
     items.push(note ? { id, note } : { id });
   });
   const kept = keepFirst(items, 3, here, "links");
+  return kept.length ? kept : void 0;
+}
+function readFollowUps(value, here) {
+  if (!Array.isArray(value)) return void 0;
+  const items = [];
+  value.forEach((item, i) => {
+    const label = firstText([item?.label, item?.text], Infinity);
+    const run = firstText([item?.run, item?.ask, item?.message], Infinity);
+    if (!label || !run) {
+      here.at(i).drop("button needs a label and a run message");
+      return;
+    }
+    if (actsBeforeTheModel(run)) {
+      here.at(i).drop(NO_SEND);
+      return;
+    }
+    items.push({ label, run });
+  });
+  const kept = keepFirst(items, 4, here, "follow-ups");
   return kept.length ? kept : void 0;
 }
 function readOne(raw, here, depth) {
@@ -7808,14 +7863,14 @@ function readOne(raw, here, depth) {
 }
 
 // src/core/Blocks.tsx
-import { jsx as jsx48 } from "react/jsx-runtime";
+import { jsx as jsx49, jsxs as jsxs45 } from "react/jsx-runtime";
 var AlignScope = createContext4({ board: void 0, text: void 0 });
 var TEXT_BEARING = /* @__PURE__ */ new Set(["heading", "text", "stat", "callout"]);
 function BlockView({ block }) {
   const entry2 = REGISTRY[block.type];
   if (!entry2) return null;
   const { Component } = entry2;
-  return /* @__PURE__ */ jsx48(Contained, { block, children: /* @__PURE__ */ jsx48(Component, { block, draw: drawAll }) });
+  return /* @__PURE__ */ jsx49(Contained, { block, children: /* @__PURE__ */ jsx49(Component, { block, draw: drawAll }) });
 }
 var Contained = class extends ReactComponent {
   state = { failed: false };
@@ -7827,7 +7882,7 @@ var Contained = class extends ReactComponent {
   }
   render() {
     if (!this.state.failed) return this.props.children;
-    return /* @__PURE__ */ jsx48("p", { className: "hb-block-failed", role: "note", children: "This part couldn't be drawn." });
+    return /* @__PURE__ */ jsx49("p", { className: "hb-block-failed", role: "note", children: "This part couldn't be drawn." });
   }
 };
 function blockKey(b, i, carried2) {
@@ -7845,9 +7900,9 @@ function blockKey(b, i, carried2) {
   return i;
 }
 function Slotted({ block, flat }) {
-  const parent = useContext12(BlockSlot);
+  const parent = useContext13(BlockSlot);
   const slot = parent === null ? flat : `${parent}/${flat}`;
-  return /* @__PURE__ */ jsx48(BlockSlot.Provider, { value: slot, children: /* @__PURE__ */ jsx48(Placed, { block }) });
+  return /* @__PURE__ */ jsx49(BlockSlot.Provider, { value: slot, children: /* @__PURE__ */ jsx49(Placed, { block }) });
 }
 function drawAll(blocks) {
   const seen = /* @__PURE__ */ new Map();
@@ -7856,19 +7911,19 @@ function drawAll(blocks) {
     const id = identityOf(b);
     const occ = seen.get(id) ?? 0;
     seen.set(id, occ + 1);
-    return /* @__PURE__ */ jsx48(Slotted, { block: b, flat: `${id}:${occ}` }, blockKey(b, i, carried2));
+    return /* @__PURE__ */ jsx49(Slotted, { block: b, flat: `${id}:${occ}` }, blockKey(b, i, carried2));
   });
 }
 function Placed({ block }) {
-  const { board, text } = useContext12(AlignScope);
+  const { board, text } = useContext13(AlignScope);
   const at2 = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
-  const view = /* @__PURE__ */ jsx48(BlockView, { block });
+  const view = /* @__PURE__ */ jsx49(BlockView, { block });
   if (at2 === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at2 !== "left") cls.push(`hb-place-${at2}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
-  return /* @__PURE__ */ jsx48(
+  return /* @__PURE__ */ jsx49(
     "div",
     {
       className: cls.join(" "),
@@ -7878,8 +7933,11 @@ function Placed({ block }) {
     }
   );
 }
-function Blocks({ blocks, boardAlign, boardTextAlign }) {
-  return /* @__PURE__ */ jsx48(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsx48("div", { className: "hb-blocks", children: /* @__PURE__ */ jsx48(FlowLightBoard, { children: drawAll(blocks) }) }) });
+function Blocks({ blocks, boardAlign, boardTextAlign, boardFollowUps }) {
+  return /* @__PURE__ */ jsx49(AlignScope.Provider, { value: { board: boardAlign, text: boardTextAlign }, children: /* @__PURE__ */ jsxs45("div", { className: "hb-blocks", children: [
+    /* @__PURE__ */ jsx49(FlowLightBoard, { children: drawAll(blocks) }),
+    !!boardFollowUps?.length && /* @__PURE__ */ jsx49(FollowUps, { items: boardFollowUps })
+  ] }) });
 }
 
 // src/core/boardRoster.ts
@@ -7968,21 +8026,21 @@ function subscribe(id, cb) {
 }
 
 // src/core/LivingBoards.tsx
-import { useContext as useContext13, useEffect as useEffect9, useState as useState26 } from "react";
-import { jsx as jsx49, jsxs as jsxs44 } from "react/jsx-runtime";
+import { useContext as useContext14, useEffect as useEffect9, useState as useState27 } from "react";
+import { jsx as jsx50, jsxs as jsxs46 } from "react/jsx-runtime";
 var HISTORY_SHOWN = 4;
 function LiveRow({ id, version: version2, updatedAt, links, viewing, onShow, canReach }) {
   const older = version2 != null ? Array.from({ length: Math.min(version2 - 1, HISTORY_SHOWN) }, (_, i) => version2 - 1 - i) : [];
-  return /* @__PURE__ */ jsxs44("div", { className: "hb-live", "data-board": id, children: [
-    /* @__PURE__ */ jsxs44("div", { className: "hb-live-line", children: [
-      /* @__PURE__ */ jsx49("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
-      version2 != null && /* @__PURE__ */ jsx49("span", { className: "hb-live-version", children: viewing === null ? `v${version2}` : `viewing v${viewing}` }),
-      updatedAt && viewing === null && /* @__PURE__ */ jsx49("span", { className: "hb-live-when", children: updatedAt.slice(0, 10) }),
-      /* @__PURE__ */ jsxs44("code", { className: "hb-live-addr", children: [
+  return /* @__PURE__ */ jsxs46("div", { className: "hb-live", "data-board": id, children: [
+    /* @__PURE__ */ jsxs46("div", { className: "hb-live-line", children: [
+      /* @__PURE__ */ jsx50("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
+      version2 != null && /* @__PURE__ */ jsx50("span", { className: "hb-live-version", children: viewing === null ? `v${version2}` : `viewing v${viewing}` }),
+      updatedAt && viewing === null && /* @__PURE__ */ jsx50("span", { className: "hb-live-when", children: updatedAt.slice(0, 10) }),
+      /* @__PURE__ */ jsxs46("code", { className: "hb-live-addr", children: [
         "#",
         id
       ] }),
-      canReach && older.map((n) => /* @__PURE__ */ jsxs44(
+      canReach && older.map((n) => /* @__PURE__ */ jsxs46(
         "button",
         {
           type: "button",
@@ -7997,18 +8055,18 @@ function LiveRow({ id, version: version2, updatedAt, links, viewing, onShow, can
         },
         n
       )),
-      viewing !== null && /* @__PURE__ */ jsx49("button", { type: "button", className: "hb-live-back", onClick: () => onShow(null), children: "current" })
+      viewing !== null && /* @__PURE__ */ jsx50("button", { type: "button", className: "hb-live-back", onClick: () => onShow(null), children: "current" })
     ] }),
-    !!links?.length && /* @__PURE__ */ jsxs44("div", { className: "hb-links", children: [
-      /* @__PURE__ */ jsx49("span", { className: "hb-links-label", children: "linked across time \xB7 AI-suggested" }),
-      links.map((l) => /* @__PURE__ */ jsx49(LinkChip, { link: l }, l.id))
+    !!links?.length && /* @__PURE__ */ jsxs46("div", { className: "hb-links", children: [
+      /* @__PURE__ */ jsx50("span", { className: "hb-links-label", children: "linked across time \xB7 AI-suggested" }),
+      links.map((l) => /* @__PURE__ */ jsx50(LinkChip, { link: l }, l.id))
     ] })
   ] });
 }
 function LinkChip({ link }) {
-  const [open, setOpen] = useState26(false);
-  return /* @__PURE__ */ jsxs44("div", { className: "hb-link", children: [
-    /* @__PURE__ */ jsx49(
+  const [open, setOpen] = useState27(false);
+  return /* @__PURE__ */ jsxs46("div", { className: "hb-link", children: [
+    /* @__PURE__ */ jsx50(
       "button",
       {
         type: "button",
@@ -8019,13 +8077,13 @@ function LinkChip({ link }) {
         children: link.note ?? `#${link.id}`
       }
     ),
-    open && /* @__PURE__ */ jsx49(LinkedBoard, { link })
+    open && /* @__PURE__ */ jsx50(LinkedBoard, { link })
   ] });
 }
 function LinkedBoard({ link }) {
-  const actions = useContext13(BlockActions);
+  const actions = useContext14(BlockActions);
   const rest = actions.rest;
-  const [board, setBoard] = useState26("loading");
+  const [board, setBoard] = useState27("loading");
   useEffect9(() => {
     if (!rest) {
       setBoard(null);
@@ -8044,41 +8102,41 @@ function LinkedBoard({ link }) {
     };
   }, [link.id, rest]);
   if (board === "loading") {
-    return /* @__PURE__ */ jsxs44("div", { className: "hb-linked hb-linked-loading", children: [
+    return /* @__PURE__ */ jsxs46("div", { className: "hb-linked hb-linked-loading", children: [
       "Fetching #",
       link.id,
       " from the store\u2026"
     ] });
   }
   if (!board) {
-    return /* @__PURE__ */ jsxs44("div", { className: "hb-linked hb-linked-gone", children: [
+    return /* @__PURE__ */ jsxs46("div", { className: "hb-linked hb-linked-gone", children: [
       "#",
       link.id,
       " is not a board on this machine."
     ] });
   }
-  return /* @__PURE__ */ jsxs44("div", { className: "hb-linked", "data-linked": link.id, children: [
-    /* @__PURE__ */ jsxs44("div", { className: "hb-linked-head", children: [
-      /* @__PURE__ */ jsx49("span", { "aria-hidden": "true", children: "\u25C8" }),
-      /* @__PURE__ */ jsx49("span", { children: link.note ? link.note : "linked board" }),
-      /* @__PURE__ */ jsxs44("code", { children: [
+  return /* @__PURE__ */ jsxs46("div", { className: "hb-linked", "data-linked": link.id, children: [
+    /* @__PURE__ */ jsxs46("div", { className: "hb-linked-head", children: [
+      /* @__PURE__ */ jsx50("span", { "aria-hidden": "true", children: "\u25C8" }),
+      /* @__PURE__ */ jsx50("span", { children: link.note ? link.note : "linked board" }),
+      /* @__PURE__ */ jsxs46("code", { children: [
         "#",
         link.id
       ] })
     ] }),
-    /* @__PURE__ */ jsx49(BlockActions.Provider, { value: { ...actions, blockId: link.id }, children: /* @__PURE__ */ jsx49(Blocks, { blocks: board }) })
+    /* @__PURE__ */ jsx50(BlockActions.Provider, { value: { ...actions, blockId: link.id }, children: /* @__PURE__ */ jsx50(Blocks, { blocks: board }) })
   ] });
 }
 function LivePointer({ id, address }) {
   const meta = getMeta(address);
-  return /* @__PURE__ */ jsxs44("div", { className: "hb-tag hb-live-pointer", "data-pointer": id, children: [
-    /* @__PURE__ */ jsx49("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
-    /* @__PURE__ */ jsxs44("span", { children: [
+  return /* @__PURE__ */ jsxs46("div", { className: "hb-tag hb-live-pointer", "data-pointer": id, children: [
+    /* @__PURE__ */ jsx50("span", { className: "hb-live-mark", "aria-hidden": "true", children: "\u21BB" }),
+    /* @__PURE__ */ jsxs46("span", { children: [
       "The same live board",
       meta.version ? ` \xB7 v${meta.version}` : "",
       " \u2014 its live view is where its first tag stands above."
     ] }),
-    /* @__PURE__ */ jsxs44("code", { className: "hb-live-addr", children: [
+    /* @__PURE__ */ jsxs46("code", { className: "hb-live-addr", children: [
       "#",
       id
     ] })
@@ -8086,25 +8144,25 @@ function LivePointer({ id, address }) {
 }
 
 // src/host/BlockTag.tsx
-import { jsx as jsx50, jsxs as jsxs45 } from "react/jsx-runtime";
+import { jsx as jsx51, jsxs as jsxs47 } from "react/jsx-runtime";
 var ID_PATTERN = /^[0-9a-f]{8}$/;
 function BlockTag({ id, streaming, load }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
-  const actions = useContext14(BlockActions);
+  const actions = useContext15(BlockActions);
   const address = validId ? `${actions.sessionScope ?? ""}|${id}` : "";
-  const [state, setState] = useState27({ kind: "loading" });
-  const [viewing, setViewing] = useState27(null);
-  const [expanded, setExpanded] = useState27(false);
-  const hostRef = useRef16(null);
-  const expandRef = useRef16(null);
-  const closeRef = useRef16(null);
-  const drawn = useRef16(null);
-  const self = useRef16(null);
+  const [state, setState] = useState28({ kind: "loading" });
+  const [viewing, setViewing] = useState28(null);
+  const [expanded, setExpanded] = useState28(false);
+  const hostRef = useRef17(null);
+  const expandRef = useRef17(null);
+  const closeRef = useRef17(null);
+  const drawn = useRef17(null);
+  const self = useRef17(null);
   if (self.current === null) self.current = { token: /* @__PURE__ */ Symbol("hb-tag") };
-  const [role, setRole] = useState27("unknown");
-  const [refresh, setRefresh] = useState27(0);
+  const [role, setRole] = useState28("unknown");
+  const [refresh, setRefresh] = useState28(0);
   const [, force] = useReducer((x) => x + 1, 0);
-  const [live, setLive] = useState27({});
+  const [live, setLive] = useState28({});
   useLayoutEffect4(() => {
     if (streaming || !validId) return;
     const token = self.current.token;
@@ -8137,6 +8195,7 @@ function BlockTag({ id, streaming, load }) {
         version: boardVersion,
         updatedAt: boardUpdatedAt,
         links: boardLinks,
+        followUps: boardFollowUps,
         align: boardAlign,
         textAlign: boardTextAlign
       } = readBlocksNoted(data);
@@ -8149,7 +8208,7 @@ function BlockTag({ id, streaming, load }) {
           if (drawn.current && viewing === null) void promoteOnUpdate(actions.rest, id, drawn.current, blocks);
           if (viewing === null && (boardVersion ?? 0) >= 2) markLiving(id);
           drawn.current = blocks;
-          setState({ kind: "drawn", blocks, align: boardAlign, textAlign: boardTextAlign });
+          setState({ kind: "drawn", blocks, align: boardAlign, textAlign: boardTextAlign, followUps: boardFollowUps });
           if (viewing === null) {
             setLive({ version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks });
             setMeta(address, { version: boardVersion, updatedAt: boardUpdatedAt });
@@ -8214,13 +8273,13 @@ function BlockTag({ id, streaming, load }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
   if (!validId && !streaming) return null;
-  if (streaming || role === "unknown") return /* @__PURE__ */ jsx50(Note, { text: "drawing\u2026", pulse: true });
-  if (role === "pointer") return /* @__PURE__ */ jsx50(LivePointer, { id, address });
-  if (state.kind === "loading") return /* @__PURE__ */ jsx50(Note, { text: "drawing\u2026", pulse: true });
+  if (streaming || role === "unknown") return /* @__PURE__ */ jsx51(Note, { text: "drawing\u2026", pulse: true });
+  if (role === "pointer") return /* @__PURE__ */ jsx51(LivePointer, { id, address });
+  if (state.kind === "loading") return /* @__PURE__ */ jsx51(Note, { text: "drawing\u2026", pulse: true });
   if (state.kind === "failed") return null;
-  return /* @__PURE__ */ jsxs45(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
-    /* @__PURE__ */ jsxs45("div", { className: "hb-tag", children: [
-      /* @__PURE__ */ jsx50(
+  return /* @__PURE__ */ jsxs47(BlockActions.Provider, { value: { ...actions, blockId: id }, children: [
+    /* @__PURE__ */ jsxs47("div", { className: "hb-tag", children: [
+      /* @__PURE__ */ jsx51(
         "button",
         {
           ref: expandRef,
@@ -8229,10 +8288,10 @@ function BlockTag({ id, streaming, load }) {
           "aria-label": "Expand board",
           "aria-haspopup": "dialog",
           onClick: () => setExpanded(true),
-          children: /* @__PURE__ */ jsx50(IconExpand, {})
+          children: /* @__PURE__ */ jsx51(IconExpand, {})
         }
       ),
-      /* @__PURE__ */ jsxs45(
+      /* @__PURE__ */ jsxs47(
         "div",
         {
           ref: hostRef,
@@ -8240,7 +8299,7 @@ function BlockTag({ id, streaming, load }) {
           ...expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {},
           onClick: expanded ? (e) => e.target === e.currentTarget && close() : void 0,
           children: [
-            expanded && /* @__PURE__ */ jsx50(
+            expanded && /* @__PURE__ */ jsx51(
               "button",
               {
                 ref: closeRef,
@@ -8248,15 +8307,23 @@ function BlockTag({ id, streaming, load }) {
                 className: "hb-overlay-close",
                 "aria-label": "Close expanded board",
                 onClick: close,
-                children: /* @__PURE__ */ jsx50(IconClose, {})
+                children: /* @__PURE__ */ jsx51(IconClose, {})
               }
             ),
-            /* @__PURE__ */ jsx50(Blocks, { blocks: state.blocks, boardAlign: state.align, boardTextAlign: state.textAlign })
+            /* @__PURE__ */ jsx51(
+              Blocks,
+              {
+                blocks: state.blocks,
+                boardAlign: state.align,
+                boardTextAlign: state.textAlign,
+                boardFollowUps: state.followUps
+              }
+            )
           ]
         }
       )
     ] }),
-    (live.version != null || live.links) && /* @__PURE__ */ jsx50(
+    (live.version != null || live.links) && /* @__PURE__ */ jsx51(
       LiveRow,
       {
         id,
@@ -8277,10 +8344,10 @@ function tabbableIn(root) {
   );
 }
 function Note({ text, pulse = false }) {
-  return /* @__PURE__ */ jsx50("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
+  return /* @__PURE__ */ jsx51("div", { className: pulse ? "hb-state hb-pulse" : "hb-state", children: text });
 }
 function IconExpand() {
-  return /* @__PURE__ */ jsx50(
+  return /* @__PURE__ */ jsx51(
     "svg",
     {
       width: "15",
@@ -8291,12 +8358,12 @@ function IconExpand() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx50("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
+      children: /* @__PURE__ */ jsx51("path", { d: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" })
     }
   );
 }
 function IconClose() {
-  return /* @__PURE__ */ jsx50(
+  return /* @__PURE__ */ jsx51(
     "svg",
     {
       width: "16",
@@ -8307,16 +8374,16 @@ function IconClose() {
       strokeWidth: "2",
       strokeLinecap: "round",
       "aria-hidden": "true",
-      children: /* @__PURE__ */ jsx50("path", { d: "M6 6l12 12M18 6L6 18" })
+      children: /* @__PURE__ */ jsx51("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
 }
 
 // src/live/DashboardView.tsx
-import { useCallback as useCallback2, useEffect as useEffect11, useRef as useRef17, useState as useState28 } from "react";
+import { useCallback as useCallback2, useEffect as useEffect11, useRef as useRef18, useState as useState29 } from "react";
 
 // src/live/RefreshBar.tsx
-import { jsx as jsx51, jsxs as jsxs46 } from "react/jsx-runtime";
+import { jsx as jsx52, jsxs as jsxs48 } from "react/jsx-runtime";
 function when(iso, now = /* @__PURE__ */ new Date()) {
   const at2 = new Date(iso);
   const time = at2.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -8324,15 +8391,15 @@ function when(iso, now = /* @__PURE__ */ new Date()) {
   return `${at2.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${time}`;
 }
 function RefreshBar({ label, at: at2, refreshing, error, schedule, onRefresh }) {
-  return /* @__PURE__ */ jsxs46("div", { className: "hb-refresh", role: "status", children: [
-    /* @__PURE__ */ jsx51("span", { className: "hb-refresh-label", children: label }),
-    /* @__PURE__ */ jsx51("span", { className: "hb-refresh-when", children: at2 ? `updated ${when(at2)}` : "not filled yet" }),
-    schedule && /* @__PURE__ */ jsxs46("span", { className: "hb-refresh-when", children: [
+  return /* @__PURE__ */ jsxs48("div", { className: "hb-refresh", role: "status", children: [
+    /* @__PURE__ */ jsx52("span", { className: "hb-refresh-label", children: label }),
+    /* @__PURE__ */ jsx52("span", { className: "hb-refresh-when", children: at2 ? `updated ${when(at2)}` : "not filled yet" }),
+    schedule && /* @__PURE__ */ jsxs48("span", { className: "hb-refresh-when", children: [
       "\xB7 refreshes ",
       schedule
     ] }),
-    error && /* @__PURE__ */ jsx51("span", { className: "hb-refresh-error", children: error }),
-    /* @__PURE__ */ jsxs46(
+    error && /* @__PURE__ */ jsx52("span", { className: "hb-refresh-error", children: error }),
+    /* @__PURE__ */ jsxs48(
       "button",
       {
         type: "button",
@@ -8341,7 +8408,7 @@ function RefreshBar({ label, at: at2, refreshing, error, schedule, onRefresh }) 
         onClick: onRefresh,
         "aria-label": refreshing ? "Refreshing" : `Refresh ${label}`,
         children: [
-          /* @__PURE__ */ jsx51("span", { "aria-hidden": "true", children: "\u21BB" }),
+          /* @__PURE__ */ jsx52("span", { "aria-hidden": "true", children: "\u21BB" }),
           " ",
           refreshing ? "Refreshing\u2026" : "Refresh"
         ]
@@ -8351,7 +8418,7 @@ function RefreshBar({ label, at: at2, refreshing, error, schedule, onRefresh }) 
 }
 
 // src/live/DashboardView.tsx
-import { jsx as jsx52, jsxs as jsxs47 } from "react/jsx-runtime";
+import { jsx as jsx53, jsxs as jsxs49 } from "react/jsx-runtime";
 function snapshotOf(b) {
   if (b.snapshots) return b.snapshots;
   if (b.at !== void 0 || b.refreshing !== void 0) {
@@ -8380,10 +8447,10 @@ function signature(ids) {
   return (h >>> 0).toString(36);
 }
 function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, refreshLabel = "Snapshot" }) {
-  const [board, setBoard] = useState28(null);
-  const [missing, setMissing] = useState28(false);
-  const live = useRef17(false);
-  const lastTicks = useRef17({});
+  const [board, setBoard] = useState29(null);
+  const [missing, setMissing] = useState29(false);
+  const live = useRef18(false);
+  const lastTicks = useRef18({});
   const reload = useCallback2(async () => {
     try {
       const next = await load();
@@ -8427,7 +8494,7 @@ function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, r
     }
   };
   if (!board) {
-    return /* @__PURE__ */ jsx52("div", { className: "hb-blocks hb-dash", children: /* @__PURE__ */ jsx52("p", { className: "hb-dash-sub", children: missing ? "This page isn't in this profile. Switch back to the profile it was made in, or ask Hermes to make it here." : "Loading\u2026" }) });
+    return /* @__PURE__ */ jsx53("div", { className: "hb-blocks hb-dash", children: /* @__PURE__ */ jsx53("p", { className: "hb-dash-sub", children: missing ? "This page isn't in this profile. Switch back to the profile it was made in, or ask Hermes to make it here." : "Loading\u2026" }) });
   }
   const ids = checklistsByPath(board.blocks);
   const sig = signature(ids);
@@ -8454,12 +8521,12 @@ function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, r
     if (Object.keys(ticks).length) await saveTicks(ticks);
     return { ok: true };
   };
-  return /* @__PURE__ */ jsxs47("div", { className: "hb-blocks hb-dash", children: [
-    board.blocks[0]?.type !== "briefing" && /* @__PURE__ */ jsxs47("header", { className: "hb-dash-head", children: [
-      /* @__PURE__ */ jsx52("div", { className: "hb-dash-date", children: board.at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) }),
-      /* @__PURE__ */ jsx52("h1", { children: board.greeting ?? board.title ?? "Today" })
+  return /* @__PURE__ */ jsxs49("div", { className: "hb-blocks hb-dash", children: [
+    board.blocks[0]?.type !== "briefing" && /* @__PURE__ */ jsxs49("header", { className: "hb-dash-head", children: [
+      /* @__PURE__ */ jsx53("div", { className: "hb-dash-date", children: board.at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) }),
+      /* @__PURE__ */ jsx53("h1", { children: board.greeting ?? board.title ?? "Today" })
     ] }),
-    refresh && board.snapshot && /* @__PURE__ */ jsx52(RefreshBar, { label: refreshLabel, ...board.snapshot, onRefresh: async () => {
+    refresh && board.snapshot && /* @__PURE__ */ jsx53(RefreshBar, { label: refreshLabel, ...board.snapshot, onRefresh: async () => {
       setBoard((b) => b ? { ...b, snapshot: { ...b.snapshot, refreshing: true, error: null } } : b);
       try {
         await refresh();
@@ -8467,7 +8534,7 @@ function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, r
         void reload();
       }
     } }),
-    /* @__PURE__ */ jsx52(BlockActions.Provider, { value: { send, fill, rest, blockId: `dashboard-${sig}` }, children: /* @__PURE__ */ jsx52(Blocks, { blocks: board.blocks }, sig) })
+    /* @__PURE__ */ jsx53(BlockActions.Provider, { value: { send, fill, rest, blockId: `dashboard-${sig}` }, children: /* @__PURE__ */ jsx53(Blocks, { blocks: board.blocks }, sig) })
   ] });
 }
 
@@ -8499,7 +8566,7 @@ function pageRoutes(register, view) {
 }
 
 // src/live/register.tsx
-import { jsx as jsx53 } from "react/jsx-runtime";
+import { jsx as jsx54 } from "react/jsx-runtime";
 var POLL_MS = 5e3;
 var TODAY_PATH = "/genui-today";
 function registerLive(ctx, fill) {
@@ -8510,7 +8577,7 @@ function registerLive(ctx, fill) {
     area: "routes",
     title: "Today",
     data: { path: TODAY_PATH },
-    render: () => /* @__PURE__ */ jsx53(
+    render: () => /* @__PURE__ */ jsx54(
       DashboardView,
       {
         fill,
@@ -8548,7 +8615,7 @@ function registerLive(ctx, fill) {
       sync();
     }
   };
-  const syncPages = pageRoutes(ctx.register, (slug2) => /* @__PURE__ */ jsx53(
+  const syncPages = pageRoutes(ctx.register, (slug2) => /* @__PURE__ */ jsx54(
     DashboardView,
     {
       fill,
@@ -8599,7 +8666,7 @@ async function openAndFill(text, host2, { waitMs = 2e3, stepMs = 100 } = {}) {
 }
 
 // src/styles/tokens.css
-var tokens_default = "/* Hermes GenUI: every class starts with hb- so nothing leaks into the app.\n   Colours come from Hermes's own theme variables, so blocks follow light and dark mode. */\n.hb-blocks {\n  --hb-ink: var(--foreground, #1f2328);\n  --hb-ink-2: color-mix(in srgb, var(--hb-ink) 80%, transparent);\n  --hb-muted: var(--ui-text-tertiary, color-mix(in srgb, var(--hb-ink) 55%, transparent));\n  --hb-line: color-mix(in srgb, var(--hb-ink) 10%, transparent);\n  --hb-card: color-mix(in srgb, var(--hb-ink) 3%, transparent);\n  --hb-well: color-mix(in srgb, var(--hb-ink) 6%, transparent);\n  --hb-accent: var(--theme-primary, #2f6fed);\n  --hb-accent-soft: color-mix(in srgb, var(--hb-accent) 13%, transparent);\n  --hb-accent-ink: color-mix(in srgb, var(--hb-accent) 85%, var(--hb-ink));\n  --hb-good: var(--ui-success, #1a7f37);\n  --hb-warn: #c2410c;\n  /* The one tone the theme has no variable for: a red for a value in a bad band (a load over its limit). */\n  --hb-bad: var(--ui-danger, #b42318);\n  /* The page behind the blocks, for the few marks that must hide what's under them (a progress checkpoint). */\n  --hb-surface: var(--background, Canvas);\n  /* A raised card (a chart's hover card). */\n  --hb-shadow: 0 8px 28px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.1);\n  /* One curve for everything that moves: transform, opacity and entrance animations. A colour or border\n     fade keeps the browser's own ease, which is right for a tint. */\n  --hb-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);\n  /* Series colours in the order they are handed out, checked so neighbours stay apart for colour-blind readers:\n     blue, amber, green, violet, cyan, red, lime, pink. */\n  --hb-chart-1: #4f7cff;\n  --hb-chart-2: #f59e0b;\n  --hb-chart-3: #10b981;\n  --hb-chart-4: #8b5cf6;\n  --hb-chart-5: #06b6d4;\n  --hb-chart-6: #ef4444;\n  --hb-chart-7: #84cc16;\n  --hb-chart-8: #ec4899;\n\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 8px 0;\n  /* A board stops at a comfortable reading width on a wide screen. */\n  max-width: 1100px;\n  color: var(--hb-ink);\n  font-family: var(--dt-font-sans, inherit);\n  font-size: 14px;\n  line-height: 1.45;\n}\n/* Dark mode (Hermes puts .dark on the page): the warning orange lightened to read on a dark background, a deeper\n   shadow. */\n.dark .hb-blocks {\n  --hb-warn: #f0883e;\n  --hb-bad: var(--ui-danger, #f0796c);\n  --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);\n}\n/* A stronger line, for chart axes, checkboxes and inputs. */\n.hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }\n.hb-blocks * { box-sizing: border-box; }\n/* The chat wraps text \"anywhere\", which lets a label in a flex row shrink to one letter per line. Blocks wrap only\n   between words (long words still break when they must). */\n.hb-blocks { overflow-wrap: break-word; }\n/* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */\n.hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }\n/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column\n   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block\n   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and\n   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a\n   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch\n   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no\n   .hb-place at all.\n   The two classes compound on purpose: a block's own root reset (.hb-chart { margin: 0 } in chart.css, the host's\n   figure margin in the line above) ties a single placement class on specificity and wins on load order alone \u2014\n   block css is joined after tokens. Compounded, the ask (0,2,0) outranks every root reset (0,1,0 and 0,1,1), so a\n   chart asked to center centers like every other card (measured in real Chrome: symmetric margins, never flush\n   left). Placed cards keep the width caps their own rules give them; those are duplicated through the wrapper in\n   each block's css. */\n.hb-place { display: flow-root; }\n.hb-place.hb-place-center > * { margin-inline: auto; }\n.hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }\n/* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's\n   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align only\n   moves words that sit in a line box filling the available width, so where a block keeps its words in a\n   shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put it, and\n   only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words read anyway,\n   so a board with no ask grows no class and no wrapper. */\n.hb-ta-center { text-align: center; }\n.hb-ta-right { text-align: right; }\n/* The line width a voice needs: text-align is no property of a shrink-wrapped flex item \u2014 a body that hugs its\n   words has no free line for the words to travel on. heading and text are block boxes that already fill their\n   column; a lone stat card fills its column and its label, value and change lines stretch across the card; only\n   the callout sets its words in a non-growing body beside the fixed icon, so where a voice asks, that body is\n   opened to the row beside the icon. Scoped to the voice classes on purpose: a callout nobody asked about keeps\n   every rect it always had. A new text-bearing kind joins TEXT_BEARING (core/Blocks.tsx) only once its words\n   measure at their voice in the Chrome probe (tests/test_layout_alignment.py). */\n.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }\n/* A placed kpis row (maintainer note 2): the cards are no ordinary card \u2014 the row is one grid whose auto-fill\n   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves\n   (and the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse\n   (auto-fit) and the used ones gather where the ask put them; the grid's box keeps filling the column and a\n   card's own rects stay exactly as the unplaced row measured them. Left asks grow no wrapper at all, so the\n   shipped default row is untouched by these rules \u2014 every selector here sits under a placement class. */\n.hb-place.hb-place-center > .hb-kpis,\n.hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }\n.hb-place.hb-place-center > .hb-kpis { justify-content: center; }\n.hb-place.hb-place-right > .hb-kpis { justify-content: end; }\n";
+var tokens_default = "/* Hermes GenUI: every class starts with hb- so nothing leaks into the app.\n   Colours come from Hermes's own theme variables, so blocks follow light and dark mode. */\n.hb-blocks {\n  --hb-ink: var(--foreground, #1f2328);\n  --hb-ink-2: color-mix(in srgb, var(--hb-ink) 80%, transparent);\n  --hb-muted: var(--ui-text-tertiary, color-mix(in srgb, var(--hb-ink) 55%, transparent));\n  --hb-line: color-mix(in srgb, var(--hb-ink) 10%, transparent);\n  --hb-card: color-mix(in srgb, var(--hb-ink) 3%, transparent);\n  --hb-well: color-mix(in srgb, var(--hb-ink) 6%, transparent);\n  --hb-accent: var(--theme-primary, #2f6fed);\n  --hb-accent-soft: color-mix(in srgb, var(--hb-accent) 13%, transparent);\n  --hb-accent-ink: color-mix(in srgb, var(--hb-accent) 85%, var(--hb-ink));\n  --hb-good: var(--ui-success, #1a7f37);\n  --hb-warn: #c2410c;\n  /* The one tone the theme has no variable for: a red for a value in a bad band (a load over its limit). */\n  --hb-bad: var(--ui-danger, #b42318);\n  /* The page behind the blocks, for the few marks that must hide what's under them (a progress checkpoint). */\n  --hb-surface: var(--background, Canvas);\n  /* A raised card (a chart's hover card). */\n  --hb-shadow: 0 8px 28px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.1);\n  /* One curve for everything that moves: transform, opacity and entrance animations. A colour or border\n     fade keeps the browser's own ease, which is right for a tint. */\n  --hb-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);\n  /* Series colours in the order they are handed out, checked so neighbours stay apart for colour-blind readers:\n     blue, amber, green, violet, cyan, red, lime, pink. */\n  --hb-chart-1: #4f7cff;\n  --hb-chart-2: #f59e0b;\n  --hb-chart-3: #10b981;\n  --hb-chart-4: #8b5cf6;\n  --hb-chart-5: #06b6d4;\n  --hb-chart-6: #ef4444;\n  --hb-chart-7: #84cc16;\n  --hb-chart-8: #ec4899;\n\n  display: flex;\n  flex-direction: column;\n  gap: 10px;\n  margin: 8px 0;\n  /* A board stops at a comfortable reading width on a wide screen. */\n  max-width: 1100px;\n  color: var(--hb-ink);\n  font-family: var(--dt-font-sans, inherit);\n  font-size: 14px;\n  line-height: 1.45;\n}\n/* Dark mode (Hermes puts .dark on the page): the warning orange lightened to read on a dark background, a deeper\n   shadow. */\n.dark .hb-blocks {\n  --hb-warn: #f0883e;\n  --hb-bad: var(--ui-danger, #f0796c);\n  --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);\n}\n/* A stronger line, for chart axes, checkboxes and inputs. */\n.hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }\n.hb-blocks * { box-sizing: border-box; }\n/* The chat wraps text \"anywhere\", which lets a label in a flex row shrink to one letter per line. Blocks wrap only\n   between words (long words still break when they must). */\n.hb-blocks { overflow-wrap: break-word; }\n/* The chat's prose styles give images, figures and tables their own margins; blocks place their own. */\n.hb-blocks img, .hb-blocks figure, .hb-blocks table { margin: 0; }\n/* Block placement: a board puts a block off the left by drawing it inside a .hb-place box, which fills the column\n   or cell just as the block did and keeps a plain block layout inside. That is the point: a block in a plain block\n   context sizes exactly as it sized unwrapped (a capped card stays its cap, a fit-content table keeps hugging), and\n   the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a\n   table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch\n   and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no\n   .hb-place at all.\n   The two classes compound on purpose: a block's own root reset (.hb-chart { margin: 0 } in chart.css, the host's\n   figure margin in the line above) ties a single placement class on specificity and wins on load order alone \u2014\n   block css is joined after tokens. Compounded, the ask (0,2,0) outranks every root reset (0,1,0 and 0,1,1), so a\n   chart asked to center centers like every other card (measured in real Chrome: symmetric margins, never flush\n   left). Placed cards keep the width caps their own rules give them; those are duplicated through the wrapper in\n   each block's css. */\n.hb-place { display: flow-root; }\n.hb-place.hb-place-center > * { margin-inline: auto; }\n.hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }\n/* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's\n   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align only\n   moves words that sit in a line box filling the available width, so where a block keeps its words in a\n   shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put it, and\n   only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words read anyway,\n   so a board with no ask grows no class and no wrapper. */\n.hb-ta-center { text-align: center; }\n.hb-ta-right { text-align: right; }\n/* The line width a voice needs: text-align is no property of a shrink-wrapped flex item \u2014 a body that hugs its\n   words has no free line for the words to travel on. heading and text are block boxes that already fill their\n   column; a lone stat card fills its column and its label, value and change lines stretch across the card; only\n   the callout sets its words in a non-growing body beside the fixed icon, so where a voice asks, that body is\n   opened to the row beside the icon. Scoped to the voice classes on purpose: a callout nobody asked about keeps\n   every rect it always had. A new text-bearing kind joins TEXT_BEARING (core/Blocks.tsx) only once its words\n   measure at their voice in the Chrome probe (tests/test_layout_alignment.py). */\n.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }\n/* A placed kpis row (maintainer note 2): the cards are no ordinary card \u2014 the row is one grid whose auto-fill\n   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves\n   (and the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse\n   (auto-fit) and the used ones gather where the ask put them; the grid's box keeps filling the column and a\n   card's own rects stay exactly as the unplaced row measured them. Left asks grow no wrapper at all, so the\n   shipped default row is untouched by these rules \u2014 every selector here sits under a placement class. */\n.hb-place.hb-place-center > .hb-kpis,\n.hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }\n.hb-place.hb-place-center > .hb-kpis { justify-content: center; }\n.hb-place.hb-place-right > .hb-kpis { justify-content: end; }\n/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers\n   follow-ups. The row is width:0 + min-width:100% on purpose \u2014 the same trick a shipped tools row uses:\n   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can\n   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the\n   point of the tap, so no board is too narrow to read one \u2014 height may grow, width never, nothing clips, no\n   nowrap and no ellipsis. Pinned in real Chrome by tests/test_follow_ups_chrome.py. */\n.hb-followups {\n  display: flex;\n  flex-wrap: wrap;\n  align-items: baseline;\n  gap: 6px 8px;\n  width: 0;\n  min-width: 100%;\n  box-sizing: border-box;\n  padding: 2px 0 0;\n}\n.hb-followups .hb-pill {\n  flex: 0 1 auto;\n  min-width: 0;\n  min-height: 28px;\n  padding: 4px 12px;\n  font-size: 12px;\n}\n.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }\n/* The word the strip says is only ever the host's own answer to the LAST tap (core/FollowUps.tsx), and it\n   follows the row's rule: WRAP, never clip \u2014 height may grow, width never. At rest it carries no text and\n   costs the board nothing. */\n.hb-followups-said {\n  flex: 0 1 auto;\n  min-width: 0;\n  white-space: normal;\n  overflow-wrap: anywhere;\n  font-size: 12px;\n  color: var(--hb-muted);\n}\n";
 
 // src/styles/shared.css
 var shared_default = "/* Pieces several blocks share: cards, chips, pill buttons and the motion they use. */\n/* A block that threw while drawing: a quiet one-line note in its place (core/Blocks.tsx). */\n.hb-block-failed {\n  margin: 0;\n  font-size: 12px;\n  line-height: 18px;\n  color: var(--hb-muted);\n}\n/* Cards */\n.hb-card {\n  background: var(--hb-card);\n  border: 1px solid var(--hb-line);\n  border-radius: 16px;\n  padding: 14px 16px;\n}\n.hb-card-title {\n  font-size: 16px;\n  line-height: 22px;\n  font-weight: 700;\n  letter-spacing: -0.01em;\n}\n/* Chips */\n.hb-chip {\n  display: inline-flex;\n  align-items: center;\n  align-self: flex-start;\n  gap: 4px;\n  padding: 2px 9px;\n  border-radius: 999px;\n  font-size: 12px;\n  font-weight: 600;\n  line-height: 18px;\n  font-variant-numeric: tabular-nums;\n  white-space: nowrap;\n}\n.hb-chip-soft { background: var(--hb-accent-soft); color: var(--hb-accent-ink); }\n.hb-chip-good { background: color-mix(in srgb, var(--hb-good) 14%, transparent); color: var(--hb-good); }\n.hb-chip-warn { background: color-mix(in srgb, var(--hb-warn) 13%, transparent); color: var(--hb-warn); }\n.hb-chip-plain { background: var(--hb-well); color: var(--hb-ink-2); }\n/* Pill buttons that act (actions, button, a form's Send): soft for buttons in a reply, solid for a form's Send. */\n.hb-pill {\n  display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  min-height: 36px;\n  max-width: 100%;\n  padding: 7px 14px;\n  border: 0;\n  border-radius: 999px;\n  background: var(--hb-accent-soft);\n  color: var(--hb-accent-ink);\n  font: inherit;\n  font-size: 13.5px;\n  font-weight: 600;\n  line-height: 18px;\n  text-align: left;\n  text-decoration: none;\n  cursor: pointer;\n  transition: background 0.15s ease, transform 0.1s var(--hb-ease-out);\n}\n.hb-pill svg { flex: none; }\n.hb-pill:hover { background: color-mix(in srgb, var(--hb-accent) 22%, transparent); }\n.hb-pill:active { transform: scale(0.97); }\n.hb-pill:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }\n.hb-pill-solid { background: var(--hb-accent); color: #fff; }\n.hb-pill-solid:hover { background: color-mix(in srgb, var(--hb-accent) 86%, #000); }\n.hb-pill:disabled { opacity: 0.45; cursor: default; transform: none; }\n.hb-pill-solid:disabled:hover { background: var(--hb-accent); }\n/* Motion: a panel appearing (section, tabs, photo overlay) and a bar growing (bar, progress). */\n.hb-appear { animation: hb-appear 0.22s var(--hb-ease-out); }\n@keyframes hb-appear { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }\n@keyframes hb-grow { from { transform: scaleX(0); } }\n@media (prefers-reduced-motion: reduce) {\n  .hb-pill { transition: none; }\n  .hb-appear { animation: none; }\n}\n";
@@ -9096,7 +9163,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx54 } from "react/jsx-runtime";
+import { jsx as jsx55 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -9122,7 +9189,7 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, sessionId, streaming }) => /* @__PURE__ */ jsx54(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id, sessionScope: sessionId }, children: /* @__PURE__ */ jsx54(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, sessionId, streaming }) => /* @__PURE__ */ jsx55(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id, sessionScope: sessionId }, children: /* @__PURE__ */ jsx55(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
       }
     });
     const open = (text) => openAndFill(text, host ?? {});

@@ -45,7 +45,7 @@ CHROME_CANDIDATES = [
 ]
 
 BOARD_W = 1100.0  # the reply column's reading cap
-LONGEST_WORD = "In the composer. Blocked from sending."  # the longest of the five answers: worst case for width
+LONGEST_WORD = "Blocked from sending — in the composer — press Send."  # longest answer: worst case
 NARROW_CARD = 180.0  # a hug narrow enough that a one-line answer cannot fit
 
 # Two shapes of the same table. The narrow one is the worst case: its table is narrower than a single control.

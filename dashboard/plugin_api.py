@@ -257,6 +257,8 @@ async def get_block(block_id: str, version: str | None = None):
         answer["align"] = word
     if (word := store.text_align_of(board)) is not None:
         answer["text_align"] = word
+    if (ups := store.follow_ups_of(board)) is not None:  # and its tappable follow-ups, when the board offers them
+        answer["follow_ups"] = ups
     return answer
 
 
