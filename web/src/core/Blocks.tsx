@@ -19,7 +19,7 @@
 // its blocks: up to four tappable prompts the AI chose so the reader can continue the conversation in one tap.
 // Their drawing is core/FollowUps.tsx; the row costs a fit-content hug zero width and wraps long labels rather
 // than clipping them. Nothing offered, no strip: the same DOM as always.
-import { Component as ReactComponent, createContext, useContext, type ErrorInfo, type ReactNode } from "react";
+import { Component as ReactComponent, createContext, Fragment, useContext, type ErrorInfo, type ReactNode } from "react";
 import { FlowLightBoard } from "../blocks/flow/highlight";
 import { REGISTRY, type Block } from "../registry";
 import type { BlockEntry } from "./types";
@@ -120,15 +120,90 @@ function Placed({ block }: { block: Block }) {
   );
 }
 
-export function Blocks({ blocks, boardAlign, boardTextAlign, boardFollowUps }: {
-  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardFollowUps?: FollowUp[];
+export function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUps }: {
+  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; live?: boolean; boardFollowUps?: FollowUp[];
 }) {
+  // A board that SHOWS a source block has already said where its data came from — that block draws in the
+  // flow, right above this quiet line, so repeating its words under it was a duplicate, not provenance
+  // (maintainer note 2026-11-25 #1: "the same sources show twice"). The gate is total by construction and
+  // said plainly: the accepted rule (provenanceParts) reads ONLY top-level source blocks, and every other
+  // source carrier — a chart's inline attribution, an image's credit, a source nested in a cell — already
+  // draws its own words in the flow and was accepted as this line's silence. So on any shipped board the
+  // line renders with NO source words; the rule stays exported and pinned exactly as accepted, and a
+  // source-less board says nothing here because there is nothing unseen to say. What survives this line
+  // answers to the host, not to sources (maintainer note 2026-11-25 #2): a kept, refreshing view
+  // grows it with the Live badge alone — Today's shape — while a chat tag or a panel claims nothing.
+  const parts = showsSourceBlock(blocks) ? [] : provenanceParts(blocks);
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
       <div className="hb-blocks">
         <FlowLightBoard>{drawAll(blocks)}</FlowLightBoard>
         {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} />}
+        {(parts.length > 0 || live === true) && <ProvenanceFooter parts={parts} live={live} />}
       </div>
     </AlignScope.Provider>
   );
+}
+
+/** Whether the board already shows its sources: a top-level `source` block draws in the flow, and the quiet
+ *  line under it would only repeat it. Nested sources keep drawing inside their cells and stay the footer's
+ *  own silence; a chart's inline attribution stays the chart's business — as accepted. */
+function showsSourceBlock(blocks: Block[]): boolean {
+  return blocks.some((b) => b.type === "source");
+}
+
+/** A provenance line says short things: at most this many parts, then a quiet ellipsis. */
+const PROVENANCE_PARTS = 8;
+/** The only shape the footer trusts as a date: the YYYY-MM-DD that read.ts already cuts from `accessed`. */
+const IS_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** One spoken word of the footer, folded to a single line: an embedded newline must not break a quiet line. */
+function foldWord(v: string): string {
+  return v.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * The words a board already says: every top-level `source` block contributes its item labels and `accessed`
+ * dates (or, for the one-line form, its text) in draw order, each shown once. Nothing is asked of the model
+ * and nothing is invented: charts keep their inline attributions to themselves, nested sources keep drawing
+ * inside their cells, and a board that carries no source block says nothing here. Exported so the line's
+ * rule keeps its direct pins even though the board's no-echo gate (maintainer note 2026-11-25) decides
+ * whether these words are ever spoken.
+ */
+export function provenanceParts(blocks: Block[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const say = (raw: string | undefined): void => {
+    const word = raw ? foldWord(raw) : "";
+    if (!word || seen.has(word)) return;
+    seen.add(word);
+    out.push(word);
+  };
+  for (const b of blocks) {
+    if (b.type !== "source") continue;
+    if (b.items?.length) for (const item of b.items) { say(item.label); say(item.accessed); }
+    else say(b.text);
+  }
+  return out;
+}
+
+/** The quiet footer line itself: label · date · … · the host's badge. Words reach it only from the board's
+ *  own source data the flow does not already show (the caller gates an echo away, and keeps a live pill able
+ *  to stand alone); the badge is not a board word — it arrives only when the plugin's OWN view knows this
+ *  drawing keeps refreshing (DashboardView); a chat tag or a panel says nothing about freshness, and absence
+ *  of the badge claims nothing either way. */
+function ProvenanceFooter({ parts, live }: { parts: string[]; live?: boolean }) {
+  const nodes: ReactNode[] = [];
+  const join = (key: string, node: ReactNode): void => {
+    if (nodes.length) {
+      nodes.push(<span key={`${key}-dot`} className="hb-provenance-dot" aria-hidden="true">·</span>);
+    }
+    nodes.push(<Fragment key={key}>{node}</Fragment>);
+  };
+  for (const [i, word] of parts.entries()) {
+    if (i >= PROVENANCE_PARTS) { join("more", <span className="hb-provenance-more">…</span>); break; }
+    join(`part-${i}`, <span className={IS_DATE.test(word) ? "hb-provenance-time" : "hb-provenance-source"}>{word}</span>);
+  }
+  if (live === true) join("live", <span className="hb-provenance-badge" data-live="live">Live</span>);
+  return <div className="hb-provenance">{nodes}</div>;
 }
