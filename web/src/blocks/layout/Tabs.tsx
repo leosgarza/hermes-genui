@@ -4,6 +4,7 @@
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useStoredValue } from "../../core/blockState";
 import { InlineText } from "../../lib/InlineText";
+import { slotList } from "../../core/drawSlot";
 
 /**
  * Which tab an arrow key moves to: Right is the next one, Left the one before, wrapping at the ends; any other key
@@ -51,7 +52,7 @@ export function Tabs({ labels, badges = [], panel }: {
         ))}
       </div>
       <div className="hb-tab-panel hb-appear" role="tabpanel" id={`${base}-panel`} aria-labelledby={`${base}-tab-${picked}`} key={picked}>
-        {panel(picked)}
+        {slotList(panel(picked))}
       </div>
     </div>
   );

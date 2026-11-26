@@ -24,6 +24,11 @@
 // it always drew: the control lives outside the board wrapper, and the wrapper takes no part in layout. The
 // pointer a later tag draws has no board to move, so it grows no control; the living row stays beside the
 // live view (the dialog is the board itself).
+//
+// Export chrome (#6, host/ExportChrome.tsx): the tag grows view-act controls OUTSIDE .hb-blocks — a board menu
+// (JSON from the stored envelope this very load delivered; Markdown from the ONE host writer, asked at the
+// exact version this drawing committed with) and a corner button per drawn chart and table. The board's own
+// drawing stays exactly what it always was.
 import { useContext, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
 import * as boards from "../core/boardRoster";
@@ -34,11 +39,40 @@ import { readBlocksNoted, type BoardLink, type FollowUp } from "../core/readBloc
 import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
+import { useExportChrome } from "./ExportChrome";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
-type State = { kind: "loading" }
-  | { kind: "drawn"; blocks: Block[]; align?: Align; textAlign?: Align; followUps?: FollowUp[] }
+/** A get_block answer that carries the stored envelope beside its projection (the local door does). */
+function isEnvelopeCarrying(data: unknown): data is { stored: unknown } {
+  return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
+}
+
+/** The version a DRAWING is, said by the answer that committed it:
+ *  · the version word the answer speaks (the door says it for every version it serves);
+ *  · the reached-back number when a reach-back answer says none (it answered THAT ask — what it drew IS
+ *    that version, fetched by address, never redrawn);
+ *  · 1 when the answer is the door's own envelope speaking no version word — the store's rule that a
+ *    board never updated IS version 1, pinned at the door: ?version=1 answers exactly that board;
+ *  · null when the answer identifies nothing — a bare block list is not the door's answer shape, and
+ *    an export that cannot name the version on screen must REFUSE, not download "whatever is current".
+ *  This is the export's pin: it rides the committed drawing, so a host advance the view has not seen,
+ *  or a selection whose load has not landed, cannot move the file out from under the screen. */
+function committedVersion(data: unknown, said: number | undefined, viewing: number | null): number | null {
+  if (said !== undefined) return said;
+  if (viewing !== null) return viewing;
+  const envelope = typeof data === "object" && data !== null && !Array.isArray(data)
+    && Array.isArray((data as { blocks?: unknown }).blocks)
+    && typeof (data as { type?: unknown }).type !== "string";
+  return envelope ? 1 : null;
+}
+
+// One stable empty list for the chrome's "nothing drawn yet" argument: a fresh [] every render would churn its
+// deps and let its scan re-commit forever.
+const NO_BLOCKS: Block[] = [];
+
+type State = { kind: "loading" } | { kind: "drawn"; blocks: Block[]; stored: unknown;
+  version: number | null; align?: Align; textAlign?: Align; followUps?: FollowUp[] }
   | { kind: "failed" };
 
 /**
@@ -63,6 +97,9 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The tree this live view MOUNTED last: what the next replacement tree is carried against.
   const drawn = useRef<Block[] | null>(null);
+  // The chrome's anchor: the tag wraps the board (never inside .hb-blocks) so corners and the menu pair with it.
+  const tagRef = useRef<HTMLDivElement | null>(null);
+  const previousId = useRef(id);
 
   // The roster claim (core/boardRoster.ts): the token belongs to this instance; the claim is taken in a
   // LAYOUT effect so no flash of the wrong role ever paints, and it is released on unmount whatever path
@@ -75,6 +112,17 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
   const [refresh, setRefresh] = useState(0);  // the owner's answer to a poke: the address said something newer
   const [, force] = useReducer((x: number) => x + 1, 0);  // repaint on any roster word about this address
   const [live, setLive] = useState<{ version?: number; updatedAt?: string; links?: BoardLink[] }>({});
+  if (previousId.current !== id) {
+    previousId.current = id;
+    setState({ kind: "loading" });
+    setViewing(null);
+    setExpanded(false);
+    setRole("unknown");
+    setRefresh(0);
+    setLive({});
+    drawn.current = null;
+  }
+
 
   useLayoutEffect(() => {
     if (streaming || !validId) return;
@@ -120,6 +168,10 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
         } = readBlocksNoted(data);
         if (!alive) return;
         if (blocks.length) {
+          // The export's JSON source: the stored envelope when the answer carries it (the local get_block
+          // does, at every version); the answer itself where it does not (previews, old doors) — never a
+          // fabrication. With ?version=N this is THAT version's envelope, the board being looked at.
+          const envelope = isEnvelopeCarrying(data) ? data.stored : data;
           // Drawing the answer is a function of the board and the door; the ONE thing that may precede it
           // is an archive walk: a version ≥ 2 board arriving at a FRESH mount may carry updates that landed
           // with no view mounted anywhere — no promote ever ran, and the door may still hold answers under
@@ -140,7 +192,9 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
             if (drawn.current && viewing === null) void promoteOnUpdate(actions.rest, id, drawn.current, blocks);
             if (viewing === null && (boardVersion ?? 0) >= 2) markLiving(id);
             drawn.current = blocks;
-            setState({ kind: "drawn", blocks, align: boardAlign, textAlign: boardTextAlign, followUps: boardFollowUps });
+            setState({ kind: "drawn", blocks, stored: envelope,
+              version: committedVersion(data, boardVersion, viewing),
+              align: boardAlign, textAlign: boardTextAlign, followUps: boardFollowUps });
             // Only the LIVE answer says what this address IS now: the live row and the roster's word about
             // the address speak of the current version, whatever older one is being looked at.
             if (viewing === null) {
@@ -198,7 +252,10 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
         return;
       }
       if (e.key !== "Tab" || !hostRef.current) return;
-      const items = tabbableIn(hostRef.current);  // the DOM can change while open: recompute per keypress
+      const items = [
+        ...tabbableIn(hostRef.current),
+        ...(tagRef.current?.querySelectorAll<HTMLElement>(".hb-export-btn") ?? []),
+      ];  // the export layer is a tag sibling; include it in the expanded board's own focus loop
       if (!items.length) return;
       e.preventDefault();  // the dialog owns the keyboard: Tab steps only through its own eligible controls
       const active = document.activeElement as HTMLElement | null;
@@ -210,6 +267,20 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
+  // The export affordance (host/ExportChrome.tsx): chrome around the board, never inside it. Its corner buttons
+  // pair the one drawn instance's elements with the read blocks by walking both trees together; the board's
+  // JSON file is the stored envelope this very load already delivered, and its Markdown asks the ONE host
+  // writer (GET /blocks/<id>/markdown) at the EXACT version this drawing committed with — never "whatever the
+  // address is on now", so a host advance the view has not seen, or a selection whose load has not landed,
+  // cannot move the file out from under the screen; a drawing that names no version is refused, not guessed.
+  // The tag's OWN id rides in too: an enclosing provider's blockId must never name this board.
+  const chrome = useExportChrome({
+    blocks: state.kind === "drawn" ? state.blocks : NO_BLOCKS,
+    stored: state.kind === "drawn" ? state.stored : null,
+    boardId: id, drawnVersion: state.kind === "drawn" ? state.version : null,
+    getBoard: () => tagRef.current?.querySelector<HTMLElement>(".hb-blocks") ?? null,
+    getHost: () => tagRef.current,
+  });
 
   if (!validId && !streaming) return null;
   if (streaming || role === "unknown") return <Note text="drawing…" pulse />;
@@ -218,11 +289,12 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
   if (state.kind === "failed") return null;
   return (
     <BlockActions.Provider value={{ ...actions, blockId: id }}>
-      <div className="hb-tag">
+      <div className="hb-tag" ref={tagRef} {...chrome.bind}>
         <button ref={expandRef} type="button" className="hb-expand" aria-label="Expand board" aria-haspopup="dialog"
           onClick={() => setExpanded(true)}>
           <IconExpand />
         </button>
+        {chrome.menu}
         <div ref={hostRef} className={expanded ? "hb-board-host hb-board-overlay" : "hb-board-host"}
           {...(expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {})}
           onClick={expanded ? (e) => e.target === e.currentTarget && close() : undefined}>
@@ -235,6 +307,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           <Blocks blocks={state.blocks} boardAlign={state.align} boardTextAlign={state.textAlign}
             boardFollowUps={state.followUps} />
         </div>
+        {chrome.layer}
       </div>
       {(live.version != null || live.links) && (
         <LiveRow id={id as string} version={live.version} updatedAt={live.updatedAt} links={live.links}

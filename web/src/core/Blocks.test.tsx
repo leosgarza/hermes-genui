@@ -34,6 +34,16 @@ describe("Blocks", () => {
     expect(screen.getByText("₹72,275 Cr")).toBeTruthy();
   });
 
+  it("keeps a layout-neutral identity slot when a block draws nothing", () => {
+    const broken = { type: "sundial" } as unknown as Block;
+    const { container } = render(<Blocks blocks={[broken, { type: "text", text: "visible" } as Block]} />);
+    const slots = container.querySelectorAll(".hb-blocks > .hb-slot");
+    expect(slots).toHaveLength(2);
+    expect(slots[0].firstElementChild).toBeNull();
+    expect(slots[1].textContent).toContain("visible");
+    expect((slots[0] as HTMLElement).style.display).toBe("contents");
+  });
+
   it("draws nothing for an unknown type", () => {
     const { container } = render(<Blocks blocks={[{ type: "sundial" } as unknown as Block]} />);
     expect(container.querySelector(".hb-blocks")!.textContent).toBe("");

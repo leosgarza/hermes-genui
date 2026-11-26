@@ -27,6 +27,7 @@ import type { FollowUp } from "./readBlocks";
 import { FollowUps } from "./FollowUps";
 import { BlockSlot } from "./blockState";
 import { carriedKey, identityOf, mintKey, noteMounted } from "./living-identity";
+import { slotList } from "./drawSlot";
 import type { Align } from "./fields";
 import { alignOf, textAlignOf } from "./readBlocks";
 
@@ -137,7 +138,7 @@ export function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUp
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
       <div className="hb-blocks">
-        <FlowLightBoard>{drawAll(blocks)}</FlowLightBoard>
+        <FlowLightBoard>{slotList(drawAll(blocks))}</FlowLightBoard>
         {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} />}
         {(parts.length > 0 || live === true) && <ProvenanceFooter parts={parts} live={live} />}
       </div>

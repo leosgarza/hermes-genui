@@ -46,7 +46,7 @@ describe("block placement", () => {
     expect(root.querySelector(".hb-place")).toBeNull();
     const blocks = root.querySelector(".hb-blocks")!;
     expect(blocks.children.length).toBe(2);
-    expect(blocks.firstElementChild!.classList.contains("hb-text")).toBe(true);
+    expect((blocks.firstElementChild as HTMLElement).firstElementChild!.classList.contains("hb-text")).toBe(true);
   });
 
   it("draws a block that asks for center inside a centered place", () => {
@@ -104,8 +104,8 @@ describe("block placement", () => {
       { type: "tabs", tabs: [{ label: "One", children: [{ ...TEXT, align: "right" }] }, { label: "Two", children: [{ type: "text", text: "Other" }] }] },
     ] });
     expect(root.querySelector(".hb-row > .hb-row-cell > .hb-place[data-align='center'] > .hb-text")).toBeTruthy();
-    expect(root.querySelector(".hb-section-body > .hb-place[data-align='center'] > .hb-text")).toBeTruthy();
-    expect(root.querySelector(".hb-tab-panel > .hb-place[data-align='right'] > .hb-text")).toBeTruthy();
+    expect(root.querySelector(".hb-section-body > .hb-slot > .hb-place[data-align='center'] > .hb-text")).toBeTruthy();
+    expect(root.querySelector(".hb-tab-panel > .hb-slot > .hb-place[data-align='right'] > .hb-text")).toBeTruthy();
   });
 
   it("places each block of a row drawn as a stack", () => {
@@ -137,28 +137,28 @@ describe("placement within the column's widths", () => {
 
   it("keeps a centered calculator and a right-aligned form to their 720px reading width", () => {
     const root = draw([{ ...CALC, align: "center" }, { ...example("form"), align: "right" }]);
-    expect(style(root, ".hb-blocks > .hb-place > .hb-calc").maxWidth).toBe("720px");
-    expect(style(root, ".hb-blocks > .hb-place > .hb-form").maxWidth).toBe("720px");
+    expect(style(root, ".hb-blocks > .hb-slot > .hb-place > .hb-calc").maxWidth).toBe("720px");
+    expect(style(root, ".hb-blocks > .hb-slot > .hb-place > .hb-form").maxWidth).toBe("720px");
   });
 
   it("caps a centered chart, and leaves a long line at the board's width", () => {
     cleanup();
     const root = draw([{ ...example("chart"), align: "center" }]);
-    expect(style(root, ".hb-blocks > .hb-place > .hb-chart").maxWidth).toBe("720px");
+    expect(style(root, ".hb-blocks > .hb-slot > .hb-place > .hb-chart").maxWidth).toBe("720px");
     const x = Array.from({ length: 60 }, (_, i) => `d${i}`);
     const wide = draw([{ type: "chart", kind: "line", x, series: [{ data: x.map((_, i) => i) }], align: "center" }]);
-    expect(style(wide, ".hb-blocks > .hb-place > .hb-chart").maxWidth).toBe("none");
+    expect(style(wide, ".hb-blocks > .hb-slot > .hb-place > .hb-chart").maxWidth).toBe("none");
   });
 
   it("lets a full-width table hug its columns, placed or not", () => {
-    expect(style(draw([{ ...example("table"), align: "center" }]), ".hb-blocks > .hb-place > .hb-table-card").width).toBe("fit-content");
-    expect(style(draw([example("table")]), ".hb-blocks > .hb-table-card").width).toBe("fit-content");
+    expect(style(draw([{ ...example("table"), align: "center" }]), ".hb-blocks > .hb-slot > .hb-place > .hb-table-card").width).toBe("fit-content");
+    expect(style(draw([example("table")]), ".hb-blocks > .hb-slot > .hb-table-card").width).toBe("fit-content");
   });
 
   it("reaches inside a container without taking over its cells", () => {
     // (a grid with one child is drawn as just that child, so it needs two to stay a grid — as in widths.test)
     const root = draw({ align: "center", blocks: [{ type: "grid", children: [CALC, { type: "text", text: "Beside it" }] }] });
-    expect(root.querySelector(".hb-blocks > .hb-place > .hb-grid")).toBeTruthy();
+    expect(root.querySelector(".hb-blocks > .hb-slot > .hb-place > .hb-grid")).toBeTruthy();
     // inside the cell the card fills its cell as unplaced: no top-level cap reaches into a container
     expect(style(root, ".hb-grid-cell > .hb-place > .hb-calc").maxWidth).toBe("none");
   });
