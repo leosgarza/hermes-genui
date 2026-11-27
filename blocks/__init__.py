@@ -47,6 +47,7 @@ from .source import check_source, text_source
 from .steps import check_steps, text_steps
 from .streak import check_streak, text_streak
 from .table import check_table, text_table
+from .tasks import check_tasks, text_tasks
 from .tiles import check_tiles, text_tiles
 from .timeline import check_timeline, text_timeline
 
@@ -66,6 +67,7 @@ TYPES = {
     "actions": (check_actions, text_actions),
     "tiles": (check_tiles, text_tiles),
     "cards": (check_cards, text_cards),
+    "tasks": (check_tasks, text_tasks),
     "checklist": (check_checklist, text_checklist),
     "calculator": (check_calculator, text_calculator),
     "simulate": (check_simulate, text_simulate),

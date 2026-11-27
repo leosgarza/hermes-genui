@@ -478,6 +478,33 @@
    }
   },
   {
+   "kind": "tasks",
+   "group": "block",
+   "for": "Work-order / action-item cards.",
+   "use_when": "A queue of tasks or work orders: what to do, who owns it, when it is due, its status and priority.",
+   "fields": "items (1-40): title, owner, due, status (todo|doing|blocked|done), priority (low|med|high), note, run.",
+   "example": {
+    "type": "tasks",
+    "title": "This week",
+    "items": [
+     {
+      "title": "Fix the roof leak",
+      "owner": "Leo",
+      "due": "Fri",
+      "status": "doing",
+      "priority": "high"
+     },
+     {
+      "title": "Order shingles",
+      "owner": "Sam",
+      "due": "Thu",
+      "status": "todo",
+      "priority": "med"
+     }
+    ]
+   }
+  },
+  {
    "kind": "checklist",
    "for": "Items to tick; ticks are saved.",
    "use_when": "Packing lists, to-dos, steps.",

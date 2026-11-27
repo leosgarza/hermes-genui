@@ -15,12 +15,32 @@ import { AreaMarks } from "./AreaMarks";
 import { ScatterMarks, dotSpots } from "./ScatterMarks";
 import { HBarChart } from "./HBarChart";
 import { PieChart } from "./PieChart";
+import { Gauge } from "./Gauge";
+import { Bullet } from "./Bullet";
+import { Funnel } from "./Funnel";
+import { Pareto } from "./Pareto";
+import { Waterfall } from "./Waterfall";
+import { Radar } from "./Radar";
+import { Control } from "./Control";
+import { Bubble } from "./Bubble";
+import { Box } from "./Box";
+import { Treemap } from "./Treemap";
 
 const WIDE_FROM = 60;  // a line with this many points may be drawn wider than the usual cap
 
 /** A chart of any kind: pies and donuts, and horizontal bars (asked for, or bars that read better as rows: see
  *  kindToDraw), have drawings of their own; the rest go up and down. */
 export function Chart({ spec }: { spec: ChartSpec }) {
+  if (spec.type === "gauge") return <Gauge spec={spec} />;
+  if (spec.type === "bullet") return <Bullet spec={spec} />;
+  if (spec.type === "funnel") return <Funnel spec={spec} />;
+  if (spec.type === "pareto") return <Pareto spec={spec} />;
+  if (spec.type === "waterfall") return <Waterfall spec={spec} />;
+  if (spec.type === "radar") return <Radar spec={spec} />;
+  if (spec.type === "control") return <Control spec={spec} />;
+  if (spec.type === "bubble") return <Bubble spec={spec} />;
+  if (spec.type === "box") return <Box spec={spec} />;
+  if (spec.type === "treemap") return <Treemap spec={spec} />;
   if (spec.type === "pie" || spec.type === "donut") return <PieChart spec={spec} />;
   if (kindToDraw(spec) === "hbar") return <HBarChart spec={spec} />;
   return <XYChart spec={spec} />;

@@ -31,7 +31,7 @@ export function readChart(raw: any, here: Trail): ChartBlock | null {
 
 function readSpec(d: any): ChartSpec | null {
   const type = chartKind(d.kind);
-  if (!Array.isArray(d.x) && type !== "histogram") return null;
+  if (!Array.isArray(d.x) && type !== "histogram" && type !== "gauge" && type !== "box") return null;
   if (!Array.isArray(d.series) || !d.series.length) return null;
   const unit = typeof d.unit === "string" ? d.unit : undefined;
   let x: string[] = Array.isArray(d.x) ? d.x.map(String) : [];
@@ -56,6 +56,15 @@ function readSpec(d: any): ChartSpec | null {
     series, unit: type === "histogram" ? undefined : unit, source: typeof d.source === "string" ? d.source : undefined };
   if (typeof d.figure === "boolean") spec.figure = d.figure;
   if (d.tone === "change") spec.tone = "change";
+  if (type === "gauge") {
+    if (typeof d.min === "number" && isFinite(d.min)) spec.min = d.min;
+    if (typeof d.max === "number" && isFinite(d.max)) spec.max = d.max;
+    if (typeof d.target === "number" && isFinite(d.target)) spec.target = d.target;
+  }
+  if (type === "bullet" && Array.isArray(d.bands)) {
+    const bands = d.bands.filter((v: unknown): v is number => typeof v === "number" && isFinite(v));
+    if (bands.length) spec.bands = bands;
+  }
   return spec;
 }
 

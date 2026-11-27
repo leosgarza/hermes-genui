@@ -5,7 +5,7 @@ import { usesLakhCrore } from "../../lib/locale";
 import { niceTicks } from "./geometry";
 
 /** Every kind the chart block draws. */
-export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram"] as const;
+export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram", "gauge", "bullet", "funnel", "pareto", "waterfall", "radar", "control", "bubble", "box", "treemap"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
 
 /** One series: its values (null for a gap), and for a combo's line its own unit and whether it has the right scale. */
@@ -19,11 +19,14 @@ export type ChartSpec = {
   figure?: boolean;
   /** "change": a one-series line is green above its first value and orange below it, with the start marked. */
   tone?: "change";
+  /** gauge: the scale and goal; bullet: spec.bands are the qualitative band maxima (absolute). */
+  min?: number; max?: number; target?: number; bands?: number[];
 };
 
 // Other names models use for the same kinds, written without spaces, dashes or underscores.
 const KIND_ALIASES: Record<string, ChartKind> = {
   doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar", hist: "histogram",
+  dial: "gauge", speedometer: "gauge", bulletgraph: "bullet",
 };
 
 /** The kind to draw for the name the model wrote: a known name (any case) or an alias is that kind, anything else is a
@@ -40,7 +43,9 @@ export function chartKind(name: unknown): ChartKind {
  *  bins the values of its one series, the rest 3. */
 export function maxSeries(kind: ChartKind): number {
   if (kind === "stacked" || kind === "area") return 6;
-  if (kind === "histogram") return 1;
+  if (kind === "histogram" || kind === "gauge" || kind === "funnel" || kind === "pareto" || kind === "waterfall" || kind === "control" || kind === "treemap") return 1;
+  if (kind === "bullet" || kind === "bubble") return 2;
+  if (kind === "box") return 8;
   return 3;
 }
 
