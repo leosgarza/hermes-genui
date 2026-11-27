@@ -437,6 +437,47 @@
    }
   },
   {
+   "kind": "cards",
+   "group": "block",
+   "for": "A compact wall of project cards, one card per project.",
+   "use_when": "A portfolio of 2-14 projects: title, lifecycle ring, up to three numbers, what needs the owner, one action.",
+   "fields": "items (1-14): title, id, status (active|parked|done|archived), ring {stages[4], at 0-3, label, tone}, metrics (0-3: label, value, tone), needs {text, tone}, freshness, action {label, run|url}. columns 1|2.",
+   "example": {
+    "type": "cards",
+    "items": [
+     {
+      "title": "Mission Control",
+      "status": "active",
+      "ring": {
+       "stages": [
+        "PLAN",
+        "TRACK",
+        "IMPLEMENT",
+        "METRIC"
+       ],
+       "at": 0,
+       "label": "smooth",
+       "tone": "good"
+      },
+      "metrics": [
+       {
+        "label": "velocity",
+        "value": "0.75/wk"
+       }
+      ],
+      "needs": {
+       "text": "2 plans await your yes",
+       "tone": "warn"
+      },
+      "action": {
+       "label": "Open project chat",
+       "run": "Open the project chat"
+      }
+     }
+    ]
+   }
+  },
+  {
    "kind": "checklist",
    "for": "Items to tick; ticks are saved.",
    "use_when": "Packing lists, to-dos, steps.",

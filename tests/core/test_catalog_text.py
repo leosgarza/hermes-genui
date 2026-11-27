@@ -22,7 +22,9 @@ def test_describe_stays_compact():
     # carried in catalog `about` so every authoring model reads the choices, per Sol's #7 spec disposition; now
     # 3,390 for the one line that teaches a board's tag id is its address — update or link, never redraw — the
     # living-boards contract every authoring model must read to keep the chat's visual memory alive)
-    assert len(describe()) < 3390 * 4
+    # Now 3650 for the cards block — one compact wall of project cards (14 projects in one block, sidestepping
+    # the 40-block cap) with the honest-unknown rule the portfolio needs.
+    assert len(describe()) < 3650 * 4
 
 
 def test_atoms_take_one_line_each():

@@ -27,6 +27,7 @@ from .atoms import (
     text_text,
 )
 from .calculator import check_calculator, text_calculator
+from .cards import check_cards, text_cards
 from .callout import check_callout, text_callout
 from .chart import check_chart, text_chart
 from .checklist import check_checklist, text_checklist
@@ -64,6 +65,7 @@ TYPES = {
     "flip": (check_flip, text_flip),
     "actions": (check_actions, text_actions),
     "tiles": (check_tiles, text_tiles),
+    "cards": (check_cards, text_cards),
     "checklist": (check_checklist, text_checklist),
     "calculator": (check_calculator, text_calculator),
     "simulate": (check_simulate, text_simulate),
