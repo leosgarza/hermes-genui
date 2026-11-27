@@ -175,16 +175,24 @@ def text_chart(block: dict) -> str:
         body = "; ".join(f"{safe_text(s.get('name')) or 'Series'} " + " / ".join(fmt_num(v) for v in (s.get("data") or []) if is_number(v)) for s in series[:3])
     elif kind == "control":
         vals = [v for v in (series[0].get("data") or []) if is_number(v)]
-        body = f"mean {fmt_num(sum(vals) / len(vals))}, n {len(vals)}" if vals else ""
+        if vals:
+            mean = sum(vals) / len(vals)
+            sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+            outside = sum(1 for v in vals if v > mean + 3 * sd or v < mean - 3 * sd)
+            body = f"mean {fmt_num(mean)}, n {len(vals)}" + (f", {outside} outside the limits" if outside else ", within the limits")
+        else:
+            body = ""
     elif kind == "bubble":
         body = "; ".join(line for line in (_points_line(s) for s in series[:1]) if line)
     elif kind == "box":
         parts = []
-        for s in series[:8]:
+        xs = block.get("x") if isinstance(block.get("x"), list) else []
+        for i, s in enumerate(series[:8]):
             vals = sorted(v for v in (s.get("data") or []) if is_number(v))
             if vals:
                 med = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
-                parts.append(f"{safe_text(s.get('name')) or 'Group'} median {fmt_num(med)}")
+                label = safe_text(s.get("name")) or (safe_text(xs[i]) if i < len(xs) else "") or "Group"
+                parts.append(f"{label} median {fmt_num(med)}")
         body = " · ".join(parts)
     elif kind == "treemap":
         data = series[0].get("data") or []

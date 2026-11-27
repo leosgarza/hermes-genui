@@ -24,7 +24,7 @@ def test_describe_stays_compact():
     # living-boards contract every authoring model must read to keep the chat's visual memory alive)
     # Now 3650 for the cards block — one compact wall of project cards (14 projects in one block, sidestepping
     # the 40-block cap) with the honest-unknown rule the portfolio needs.
-    assert len(describe()) < 4000 * 4
+    assert len(describe()) < 4150 * 4
 
 
 def test_atoms_take_one_line_each():

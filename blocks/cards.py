@@ -119,6 +119,11 @@ def text_cards(block: dict) -> str:
                      for m in metrics if isinstance(m, dict) and has_text(m.get("label"))]
             if cells:
                 lines.append(" · ".join(cells))
+        facts = [f"{label} {safe_text(item.get(key), 40)}"
+                 for key, label in (("owner", "owner"), ("milestone", "milestone"), ("trend", "trend"),
+                                    ("budget", "budget"), ("arr", "ARR")) if has_text(item.get(key))]
+        if facts:
+            lines.append(" · ".join(facts))
         needs = _needs_line(item)
         if needs:
             lines.append(needs)
