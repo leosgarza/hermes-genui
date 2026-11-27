@@ -8302,6 +8302,8 @@ function captionLines(figure) {
     const words = [...row.querySelectorAll("td")].filter((td) => !td.classList.contains("hb-pie-swatch")).map((td) => (td.textContent ?? "").trim()).filter(Boolean).join(" ");
     line(row, words, sw ? getComputedStyle(sw).backgroundColor : void 0);
   }
+  const axis = figure.querySelector(".hb-chart-axis-note");
+  line(axis, axis?.textContent?.trim() ?? "");
   const caveat = figure.querySelector(".hb-chart-caveat");
   line(caveat, caveat?.textContent?.trim() ?? "");
   const source = figure.querySelector(".hb-chart-source");
@@ -9075,10 +9077,7 @@ function BlockTag({ id, streaming, load }) {
         return;
       }
       if (e.key !== "Tab" || !hostRef.current) return;
-      const items = [
-        ...tabbableIn(hostRef.current),
-        ...tagRef.current?.querySelectorAll(".hb-export-btn") ?? []
-      ];
+      const items = tabbableIn(hostRef.current);
       if (!items.length) return;
       e.preventDefault();
       const active = document.activeElement;
@@ -9117,7 +9116,7 @@ function BlockTag({ id, streaming, load }) {
           children: /* @__PURE__ */ jsx53(IconExpand, {})
         }
       ),
-      chrome.menu,
+      !expanded && chrome.menu,
       /* @__PURE__ */ jsxs48(
         "div",
         {
@@ -9149,7 +9148,7 @@ function BlockTag({ id, streaming, load }) {
           ]
         }
       ),
-      chrome.layer
+      !expanded && chrome.layer
     ] }),
     (live.version != null || live.links) && /* @__PURE__ */ jsx53(
       LiveRow,

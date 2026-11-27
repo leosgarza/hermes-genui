@@ -66,7 +66,7 @@ function fontOf(cs: CSSStyleDeclaration): { font: string; size: number } {
 }
 
 /** The chart figure's words, in the order they sit above the picture: the title, the headline line, every
- *  legend item (the XY row's and the pie's table alike), the caveat, and the source line. Plain-text reads:
+ *  legend item (the XY row's and the pie's table alike), the axis note, the caveat, and the source line. Plain-text reads:
  *  inline formatting the board draws (chips, mini bars) is not words an export line carries. */
 export function captionLines(figure: HTMLElement): CaptionLine[] {
   const out: CaptionLine[] = [];
@@ -100,6 +100,9 @@ export function captionLines(figure: HTMLElement): CaptionLine[] {
       .map((td) => (td.textContent ?? "").trim()).filter(Boolean).join(" ");
     line(row, words, sw ? getComputedStyle(sw).backgroundColor : undefined);
   }
+  // The horizontal-bar chart names its value axis under the bars, outside the picture: keep its units.
+  const axis = figure.querySelector(".hb-chart-axis-note");
+  line(axis, axis?.textContent?.trim() ?? "");
   // The caveat rides above the source line, in the source's voice (a chart that says "projection" must not
   // have the file drop the word that qualifies it — raised on #75).
   const caveat = figure.querySelector(".hb-chart-caveat");

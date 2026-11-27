@@ -69,6 +69,17 @@ describe("captionLines", () => {
       "Revenue", "$9,800", "Ads $4,000", "Organic", "Q3 onward is a projection.", "Finance board",
     ]);
   });
+  it("the horizontal-bar axis note keeps its units in the file, above the caveat and the source", () => {
+    const fig = fixture(XY_FIGURE.replace(
+      '<div class="hb-chart-source">Finance board</div>',
+      '<div class="hb-chart-axis-note">Annual revenue, USD millions</div>'
+        + '<div class="hb-chart-caveat">Q3 onward is a projection.</div><div class="hb-chart-source">Finance board</div>',
+    ));
+    expect(captionLines(fig).map((l) => l.text)).toEqual([
+      "Revenue", "$9,800", "Ads $4,000", "Organic", "Annual revenue, USD millions", "Q3 onward is a projection.",
+      "Finance board",
+    ]);
+  });
   it("a figure without a caveat composes its words untouched", () => {
     expect(captionLines(fixture(XY_FIGURE)).map((l) => l.text)).toEqual([
       "Revenue", "$9,800", "Ads $4,000", "Organic", "Finance board",

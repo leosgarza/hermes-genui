@@ -241,15 +241,21 @@ describe("BlockTag expand / full-screen", () => {
     expect(button).not.toBe(document.activeElement);                     // focus never escaped to the inline button
   });
 
-  it("keeps per-block export controls reachable inside the expanded board's focus loop", async () => {
-    await openExpanded([{ type: "table", caption: "Sample", columns: ["Item"], rows: [["A"]] }]);
+  it("full screen shows no export controls, and Tab never reaches one", async () => {
+    const { container } = await drawn([{ type: "table", caption: "Sample", columns: ["Item"], rows: [["A"]] }]);
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // inline: the corner is there
+    fireEvent.click(screen.getByRole("button", { name: "Expand board" }));
+    await waitFor(() => expect(document.querySelector(".hb-board-overlay")).toBeTruthy());
+    expect(document.querySelector(".hb-export-btn")).toBeNull();          // full screen: no corners under the backdrop
+    expect(document.querySelector(".hb-export")).toBeNull();              // and no board menu either
     const dialog = document.querySelector<HTMLElement>(".hb-board-overlay")!;
-    const exportButton = document.querySelector<HTMLElement>(".hb-export-btn")!;
     const controls = [...dialog.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")]
       .filter((el) => el.tabIndex >= 0 && (el as HTMLButtonElement).disabled !== true && !el.closest("[hidden]"));
     controls[controls.length - 1].focus();
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(exportButton);
+    expect(dialog.contains(document.activeElement)).toBe(true);           // the loop wraps inside the dialog
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // back inline: it returns
   });
 
   it("the trap wraps on the real ends when the last control is disabled — the reviewer probe", async () => {

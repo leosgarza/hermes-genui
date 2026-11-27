@@ -252,10 +252,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
         return;
       }
       if (e.key !== "Tab" || !hostRef.current) return;
-      const items = [
-        ...tabbableIn(hostRef.current),
-        ...(tagRef.current?.querySelectorAll<HTMLElement>(".hb-export-btn") ?? []),
-      ];  // the export layer is a tag sibling; include it in the expanded board's own focus loop
+      const items = tabbableIn(hostRef.current);
       if (!items.length) return;
       e.preventDefault();  // the dialog owns the keyboard: Tab steps only through its own eligible controls
       const active = document.activeElement as HTMLElement | null;
@@ -294,7 +291,8 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           onClick={() => setExpanded(true)}>
           <IconExpand />
         </button>
-        {chrome.menu}
+        {/* Export lives in the inline view: in full screen its corners would sit under the dialog's backdrop. */}
+        {!expanded && chrome.menu}
         <div ref={hostRef} className={expanded ? "hb-board-host hb-board-overlay" : "hb-board-host"}
           {...(expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {})}
           onClick={expanded ? (e) => e.target === e.currentTarget && close() : undefined}>
@@ -307,7 +305,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           <Blocks blocks={state.blocks} boardAlign={state.align} boardTextAlign={state.textAlign}
             boardFollowUps={state.followUps} />
         </div>
-        {chrome.layer}
+        {!expanded && chrome.layer}
       </div>
       {(live.version != null || live.links) && (
         <LiveRow id={id as string} version={live.version} updatedAt={live.updatedAt} links={live.links}

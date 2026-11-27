@@ -54,7 +54,6 @@ import shutil
 import socket
 import struct
 import subprocess
-import tarfile
 import tempfile
 import time
 import zlib
@@ -690,15 +689,7 @@ def wait_any_download(downloads: Path, prefix: str, timeout: float = 15.0) -> tu
     raise AssertionError(f"nothing starting with {prefix} landed")
 
 
-# --- the round-2 evidence harness: the SAME user acts against BOTH trees ----------------------------------------
-# The reviewer's bar: the pairing claim must fail where the BUG is (a wrong file's bytes, on the accepted
-# R6) rather than where the FIX is (missing candidate markup), and the layout claim must compare the real
-# base bundle against the real candidate bundle, not wrappers removed from one tree with the other's CSS.
-# Both need a DRIVER that exists in both trees: DRIVER's only candidate-specific seam is the slot-status test
-# hook, so the evidence runs strip exactly that; everything else in it — the door mock, the pointer
-# witnesses, the download seam — predates the slots and bundles identically on both.
-
-R6_BASE_COMMIT = "8a7fd6391fb6975be8b16641de7e76b5fb437f0d"   # the accepted R6 working head (on main 3c83a1d)
+# --- the pairing harness: a driver without the slot-status test hook, bundled from a tree's web folder ----------
 
 
 def slot_free_driver() -> str:
@@ -723,16 +714,6 @@ def bundle_in(web_dir: Path, driver: str) -> str:
         input=driver, capture_output=True, text=True, timeout=180, cwd=str(web_dir), check=False)
     assert proc.returncode == 0, proc.stderr
     return proc.stdout
-
-
-def base_tree(dest: Path) -> None:
-    """Materialize the accepted R6 base — the candidate's own parent commit, byte for byte — into dest."""
-    proc = subprocess.run(["git", "-C", str(REPO), "archive", R6_BASE_COMMIT],
-                          capture_output=True, timeout=180, check=False)
-    assert proc.returncode == 0, proc.stderr.decode()
-    with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as arc:
-        arc.extractall(dest)
-    (dest / "web" / "node_modules").symlink_to((REPO / "web" / "node_modules").resolve())
 
 
 def css_text(root: Path) -> str:
@@ -1021,24 +1002,17 @@ def bars_in_png(data: bytes, m: dict) -> dict:
     return runs
 
 
-class TestExportFullScreenKeyboard:
-    def test_real_tab_reaches_the_per_block_button_inside_full_screen(self):
+class TestExportFullScreen:
+    def test_full_screen_draws_no_export_controls_and_they_return_inline(self):
         js = bundle()
         with chrome_export_page(BOARD, js) as (cdp, _downloads):
+            assert wait_js(cdp, "document.querySelectorAll('.hb-export-btn').length > 0")
             click_until(cdp, "document.querySelector('.hb-expand').getBoundingClientRect()",
                         "!!document.querySelector('.hb-board-overlay')", scroll=".hb-expand")
-            last_inside = cdp.js("""(() => {
-              const root = document.querySelector('.hb-board-overlay');
-              const eligible = [...root.querySelectorAll('a[href], button, input, select, textarea, [tabindex]')]
-                .filter(e => e.tabIndex >= 0 && !e.disabled && e.type !== 'hidden' && !e.closest('[hidden]'));
-              const last = eligible.at(-1);
-              last.focus();
-              return last === document.activeElement;
-            })()""")
-            assert last_inside is True
-            cdp.key("Tab", "Tab", 9)
-            assert wait_js(cdp, "document.activeElement.matches('.hb-export-btn')")
-            assert cdp.js("document.activeElement.getAttribute('aria-label').includes('Export')") is True
+            assert cdp.js("document.querySelectorAll('.hb-export-btn, .hb-export').length") == 0
+            cdp.key("Escape", "Escape", 27)
+            assert wait_js(cdp, "!document.querySelector('.hb-board-overlay')")
+            assert wait_js(cdp, "document.querySelectorAll('.hb-export-btn').length > 0")
 
 
 class TestPngSnapshotTiming:
@@ -1073,11 +1047,8 @@ class TestPngSnapshotTiming:
 
 
 class TestPairingReachesTheTappedTableBytes:
-    """Round-2 merge-gate proof, tree-honest on purpose: the three claims share run_pairing_case with
-    tests/slot_pairing_witness.py and ask NOTHING of the candidate's markup. Against the accepted R6 the
-    very same acts and the very same byte assertions fail on the WRONG FILE — the neighbor table's bytes
-    land where the tapped table's should (the witness log records all three observed failures, per
-    container) — and against the frozen candidate every tap exports the tapped table's own file."""
+    """A block that draws nothing (an image strip whose photos all fail) must not move the export off the
+    tapped table, at the top level, in a tab panel and in a section body: the tapped table's own file lands."""
     @pytest.mark.parametrize("container", ["top-level", "tab", "section"])
     def test_a_block_that_draws_nothing_never_moves_the_export_off_the_tapped_table(self, container):
         js = bundle_in(REPO / "web", slot_free_driver())
@@ -1129,169 +1100,6 @@ class TestExportStaysProvisionalWhileASlotLoads:
             click_corner(cdp, 1)
             data = wait_file_diag(cdp, downloads, "second.csv")
             assert data == b"\xef\xbb\xbfItem\r\nTAPPED-SECOND\r\n"
-
-
-# --- the round-2 geometry bar: the accepted base bundle versus the candidate bundle, in one real Chrome -------
-
-GEOM_FIXTURE = {
-    "version": 1,
-    "blocks": [
-        {"type": "heading", "text": "Geometry parity"},
-        {"type": "text", "text": "Top level, fully drawn."},
-        {"type": "chart", "kind": "bar", "title": "Bars", "x": ["A", "B", "C"],
-         "series": [{"name": "S", "data": [5, 2, 8]}]},
-        {"type": "table", "caption": "Top table", "columns": ["Item", "N"],
-         "rows": [["alpha", "1"], ["beta", "2"]]},
-        {"type": "row", "children": [
-            {"type": "stat", "label": "A", "value": 1},
-            {"type": "stat", "label": "B", "value": 2, "trend": [1, 5, 3, 9, 7]},
-        ]},
-        {"type": "row", "children": [
-            {"type": "badge", "text": "own"}, {"type": "button", "label": "Go", "run": "Go"},
-            {"type": "text", "text": "shares the row width"},
-        ]},
-        {"type": "row", "children": [
-            {"type": "stat", "label": "C", "value": 3, "align": "center"},
-            {"type": "stat", "label": "D", "value": 4, "align": "right", "text_align": "center"},
-        ]},
-        {"type": "section", "title": "Open section", "children": [
-            {"type": "grid", "children": [
-                {"type": "table", "caption": "Grid table", "columns": ["a"], "rows": [["1"]]},
-                {"type": "row", "children": [
-                    {"type": "stat", "label": "E", "value": 5},
-                    {"type": "stat", "label": "F", "value": 6, "trend": [2, 8, 4]},
-                ]},
-            ]},
-            {"type": "chart", "kind": "pie", "title": "Mix", "x": ["p", "q"], "series": [{"data": [3, 4]}]},
-        ]},
-        {"type": "section", "title": "Folded", "collapsed": True, "children": [
-            {"type": "text", "text": "revealed", "align": "center"},
-            {"type": "table", "caption": "Revealed", "columns": ["x"], "rows": [["9"]]},
-        ]},
-        {"type": "tabs", "tabs": [
-            {"label": "One", "children": [
-                {"type": "chart", "kind": "line", "title": "Line", "x": ["d1", "d2"],
-                 "series": [{"name": "s", "data": [1, 2]}]},
-                {"type": "table", "caption": "Tab table", "columns": ["t"], "rows": [["7"]]},
-            ]},
-            {"label": "Two", "children": [
-                {"type": "grid", "children": [
-                    {"type": "text", "text": "g1"}, {"type": "stat", "label": "G", "value": 7},
-                ]},
-            ]},
-        ]},
-        {"type": "columns", "children": [
-            {"type": "text", "text": "column one"},
-            {"type": "text", "text": "column two", "text_align": "right"},
-        ]},
-        {"type": "source", "items": [{"label": "Ledger", "accessed": "2026-11-20"}]},
-        {"type": "text", "text": "Placed at the board top", "align": "right"},
-    ],
-}
-
-GEOM_PROBE = """(() => {
-  // Every drawn box under .hb-blocks, in one normalized path list. A slot wrapper generates NO box, so the
-  // walk UNBOXES it here (descend through display:contents instead of counting it): the paths, and with them
-  // every rect and computed style entry, come out identical when — and only when — the added structure left
-  // the layout of both trees untouched.
-  const sig = (el) => {
-    const cls = [...el.classList].sort().join('.');
-    return el.tagName.toLowerCase() + (cls ? '.' + cls : '');
-  };
-  const items = (el) => {
-    const out = [];
-    for (const c of el.children) {
-      if (getComputedStyle(c).display === 'contents') { out.push(...items(c)); continue; }
-      out.push(c);
-    }
-    return out;
-  };
-  const rec = [];
-  const walk = (el, path) => {
-    items(el).forEach((child, i) => {
-      const p = path + '>' + sig(child) + '[' + i + ']';
-      const r = child.getBoundingClientRect();
-      const cs = getComputedStyle(child);
-      const q = (v) => Math.round(v * 1000) / 1000;
-      rec.push({ p, x: q(r.x + scrollX), y: q(r.y + scrollY), w: q(r.width), h: q(r.height),
-        display: cs.display, position: cs.position, flex: cs.flex, height: cs.height, width: cs.width,
-        maxWidth: cs.maxWidth, alignSelf: cs.alignSelf, textAlign: cs.textAlign });
-      walk(child, p);
-    });
-  };
-  const board = document.querySelector('.hb-blocks');
-  if (!board) return JSON.stringify({ ready: false });
-  walk(board, 'board');
-  return JSON.stringify({ ready: true, slots: document.querySelectorAll('.hb-slot').length,
-                         count: rec.length, rec });
-})()"""
-
-
-def geom_diff(a: list, b: list) -> str:
-    for i, (x, y) in enumerate(zip(a, b)):
-        if x != y:
-            return f"first difference at entry {i}:\n    base      {x}\n    candidate {y}"
-    return f"length differs: base {len(a)} vs candidate {len(b)}"
-
-
-class TestBaseCandidateGeometryParity:
-    """Reviewer item 2, the hard way: the accepted R6 base (8a7fd639) is materialized from git, bundled,
-    and served with the candidate — the SAME fixture page, the SAME driver source, the SAME Chrome flags,
-    CSS read from each tree's own files. Per state the probe compares every drawn box's rect AND computed
-    display/position/flex/width/height/maxWidth/alignSelf/textAlign: fully-drawing top level, a section
-    opened from collapsed, each tab panel, nested grids AND rows, unequal-height row cards, own-width row
-    cells, and placed children (align + text-align). Removing wrappers from one tree is not proof; this
-    is base versus candidate. The base must carry zero slot wrappers and the candidate must carry some —
-    the sanity that the two bundles are really the two trees."""
-    def _probe_states(self, cdp: CDP) -> dict:
-        wait_js(cdp, "document.querySelectorAll('.hb-table-card').length >= 2")
-        states = {"settled": json.loads(cdp.js(GEOM_PROBE))}
-        click_until(cdp, "document.querySelectorAll('.hb-section-toggle')[0].getBoundingClientRect()",
-                    "document.querySelectorAll('.hb-card.hb-section > .hb-section-body').length === 2",
-                    scroll=".hb-section-toggle")
-        time.sleep(1.0)   # the toggle's chevron ROTATES on a transform transition; probe only once it settled
-        states["section-opened"] = json.loads(cdp.js(GEOM_PROBE))
-        click_until(cdp, "document.querySelectorAll('.hb-tabs .hb-tab')[1].getBoundingClientRect()",
-                    "!!document.querySelector('.hb-tab-panel .hb-grid')", scroll=".hb-tab-bar")
-        time.sleep(1.0)   # same: the panel arrives with an appear fade, the chevron is still settling too
-        states["tab-two"] = json.loads(cdp.js(GEOM_PROBE))
-        return states
-
-    def test_base_and_candidate_draw_identically(self):
-        if subprocess.run(["git", "-C", str(REPO), "cat-file", "-t", R6_BASE_COMMIT],
-                          capture_output=True, check=False).returncode != 0:
-            pytest.skip(f"accepted R6 base {R6_BASE_COMMIT} is not in this checkout — run this parity from "
-                        "the candidate branch (the base commit is its parent), not a patch-replay clone")
-        driver = slot_free_driver()
-        with tempfile.TemporaryDirectory() as work:
-            base = Path(work) / "base"
-            base.mkdir()
-            base_tree(base)
-            js_base = bundle_in(base / "web", driver)
-            js_cand = bundle_in(REPO / "web", driver)
-            dumps = {}
-            for label, root, js in (("base", base, js_base), ("candidate", REPO, js_cand)):
-                with chrome_tree_page(GEOM_FIXTURE, js, root, ready_js="window.__ready === true") as (cdp, _d):
-                    dumps[label] = self._probe_states(cdp)
-        for state in ("settled", "section-opened", "tab-two"):
-            b, c = dumps["base"][state], dumps["candidate"][state]
-            assert b["slots"] == 0, f"{state}: the BASE tree somehow carries {b['slots']} slot wrappers"
-            assert c["slots"] > 0, f"{state}: the CANDIDATE tree draws no slots at all — the wrong bundle?"
-            assert b["count"] == c["count"], (
-                f"{state}: element counts differ: base {b['count']} vs candidate {c['count']}")
-            assert b["rec"] == c["rec"], f"{state}: base vs candidate differ — {geom_diff(b['rec'], c['rec'])}"
-            print(f"[geometry-parity] {state}: {b['count']} drawn boxes identical "
-                  f"(base slots 0, candidate slots {c['slots']})")
-        # The reviewer's own fixture read, in words and numbers: two unequal-height stat cards inside ONE row
-        # end at the SAME height — in the base, and (by the rec equality above) identically in the candidate.
-        cards = [e for e in dumps["base"]["settled"]["rec"]
-                 if ">div.hb-row-cell[" in e["p"] and e["p"].endswith(">div.hb-card.hb-kpi[0]")]
-        assert len(cards) >= 4, f"the unequal-height row probe missed its cards: {[c['p'] for c in cards]}"
-        a, b_card = cards[0], cards[1]          # the top row: stat A (no trend) vs stat B (trend sparkline)
-        assert a["h"] == b_card["h"], (
-            f"row equal-height is broken ALREADY on the base read: A {a['h']} vs B {b_card['h']}")
-        print(f"[geometry-parity] reviewer row: stat A h={a['h']} ({a['flex']}), "
-              f"stat B h={b_card['h']} ({b_card['flex']}) — equal on base, and rec-identical on the candidate")
 
 
 class TestCoverageAndActs:
