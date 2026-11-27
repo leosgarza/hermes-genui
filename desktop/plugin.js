@@ -8597,8 +8597,14 @@ var tokens_default = `/* Hermes GenUI: every class starts with hb- so nothing le
    sat, so an unsaid board renders byte-identically while a flip to or from center cannot remount the
    live subtree. */
 .hb-place.hb-bare { display: contents; }
-.hb-place-center > * { margin-inline: auto; }
-.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* Round 6 (t_64a23a22): placement outranks a block's own margin reset. chart (and the image/photos roots)
+   reset their root margin to 0 \u2014 the host's prose styles give a figure one \u2014 and at EQUAL specificity that
+   reset, loaded after tokens, silently vetoed the auto-margin by load order alone: a centered chart sat
+   flush left while a calculator centered fine. The compound class raises placement above every root reset
+   at once, so the one shared rule keeps sole authority over where a block sits. A block that fills its
+   column still shares out nothing: the auto margins only divide leftover space, exactly as above. */
+.hb-place.hb-place-center > * { margin-inline: auto; }
+.hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
 /* Text voice: how the words inside a block read (the model's \`text_align\`, the block's word or the board's
    default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align
    only moves words that sit in a line box filling the available width, so where a block keeps its words in
