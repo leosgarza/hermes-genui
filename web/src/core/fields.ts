@@ -59,6 +59,66 @@ export function icon(v: unknown): IconName | undefined {
   return undefined;
 }
 
+/** Where a block sits in the board's column, and where the board puts the blocks that don't say. */
+export type Align = "left" | "center" | "right";
+
+/** One of the alignment words, trimmed and caseless the way models write; anything else gives undefined, which
+ *  leaves the block to the board's default (left). " Center " → "center"; "middle" → undefined. */
+export function align(v: unknown): Align | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "left" || word === "center" || word === "right" ? word : undefined;
+}
+
+/** How much air the whole board keeps: comfortable is how boards have always drawn; compact tightens the rhythm
+ *  between and inside cards for a lot of figures on one screen. The model's ask alone (enhancement #7). */
+export type Density = "comfortable" | "compact";
+
+/** One of the density words, trimmed and caseless the way models write; anything else gives undefined, which
+ *  leaves the board comfortable. " Compact " → "compact"; "tight" → undefined. */
+export function density(v: unknown): Density | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "comfortable" || word === "compact" ? word : undefined;
+}
+
+/** Which colours the board's charts draw from: default is the house categorical set; cool and warm recolour the
+ *  series only — themes and the app's accent are untouched, and the word never carries a hex value. */
+export type Palette = "default" | "cool" | "warm";
+
+/** One of the palette words, trimmed and caseless; anything else gives undefined, which draws the house set.
+ *  "Cool" → "cool"; "neon" → undefined. */
+export function palette(v: unknown): Palette | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "default" || word === "cool" || word === "warm" ? word : undefined;
+}
+
+/** How much the board moves: full is today's behaviour; reduced settles animations at once. It can only ADD
+ *  stillness — a reader's own prefers-reduced-motion ask is never overridden (lib/motion.ts). */
+export type Motion = "full" | "reduced";
+
+/** One of the motion words, trimmed and caseless; anything else gives undefined, which draws full motion.
+ *  " Reduced " → "reduced"; "off" → undefined. */
+export function motion(v: unknown): Motion | undefined {
+  if (typeof v !== "string") return undefined;
+  const word = v.trim().toLowerCase();
+  return word === "full" || word === "reduced" ? word : undefined;
+}
+
+/** A board address: the eight lowercase hex characters of its stored id, the same bytes its tag carries
+ *  ("7f3a09bc"). Anything else names no board. */
+export function boardId(v: unknown): string | undefined {
+  return typeof v === "string" && /^[0-9a-f]{8}$/.test(v) ? v : undefined;
+}
+
+/** Which version of a live board this is (Living Boards v1): a whole number 1 and up, else nothing said.
+ *  Text, bools and fractions are not version numbers, leniently ignored like every model word. */
+export function version(v: unknown): number | undefined {
+  if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > 9999) return undefined;
+  return v;
+}
+
 /** A short lowercase name one block uses to point at another (a flow's id, its nodes' ids, a steps block's `for`),
  *  or undefined. The same rule as the Python side's SLUG. "tf" → "tf";  "next-word" → "next-word";  "Big Flow" → undefined */
 export function slug(v: unknown): string | undefined {

@@ -4,7 +4,8 @@
   background: var(--hb-card);
   border: 1px solid var(--hb-line);
   border-radius: 16px;
-  padding: 14px 16px;
+  /* The board's density tokens set the padding; without a board above (host chrome) it is what cards always had. */
+  padding: var(--hb-card-pad-y, 14px) var(--hb-card-pad-x, 16px);
 }
 .hb-card-title {
   font-size: 16px;

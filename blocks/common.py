@@ -38,6 +38,188 @@ def is_https(v: object) -> bool:
     return isinstance(v, str) and v.startswith("https://")
 
 
+# --- where a block sits in the column, and how its words read (the drawing side's concern, checked where drawn) ---
+
+# The three words, on this side and the web's (core/fields.ts align): anything else a model wrote is ignored, and
+# the block sits left (align) or reads left (text_align). Both fields share the one reader.
+ALIGN = ("left", "center", "right")
+
+
+def align_word(value: object) -> str | None:
+    """One of the alignment words, trimmed and caseless the way models write; anything else gives None.
+    " Center " → "center";  "middle" → None. Used for `align` (where the card sits) and `text_align` (how its
+    words read) alike — the same three words, answered the same lenient way."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        return word if word in ALIGN else None
+    return None
+
+
+# --- how the board looks (the envelope's adaptive-visual words: density, palette, motion) --------------------------
+
+# Three small semantic words the model picks for the board it draws, the same way it picks its alignment: the
+# renderer turns them into spacing rhythm, chart colours and motion from the existing tokens. A word that isn't
+# on the list means nothing was said — the board draws as it always has, comfortable, house colours, full motion.
+DENSITY = ("comfortable", "compact")
+PALETTE = ("default", "cool", "warm")
+MOTION = ("full", "reduced")
+
+
+def choice_word(value: object, choices: tuple[str, ...]) -> str | None:
+    """One of the given words, trimmed and caseless the way models write; anything else gives None.
+    " Compact " → "compact";  "tight" → None. The same lenient rule align_word answers for alignment, shared
+    by the board's look words (density, palette, motion), each with its own vocabulary."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        return word if word in choices else None
+    return None
+
+
+# --- where the board's data came from and when (the envelope's provenance words) ---------------------------------
+
+# The as_of line is shown as one quiet footer line, not parsed: any date or timestamp text is fine, cut short so
+# it stays a line. Non-text and blanks are ignored, as every model word is.
+AS_OF_MAX = 80
+
+
+def as_of_line(value: object) -> str | None:
+    """A date/timestamp line safe to show: trimmed text (control characters stripped) capped at AS_OF_MAX, or None
+    when it isn't usable text. " 2026-11-18 " → "2026-11-18";  5 → None;  "  " → None."""
+    if not isinstance(value, str):
+        return None
+    text = CONTROL.sub("", value).replace("\t", " ").strip()
+    return text[:AS_OF_MAX] if text else None
+
+
+def live_flag(value: object) -> bool | None:
+    """The board's own word for whether its figures update: a real bool is kept (false means snapshot, and is a
+    word of its own); anything else — "yes", 1, missing — gives None and is ignored."""
+    return value if isinstance(value, bool) else None
+
+
+# --- what the reader can tap next (the envelope's follow-up words) ------------------------------------------------
+
+# A quiet strip of up to four prompts the AI offers under its board; the reader taps one to continue the
+# conversation. The count belongs to the strip, not to the store, so the writer is told 1-4 (as it is for a
+# row of action buttons) and the drawing side keeps the first four whatever a stored board carries.
+FOLLOW_UP_MAX = 4
+
+
+def follow_up_problems(value: object) -> list[str]:
+    """Problems with the follow-ups a board's envelope declares, as "<path>: <why>"; [] when it says nothing or
+    says it well. A follow-up tap sends its message as the reader's own, so a message Hermes would act on before
+    the model is refused exactly as a button's is, and every button needs both halves.
+
+    None → []                                     (the board said nothing)
+    "keep going" → ['follow_ups: needs a list of buttons, each with a label and a run message']
+    [] or five items → ['follow_ups: needs 1-4 buttons']
+    {"label": "Go"} → ['follow_ups.0: button needs a label and a run message']
+    {"label": "Go", "run": "/reset"} → ['follow_ups.0: ' + NO_SEND]
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return ["follow_ups: needs a list of buttons, each with a label and a run message"]
+    if not 1 <= len(value) <= FOLLOW_UP_MAX:
+        return [f"follow_ups: needs 1-{FOLLOW_UP_MAX} buttons"]
+    problems = []
+    for i, item in enumerate(value):
+        if not (isinstance(item, dict) and has_text(item.get("label")) and has_text(item.get("run"))):
+            problems.append(f"follow_ups.{i}: button needs a label and a run message")
+        elif acts_before_the_model(item["run"]):
+            problems.append(f"follow_ups.{i}: {NO_SEND}")
+    return problems
+
+
+def follow_up_words(value: object) -> list[dict] | None:
+    """The follow-ups as they should be stored: each label and message with control characters stripped and
+    blanks trimmed, or None when the board said nothing. Call after follow_up_problems has said []: messages
+    are kept whole (a long one is sent through the explicit route, like a picked table selection), and how
+    much room a label has is the drawing side's business, as it is for every block."""
+    if not isinstance(value, list) or not value:
+        return None
+    return [{"label": CONTROL.sub("", item.get("label", "")).strip(),
+             "run": CONTROL.sub("", item.get("run", "")).strip()} for item in value if isinstance(item, dict)]
+
+
+# --- what a board can point at next (living boards: addresses, targets and links) -----------------------------------
+
+# A board's address is its stored id: eight lowercase hex characters, the same bytes that ride its tag. The
+# model may write it as returned, in caps, or with a leading # (people quote handles that way) — all of them
+# mean the same address. Anything else is not an address at all.
+ADDRESS = re.compile(r"#?([0-9a-f]{8})")
+
+
+def board_address(value: object) -> str | None:
+    """The address a model's words name, or None when they name nothing.
+    \"7f3a09bc\" → \"7f3a09bc\"; \"#7F3A09BC\" → \"7f3a09bc\"; \"sevenbeef\" → None."""
+    if not isinstance(value, str):
+        return None
+    match = ADDRESS.fullmatch(value.strip().lower())
+    return match.group(1) if match else None
+
+
+# The most boards one may link to: a comparison is a handful of boards, not a shelf.
+LINK_MAX = 3
+
+
+def link_problems(value: object) -> list[str]:
+    """Problems with the shape of a board's links, as \"<path>: <why>\"; [] when it says nothing or says it
+    well. Whether an address names a real board is the tool's business (it owns the store); this answers only
+    the shape. A link is a bare address or {\"id\": address, \"note\": one line}; the note, when present, must
+    be text — it is the AI-suggested connection the reader sees beside the link."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return ['links: needs a list of boards to connect — each one an address ("7f3a09bc") '
+                'or {"id": "7f3a09bc", "note": "one line"}']
+    if not 1 <= len(value) <= LINK_MAX:
+        return [f"links: needs 1-{LINK_MAX} boards"]
+    problems = []
+    for i, item in enumerate(value):
+        raw = item if isinstance(item, str) else (item.get("id") if isinstance(item, dict) else None)
+        if board_address(raw) is None:
+            problems.append(f'links.{i}: not a board address — the 8 characters of a tag id, as "7f3a09bc"')
+        elif isinstance(item, dict) and "note" in item and not isinstance(item["note"], str):
+            problems.append(f"links.{i}: the note must be one line of text")
+    return problems
+
+
+def link_words(value: object) -> list[dict] | None:
+    """The links as they should be stored: each address normalized (lower-case, no #), notes kept whole with
+    control characters stripped, and duplicate addresses collapsed (the same board linked twice is one link).
+    Call after link_problems has said []. None when the board said nothing."""
+    if not isinstance(value, list) or not value:
+        return None
+    words: list[dict] = []
+    seen: set[str] = set()
+    for item in value:
+        raw = item if isinstance(item, str) else item.get("id")
+        addr = board_address(raw)
+        if addr is None or addr in seen:
+            continue
+        seen.add(addr)
+        note = item.get("note") if isinstance(item, dict) else None
+        entry = {"id": addr}
+        if isinstance(note, str) and note.strip():
+            entry["note"] = CONTROL.sub("", note).strip()
+        words.append(entry)
+    return words
+
+
+# An absolute local file path (POSIX "/…", a Windows drive "C:\…", or a UNC share "\\server\share"). A tool that
+# saves what it made (image_generate) returns one; show_blocks only lets through paths its provenance store saw the
+# tool return, and Hermes Desktop reads those from disk. A scheme (https:, file:, data:) is a URL, not a path.
+LOCAL_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|/|\\\\)")
+
+
+def is_local_path(v: object) -> bool:
+    """"/Users/me/a.png" → True;  "C:\\Users\\me\\a.png" → True;  "file:///a.png" → False;  "a.png" → False"""
+    if not isinstance(v, str) or not (0 < len(v) <= MAX_URL) or CONTROL.search(v) is not None:
+        return False
+    return LOCAL_PATH.match(v) is not None
+
+
 # A button's message is sent as the user's own, and Hermes acts on some messages before the model reads them: "/reset"
 # runs a command, "!…" a shell line, and "@file:path", "@url:…" (any "@word:"), "@diff" or "@staged" pull a file, a
 # page or the working tree into the message. A button may not send any of these.

@@ -66,6 +66,25 @@ def test_schema_description_carries_the_catalog():
     assert "timeline" in description and "Paste the returned tag on its own line exactly as returned." in description
 
 
+def test_the_interactive_word_is_documented_where_the_model_reads_the_blocks(store_dir):
+    # The catalog budget pins describe(); the table's new word rides the blocks parameter instead.
+    desc = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]["blocks"]["description"]
+    assert "`interactive`: true" in desc
+
+
+def test_the_new_chart_kinds_are_documented_where_the_model_reads_the_blocks(store_dir):
+    # Same seam as the interactive word: describe() is pinned at its cap, so scatter and histogram are
+    # documented in the blocks parameter the model reads beside it.
+    desc = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]["blocks"]["description"]
+    assert '"scatter"' in desc and '"histogram"' in desc
+
+
+def test_the_interactive_word_is_stored_verbatim(store_dir):
+    table = {"type": "table", "caption": "Phones", "columns": ["A"], "rows": [["x"]], "interactive": True}
+    result = tools.show_blocks({"blocks": [table]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [table]
+
+
 PHOTO = {"type": "images", "title": "Lisbon", "images": [{"url": "https://a.example/alfama.jpg", "caption": "Alfama"}]}
 
 
@@ -213,3 +232,250 @@ def test_step_photos_must_come_from_find_photos(store_dir):
                    "- 0.items.1.image: use only photo URLs that find_photos returned")
     plugin_store.remember_photo_urls(["https://a.example/s.jpg"])
     assert "::blocks{" in tools.show_blocks({"blocks": [steps]})
+
+
+# --- alignment: the board's word rides along in an envelope; blocks keep their own ask ----------------------------
+
+def test_board_align_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "blocks": [TIMELINE]}
+
+
+def test_an_unknown_align_word_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "middle"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_block_may_ask_for_its_own_align(store_dir):
+    block = {"type": "text", "text": "Look here", "align": "right"}
+    result = tools.show_blocks({"blocks": [block]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_align(store_dir):
+    board_id = plugin_store.save({"align": "right", "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+# --- text alignment: the same envelope ride, for how the words read inside the blocks -----------------------------
+
+def test_board_text_align_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "center"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"text_align": "center", "blocks": [TIMELINE]}
+
+
+def test_an_unknown_text_align_word_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "justify"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_block_may_ask_for_its_own_text_align(store_dir):
+    block = {"type": "heading", "text": "Big number", "text_align": "center"}
+    result = tools.show_blocks({"blocks": [block]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
+
+# --- adaptive look (enhancement #7): density, palette and motion ride the same envelope, model-decided ------------
+#   The schema texts below are the eval contract: they must teach the model to pick the words from the
+#   content, in semantic words only — no pixel values, no hex colours (lazy-spec discipline).
+
+def test_board_density_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": " Compact "})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"density": "compact", "blocks": [TIMELINE]}
+
+
+def test_board_palette_and_motion_are_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "palette": "Cool", "motion": "REDUCED"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"palette": "cool", "motion": "reduced",
+                                                                    "blocks": [TIMELINE]}
+
+
+def test_unknown_look_words_are_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": "tight", "palette": "neon", "motion": "off"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_non_text_look_words_are_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "density": 1, "palette": ["cool"], "motion": {"less": True}})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_look_words_share_the_envelope_with_align_and_provenance(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "density": "compact",
+                                "palette": "warm", "motion": "reduced", "as_of": "2026-11-19"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "density": "compact",
+                                                                    "palette": "warm", "motion": "reduced",
+                                                                    "as_of": "2026-11-19", "blocks": [TIMELINE]}
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_look_words(store_dir):
+    board_id = plugin_store.save({"density": "compact", "palette": "cool", "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_the_schema_teaches_the_look_words():
+    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
+    density = props["density"]["description"]
+    palette = props["palette"]["description"]
+    motion = props["motion"]["description"]
+    for word in ("comfortable", "compact", "Yours to decide"):
+        assert word in density
+    assert "dashboard" in density and "story" in density  # the content cues the model picks from
+    for word in ("default", "cool", "warm", "Yours to decide"):
+        assert word in palette
+    for word in ("full", "reduced"):
+        assert word in motion
+    assert "never overrides" in motion and "less motion always gets less" in motion  # the accessibility floor
+    for word in (density, palette, motion):
+        assert "reader has no control" in word or "reader's system" in word  # model-decided, never a panel
+
+
+def test_the_look_words_stay_semantic_not_pixels():
+    import re
+    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
+    texts = " ".join(props[name]["description"] for name in ("density", "palette", "motion"))
+    assert not re.search(r"\d+\s*px", texts, re.IGNORECASE), "density must not speak in pixels"
+    assert not re.search(r"#[0-9a-fA-F]{3,8}", texts), "palette must not speak in hex"
+
+
+# --- provenance: the board's as_of and live ride in the same envelope as its align word -------------------------
+
+def test_board_provenance_is_stored_beside_the_blocks(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "2026-11-18", "live": True})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"as_of": "2026-11-18", "live": True,
+                                                                    "blocks": [TIMELINE]}
+
+
+def test_provenance_and_align_share_one_envelope(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "as_of": " Nov 18 ", "live": False})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "as_of": "Nov 18",
+                                                                    "live": False, "blocks": [TIMELINE]}
+
+
+def test_position_text_and_provenance_share_one_envelope(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "right", "text_align": "center", "as_of": "2026-11-18"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "right", "text_align": "center",
+                                                                    "as_of": "2026-11-18", "blocks": [TIMELINE]}
+
+
+def test_live_false_is_kept_as_a_word(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "live": False})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"live": False, "blocks": [TIMELINE]}
+
+
+def test_unknown_provenance_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": 5, "live": "yes"})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_blank_as_of_is_ignored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "   "})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_a_long_as_of_is_cut_to_the_footer_line(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "x" * 200})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"as_of": "x" * 80, "blocks": [TIMELINE]}
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_provenance(store_dir):
+    board_id = plugin_store.save({"as_of": "2026-11-18", "live": True, "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+# --- follow-ups: the board's tappable continuations ride the same envelope (enhancement #5) ----------------------
+
+def test_follow_ups_are_stored_beside_the_blocks(store_dir):
+    ups = [{"label": "Plan day 2", "run": "Plan the second day of my Kyoto itinerary"},
+           {"label": "Find trains", "run": "Compare trains between Kyoto and Osaka"}]
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": ups})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {"follow_ups": ups, "blocks": [TIMELINE]}
+
+
+def test_a_board_that_says_no_follow_ups_stores_what_it_always_stored(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
+
+
+def test_follow_up_text_is_trimmed(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE],
+                                "follow_ups": [{"label": "  Plan day 2 ", "run": "  Plan it  "}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {
+        "follow_ups": [{"label": "Plan day 2", "run": "Plan it"}], "blocks": [TIMELINE]}
+
+
+def test_control_characters_never_reach_a_follow_up(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE],
+                                "follow_ups": [{"label": "Plan\x1b day", "run": "Plan\x07 day 2"}]})
+    assert plugin_store.load(stored_id(result), root=store_dir)["follow_ups"] == [
+        {"label": "Plan day", "run": "Plan day 2"}]
+
+
+def test_a_long_follow_up_message_is_kept_whole(store_dir):
+    run = "Expand every line of this board into a careful plan" + " for the rest of the trip" * 10
+    assert len(run) > 120  # a tap sends it whole through the explicit route (see the web side)
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": [{"label": "Go deeper", "run": run}]})
+    assert plugin_store.load(stored_id(result), root=store_dir)["follow_ups"][0]["run"] == run
+
+
+def test_a_follow_up_may_carry_a_new_line(store_dir):
+    run = "Plan day 2\nwith early starts"
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": [{"label": "Both days", "run": run}]})
+    assert plugin_store.load(stored_id(result), root=store_dir)["follow_ups"][0]["run"] == run
+
+
+def test_a_follow_up_that_sends_a_command_is_refused(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": [{"label": "Reset", "run": "/reset"}]})
+    assert result.startswith("Not drawn.")
+    assert "follow_ups.0" in result and "can't start with / @ or !" in result
+    assert list(store_dir.glob("*.json")) == []
+
+
+def test_a_follow_up_that_pulls_a_file_is_refused(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE],
+                                "follow_ups": [{"label": "Notes", "run": "Summarise @file:notes.md"}]})
+    assert result.startswith("Not drawn.")
+    assert "follow_ups.0" in result and "@-references" in result
+    assert list(store_dir.glob("*.json")) == []
+
+
+def test_a_follow_up_needs_a_label_and_a_message(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": [{"label": "Only a label"}]})
+    assert "follow_ups.0: button needs a label and a run message" in result
+
+
+def test_too_many_follow_ups_is_a_problem(store_dir):
+    five = [{"label": f"Go {i}", "run": f"Continue number {i}"} for i in range(5)]
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": five})
+    assert "follow_ups: needs 1-4 buttons" in result
+
+
+def test_an_empty_follow_ups_list_is_a_problem(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": []})
+    assert "follow_ups: needs 1-4 buttons" in result
+
+
+def test_follow_ups_must_be_a_list(store_dir):
+    result = tools.show_blocks({"blocks": [TIMELINE], "follow_ups": "just keep going"})
+    assert "follow_ups: needs a list of buttons" in result
+
+
+def test_follow_ups_ride_with_the_other_board_words(store_dir):
+    ups = [{"label": "Go", "run": "Tell me more"}]
+    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "as_of": "2026-11-18", "live": True,
+                                "follow_ups": ups})
+    assert plugin_store.load(stored_id(result), root=store_dir) == {
+        "align": "center", "as_of": "2026-11-18", "live": True, "follow_ups": ups, "blocks": [TIMELINE]}
+
+
+def test_follow_ups_are_documented_where_the_model_reads_the_params(store_dir):
+    desc = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]["follow_ups"]["description"]
+    assert "label" in desc and "run" in desc and "tap" in desc
+
+
+def test_including_a_board_keeps_its_blocks_and_not_its_follow_ups(store_dir):
+    board_id = plugin_store.save({"follow_ups": [{"label": "Go", "run": "Tell me more"}],
+                                  "blocks": [TIMELINE]}, root=store_dir)
+    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
+    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]

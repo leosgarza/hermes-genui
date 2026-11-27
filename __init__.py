@@ -7,6 +7,7 @@ The plugin's name is read once from plugin.yaml (core/manifest.py).
 
 from .core import recipes
 from .core.manifest import NAME
+from .hooks.media_provenance import media_provenance
 from .hooks.prompt_section import MAX_CHARS, drawing_rule
 from .hooks.text_fallback import text_only
 from .hooks.visual_nudge import visual_nudge
@@ -24,6 +25,7 @@ def register(ctx):
     photos.set_web_search(lambda query: ctx.dispatch_tool("web_search", {"query": query}))
     ctx.register_hook("pre_llm_call", visual_nudge)
     ctx.register_hook("transform_llm_output", text_only)
+    ctx.register_hook("post_tool_call", media_provenance)
     ctx.register_system_prompt_section(NAME, drawing_rule, max_chars=MAX_CHARS)
     # Each shipped recipe, read in place: skill_view("<plugin>:trip-planner"). Nothing is copied into the profile.
     for recipe in recipes.shipped():

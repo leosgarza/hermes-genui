@@ -1,6 +1,6 @@
-// Where everything goes in an up-and-down chart (line, bar, area, stacked, combo), worked out from the spec and the
-// width it has on screen: the plot's edges, where a label or value sits, how wide a column is, which x labels and
-// value labels are written, and the labels at the ends of lines. Also what the hover card says at a point.
+// Where everything goes in an up-and-down chart (line, bar, area, stacked, combo, scatter, histogram), worked out from
+// the spec and the width it has on screen: the plot's edges, where a label or value sits, how wide a column is, which
+// x labels and value labels are written, and the labels at the ends of lines. Also what the hover card says at a point.
 import { fmt, partColour, seriesName, type ChartSeries, type ChartSpec } from "./chartData";
 import { columnLayout, niceTicks, spreadLabels, textWidth, xLabelsShown } from "./geometry";
 import { formatChange } from "../../lib/format";
@@ -36,6 +36,39 @@ export function isChangeLine(spec: ChartSpec): boolean {
   return spec.type === "line" && spec.tone === "change" && spec.series.length === 1;
 }
 
+/** A scatter's x as numbers when every label reads as one ("" and words are not numbers); null otherwise, which
+ *  leaves the dots evenly spaced.  ["1","2.5"] -> [1,2.5];  ["a"] -> null;  [] -> null. */
+function numericX(x: (string | number)[]): number[] | null {
+  if (!x.length || x.some((v) => String(v).trim() === "")) return null;
+  const vals = x.map((v) => (typeof v === "number" ? v : Number(String(v).trim())));
+  return vals.some((v) => !Number.isFinite(v)) ? null : vals;
+}
+
+// A scatter label needs only the room its letters take plus this gap to be written.
+const LABEL_GAP = 8;
+
+/** The scatter's x labels that get written: by their real positions (a crowded cluster thins to one), the leftmost
+ *  and rightmost always, in index order. Scatter labels only need the room their own letters take plus a small gap —
+ *  there is no line to keep clear — while every other up-and-down chart keeps the 80px rule. `at(i)` places dot i. */
+function scatterXLabels(labels: string[], at: (i: number) => number): number[] {
+  const order = labels.map((_, i) => i).sort((a, b) => at(a) - at(b) || a - b);
+  const shown: number[] = [];
+  let edge = -Infinity;
+  for (const i of order) {
+    const half = textWidth(labels[i]) / 2;
+    if (i === order[order.length - 1]) {
+      while (shown.length && at(shown[shown.length - 1]) + textWidth(labels[shown[shown.length - 1]]) / 2 + LABEL_GAP > at(i) - half) shown.pop();
+      shown.push(i);
+      break;
+    }
+    if (at(i) - half >= edge) {
+      shown.push(i);
+      edge = at(i) + half + LABEL_GAP;
+    }
+  }
+  return shown.sort((a, b) => a - b);
+}
+
 /** The first value of a series and the index of its last one, gaps skipped; null and -1 when it has none. */
 export function seriesEnds(data: (number | null)[]): { first: number | null; last: number } {
   const first = data.find((v): v is number => v !== null) ?? null;
@@ -64,7 +97,7 @@ const unitOf = (spec: ChartSpec, s: ChartSeries) => s.unit ?? spec.unit;
  */
 export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; right: Scale | null }): XYLayout {
   const n = spec.x.length;
-  const slotted = spec.type === "bar" || spec.type === "stacked" || spec.type === "combo";
+  const slotted = spec.type === "bar" || spec.type === "stacked" || spec.type === "combo" || spec.type === "histogram";
   const H = slotted ? COLUMNS_H : LINES_H;
   const base = H - BOTTOM;
   const endTexts = spec.type === "line" ? lineEndTexts(spec) : [];
@@ -75,14 +108,19 @@ export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; 
   const right = width - (endRoom || (slotted ? 4 : SIDE));
   const plotWidth = right - left;
 
+  const xValues = spec.type === "scatter" ? numericX(spec.x) : null;  // a scatter on numbers places dots by value
+  const xLo = xValues ? Math.min(...xValues) : 0;
+  const xHi = xValues ? Math.max(...xValues) : 1;
   const perSlot = spec.type === "bar" ? spec.series.length : 1;
   const columns = columnLayout(plotWidth, n, perSlot);
   const xAt = (i: number) => slotted
     ? left + columns.start + columns.slot * (i + 0.5)
-    : left + (n === 1 ? plotWidth / 2 : (plotWidth * i) / (n - 1));
+    : xValues
+      ? left + (n === 1 || xHi === xLo ? plotWidth / 2 : (plotWidth * (xValues[i] - xLo)) / (xHi - xLo))
+      : left + (n === 1 ? plotWidth / 2 : (plotWidth * i) / (n - 1));
   const step = slotted ? columns.slot : n > 1 ? plotWidth / (n - 1) : 0;
 
-  const valueLabels = spec.type === "bar" && n * perSlot <= MAX_VALUE_LABELS
+  const valueLabels = (spec.type === "bar" || spec.type === "histogram") && n * perSlot <= MAX_VALUE_LABELS
     && spec.series.every((s) => s.data.every((v) => v === null || textWidth(fmt(v, unitOf(spec, s)), 11.5) <= columns.slot / perSlot));
   const top = TOP + (valueLabels ? VALUE_ROOM : 0);
   const scaleY = ({ min, max }: Scale) => (v: number) => top + (base - top) * (1 - (v - min) / (max - min || 1));
@@ -92,7 +130,7 @@ export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; 
 
   const longest = Math.max(...spec.x.map((label) => textWidth(String(label))));
   const minGap = slotted ? longest + 8 : Math.max(LINE_LABEL_GAP, longest + 12);
-  const xLabels = xLabelsShown(n, step, minGap);
+  const xLabels = xValues ? scatterXLabels(spec.x.map(String), xAt) : xLabelsShown(n, step, minGap);
 
   const dotYs = endTexts.map((e) => yAt(e.value));
   const textYs = spreadLabels(dotYs, 14, base);

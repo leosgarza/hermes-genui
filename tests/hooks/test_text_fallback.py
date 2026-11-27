@@ -140,6 +140,18 @@ def test_pie_shows_top_slices_with_shares():
     assert render(pie) == "**Mix**: A 50%, B 20%, C 15%, D 10%, +1 more"
 
 
+def test_histogram_reads_its_values_not_its_bins():
+    hist = {"type": "chart", "kind": "histogram", "title": "Scores", "unit": "pts",
+            "series": [{"name": "Students", "data": [3, 40, 40, 70, None]}]}
+    assert render(hist) == "**Scores** (pts): 4 values, 3 → 70, median 40"
+
+
+def test_scatter_reads_its_spread_per_series():
+    scat = {"type": "chart", "kind": "scatter", "title": "Size vs price", "x": ["1", "2", "4"], "unit": "kg",
+            "series": [{"name": "Samples", "data": [10, 14, 12]}]}
+    assert render(scat) == "**Size vs price** (kg): Samples 3 points, y 10 → 14"
+
+
 # --- tables ---------------------------------------------------------------------------------------
 
 def test_table_is_markdown():
@@ -221,6 +233,15 @@ def test_images_with_source_in_brackets():
         {"url": "ftp://a.org/2.jpg", "caption": "Gion"},
     ]}
     assert render(images) == "**Kyoto**\n![Fushimi Inari](https://a.org/1.jpg) [Wikimedia]\nGion"
+
+
+def test_images_generated_local_paths_keep_no_path_in_the_text():
+    # A text-only app can't read the file: the line says what it is, never the path.
+    images = {"type": "images", "title": "Kyoto", "images": [
+        {"url": "/Users/me/.hermes/cache/generated/images/a.png", "caption": "A fox gate"},
+        {"url": "/Users/me/.hermes/cache/generated/images/b.png"},
+    ]}
+    assert render(images) == "**Kyoto**\nA fox gate (generated image)\nGenerated image"
 
 
 def test_list_ranked_and_bulleted():
@@ -534,3 +555,25 @@ def test_steps_say_what_each_step_changes_using_the_flow_labels():
 def test_steps_without_a_flow_on_the_board_name_the_node_id():
     steps = {"type": "steps", "for": "tf", "items": [{"title": "A", "holds": {"emb": ["v"]}}, {"title": "B"}]}
     assert render(steps) == "**Step 1 of 2 · A**\nemb now holds: v\n\n**Step 2 of 2 · B**"
+
+
+def test_replace_tags_reads_both_board_shapes():
+    # A stored board is either a plain list or an envelope carrying the board's own words; as text, both are
+    # just their blocks: placement, text alignment and provenance are drawing concerns.
+    heading = EXAMPLES["heading"]
+    plain = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [heading])
+    wrapped = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: {"align": "right", "blocks": [heading]})
+    assert wrapped == plain
+    voiced = tf.replace_tags('::blocks{id="7f3a09bc"}',
+                             load=lambda _: {"text_align": "center", "blocks": [heading]})
+    assert voiced == plain
+    assert wrapped.strip() and wrapped != tf.NOT_SHOWN
+
+
+def test_blocks_as_text_can_go_uncapped_for_exports():
+    """limit=None is the export's ask: every block whole. The default cap is the chat contract, untouched."""
+    blocks = [{"type": "text", "text": f"line {i} " + "x" * 60} for i in range(80)]
+    whole = tf.blocks_as_text(blocks, limit=None)
+    assert len(whole) > tf.LIMIT and whole.count("line ") == 80
+    capped = tf.blocks_as_text(blocks)
+    assert len(capped) <= tf.LIMIT and capped.endswith(tf.MORE_NOTE)

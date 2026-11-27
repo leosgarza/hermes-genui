@@ -74,5 +74,45 @@
 .hb-mini-zero { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 1px; background: var(--hb-line-strong); }
 .hb-mini-bar { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: currentColor; }
 .hb-table td.hb-table-empty { color: var(--hb-muted); font-weight: 400; text-align: center; }
+/* Interactive tables (interactive: true): a quiet search line above the rows and a tick on each row.
+   The tools row is width:0 + min-width:100% on purpose: it fills the card without ever contributing its
+   own width to the fit-content hug — the card keeps hugging the columns, not the controls. */
+.hb-table-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 4px 16px 8px;
+}
+.hb-table-filter {
+  flex: 1 1 90px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--hb-line-strong);
+  border-radius: 999px;
+  background: var(--hb-surface);
+  color: var(--hb-ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.hb-table-filter::placeholder { color: var(--hb-muted); }
+.hb-table-filter:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 1px; }
+.hb-table-tools .hb-pill { flex: 0 1 auto; min-width: 0; height: 28px; font-size: 12px; }
+/* A card that hugs a narrow table gives the pill less room than its words; they wrap inside the pill —
+   the button never clips them, and its accessible name and title carry them whole regardless. */
+.hb-table-tools .hb-pill-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Where the last tap went. The tools row is width:0 inside a fit-content card, so these words can never
+   widen the table they talk about — and they WRAP rather than clip: the recovery instructions are the whole
+   point of the word, so no card is too narrow to read it. A narrow hug grows the card TALLER, never wider. */
+.hb-table-sent { flex: 0 1 auto; min-width: 0; white-space: normal; overflow-wrap: anywhere;
+  font-size: 12px; color: var(--hb-muted); }
+/* The tick column hugs its checkbox and carries the left indent; the data columns keep their own padding,
+   so the whole cost of opting in is exactly the width of this one column — never anything from the tools. */
+.hb-table th.hb-pick, .hb-table td.hb-pick { width: 1%; padding: 0 2px 0 16px; }
+.hb-table .hb-pick input[type="checkbox"] { margin: 0; width: 15px; height: 15px; accent-color: var(--hb-accent); }
 @media (prefers-reduced-motion: reduce) { .hb-sort { transition: none; } }
 .hb-section .hb-table-card { background: none; border: 0; }

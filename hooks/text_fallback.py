@@ -76,12 +76,13 @@ def _flow_labels(blocks: list, depth: int = 0) -> dict[str, dict[str, str]]:
     return found
 
 
-def _fit(pieces: list[str]) -> str:
-    """The pieces joined by blank lines, kept under LIMIT characters by cutting between blocks and adding a note."""
+def _fit(pieces: list[str], limit: int | None) -> str:
+    """The pieces joined by blank lines, kept under `limit` characters by cutting between blocks and adding a note.
+    limit None is the export's ask: keep everything — a file is not one chat message."""
     whole = "\n\n".join(pieces)
-    if len(whole) <= LIMIT:
+    if limit is None or len(whole) <= limit:
         return whole
-    room = LIMIT - len(MORE_NOTE) - 2
+    room = limit - len(MORE_NOTE) - 2
     kept: list[str] = []
     size = 0
     for piece in pieces:
@@ -100,8 +101,10 @@ def _fit(pieces: list[str]) -> str:
     return "\n\n".join(kept + [MORE_NOTE])
 
 
-def blocks_as_text(blocks: list) -> str:
-    """A board as readable Markdown, at most LIMIT characters; "" when nothing in it can be shown as text.
+def blocks_as_text(blocks: list, limit: int | None = LIMIT) -> str:
+    """A board as readable Markdown, at most `limit` characters (None: whole); "" when nothing in it can be
+    shown as text. The default is the chat contract: one message. A board saved to a FILE asks for limit=None,
+    because an export that silently drops blocks is a different board than the one drawn.
 
     [{"type": "heading", "text": "Day 1"}, {"type": "stat", "label": "Saved", "value": 12500, "unit": "₹"}]
     → "**Day 1**\\n\\nSaved: 12,500 ₹"
@@ -112,7 +115,7 @@ def blocks_as_text(blocks: list) -> str:
         labels = _flow_labels(blocks)
     except Exception:  # odd ids (unhashable, say) only cost the labels
         labels = {}
-    return _fit(_pieces(blocks, 0, labels))
+    return _fit(_pieces(blocks, 0, labels), limit)
 
 
 # A tag alone on its line (spaces around it allowed), the way the model pastes it: ::blocks{id="7f3a09bc"}
@@ -128,10 +131,11 @@ def _board_text(block_id: str, load) -> str:
     if not re.fullmatch(store.ID_PATTERN, block_id):
         return NOT_SHOWN
     try:
-        blocks = load(block_id)
+        board = load(block_id)
     except Exception:  # an unreadable file must not stop the reply
         return NOT_SHOWN
-    return blocks_as_text(blocks) or NOT_SHOWN
+    # placement, text alignment and provenance are drawing concerns; text is just blocks
+    return blocks_as_text(store.blocks_of(board)) or NOT_SHOWN
 
 
 def replace_tags(text: str, load=store.load) -> str:

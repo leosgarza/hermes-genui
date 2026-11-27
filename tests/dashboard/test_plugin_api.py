@@ -23,7 +23,8 @@ def test_api_returns_blocks(client, tmp_path):
     block_id = api.store.save([{"type": "text", "text": "hi"}], root=tmp_path)
     response = http.get(f"/blocks/{block_id}")
     assert response.status_code == 200
-    assert response.json() == {"blocks": [{"type": "text", "text": "hi"}]}
+    # the stored envelope rides along (enhancement #6): the page's JSON export is the board's OWN words.
+    assert response.json() == {"blocks": [{"type": "text", "text": "hi"}], "stored": [{"type": "text", "text": "hi"}]}
 
 
 def test_api_404_for_unknown(client):
@@ -100,8 +101,110 @@ def test_a_board_from_another_profile_draws_and_keeps_its_ticks_there(client, tm
     other = tmp_path / "profiles" / "claude" / "blocks"
     monkeypatch.setattr(api.store, "profile_stores", lambda: [other])
     block_id = api.store.save([{"type": "checklist", "items": ["Passport"]}], root=other)
-    assert http.get(f"/blocks/{block_id}").json() == {"blocks": [{"type": "checklist", "items": ["Passport"]}]}
+    assert http.get(f"/blocks/{block_id}").json() == {
+        "blocks": [{"type": "checklist", "items": ["Passport"]}],
+        "stored": [{"type": "checklist", "items": ["Passport"]}]}
     assert http.put(f"/blocks/{block_id}/state", json={"state": {"0": [0]}}).status_code == 200
     assert (other / f"{block_id}.state.json").is_file()
     assert not (tmp_path / f"{block_id}.state.json").exists()
     assert http.get(f"/blocks/{block_id}/state").json() == {"state": {"0": [0]}}
+
+
+def test_api_passes_the_boards_own_align(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center", "stored": board}
+
+
+def test_api_passes_the_boards_own_text_align(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "text_align": "right", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center",
+                                                      "text_align": "right", "stored": board}
+
+
+def test_api_skips_a_text_align_that_was_never_text(client, tmp_path):
+    http, api = client
+    board = {"text_align": 7, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "stored": board}
+
+
+def test_api_passes_the_boards_own_look_words(client, tmp_path):
+    http, api = client
+    board = {"density": "compact", "palette": "cool", "motion": "reduced",
+             "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "density": "compact",
+                                                      "palette": "cool", "motion": "reduced", "stored": board}
+
+
+def test_api_skips_look_words_that_were_never_words(client, tmp_path):
+    http, api = client
+    board = {"density": 3, "palette": None, "motion": {"less": True}, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "stored": board}
+
+
+def test_api_passes_the_boards_own_provenance(client, tmp_path):
+    http, api = client
+    board = {"as_of": "2026-11-18", "live": True, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "as_of": "2026-11-18",
+                                                      "live": True, "stored": board}
+
+
+def test_api_keeps_live_false_and_skips_junk(client, tmp_path):
+    http, api = client
+    board = {"align": "center", "as_of": 5, "live": False, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    # an as_of that was never a string is not served; a live false is.
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "align": "center",
+                                                      "live": False, "stored": board}
+
+
+def test_api_passes_the_boards_own_follow_ups(client, tmp_path):
+    http, api = client
+    ups = [{"label": "Go", "run": "Tell me more"}]
+    board = {"follow_ups": ups, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "follow_ups": ups,
+                                                      "stored": board}
+
+
+def test_api_skips_follow_ups_that_were_never_a_list(client, tmp_path):
+    http, api = client
+    board = {"follow_ups": "just keep going", "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "stored": board}
+
+
+# --- export rides the load; there is no export door (t_bff8178a round 2, F1) ---------------------------------
+
+def test_the_load_itself_carries_the_stored_envelope_whole(client, tmp_path):
+    """The board page needs nothing else to export JSON: the stored envelope arrives with the board itself —
+    unknown words and all, exactly as saved (the drawer may serve a projection; the export keeps the original)."""
+    http, api = client
+    board = {"as_of": "2026-11-18", "live": False, "model_note": "kept", "blocks": [
+        {"type": "heading", "text": "Day 1"},
+        {"type": "text", "text": "Leaves at 7:10."},
+    ]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json()["stored"] == board
+
+
+def test_plain_list_boards_store_ride_as_they_were_saved(client, tmp_path):
+    http, api = client
+    board = [{"type": "text", "text": "hi"}]
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json()["stored"] == board
+
+
+def test_there_is_no_export_route_to_ask(client):
+    """The GET /blocks/<id>/export door was REMOVED with the rework: nothing may answer a board's Markdown at
+    export time. Its absence is pinned — a 404 here is the feature working."""
+    http, _ = client
+    for bad in ("0badc0de", "7f3a09bc"):
+        assert http.get(f"/blocks/{bad}/export").status_code == 404

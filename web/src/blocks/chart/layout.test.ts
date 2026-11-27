@@ -102,6 +102,46 @@ describe("xyTip", () => {
   });
 });
 
+describe("scatter layout", () => {
+  const scatter = (x: string[], data: number[]): ChartSpec => ({ type: "scatter", x, series: [{ data }] });
+
+  it("places dots by value when every x label is a number", () => {
+    const l = layoutOf(scatter(["1", "2", "4"], [10, 14, 12]));
+    expect(l.H).toBe(220);  // a line's height, not a column's
+    const span = l.xAt(2) - l.xAt(0);
+    expect(l.xAt(1) - l.xAt(0)).toBeCloseTo(span / 3);  // 1→2 is a third of 1→4
+  });
+  it("spaces dots evenly when the labels are not all numbers", () => {
+    const l = layoutOf(scatter(["a", "b", "c"], [10, 14, 12]));
+    expect(l.xAt(1) - l.xAt(0)).toBeCloseTo(l.xAt(2) - l.xAt(1));
+  });
+  it("hugs the values on the y scale (points sit where they are, not on a zero baseline)", () => {
+    const spec = scatter(["1", "2"], [100, 110]);
+    expect(chartScales(spec, null).left.min).toBeGreaterThan(90);
+  });
+  it("writes only x labels with room beside them, by their real positions", () => {
+    const l = layoutOf(scatter(["0", "1", "2", "3", "50", "75", "100"], [1, 2, 3, 4, 5, 6, 7]), 400);
+    const xs = l.xLabels.map((i) => l.xAt(i));
+    for (let k = 1; k < xs.length; k++) expect(xs[k] - xs[k - 1]).toBeGreaterThanOrEqual(20);
+    expect(l.xLabels[0]).toBe(0);   // the leftmost always shows
+    expect(l.xLabels).toContain(6); // and the rightmost always does too
+  });
+});
+
+describe("histogram layout", () => {
+  const hist: ChartSpec = { type: "histogram", x: ["0–2", "2–4", "4–6"], series: [{ data: [3, 7, 2] }] };
+
+  it("stands its bars on a zero baseline", () => {
+    const l = layoutOf(hist);
+    expect(l.slotted).toBe(true);
+    expect(l.H).toBe(210);
+    expect(chartScales(hist, null).left.min).toBe(0);
+  });
+  it("writes the counts over the bars when they fit", () => {
+    expect(layoutOf(hist).valueLabels).toBe(true);
+  });
+});
+
 describe("startLabelY (the Start label beside a change line's dashed start)", () => {
   // The label spans x 10-80; the dashed line is at y 100; the plot's bottom is at 194.
   const place = (points: [number, number][], y = 100) => startLabelY(points, 10, 80, y, 194);

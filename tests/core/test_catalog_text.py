@@ -16,10 +16,13 @@ def test_describe_names_every_type():
 
 
 def test_describe_stays_compact():
-    # about 4 characters per token; the description goes with every request, so it stays near 3,250 tokens (raised
+    # about 4 characters per token; the description goes with every request, so it stays near 3,390 tokens (raised
     # from 2,750 for the form's ask-first guidance, to 3,025 for flow and steps, then for simulate and layers, each
-    # time after trimming other entries)
-    assert len(describe()) < 3250 * 4
+    # time after trimming other entries; 3,350 for the model-decided look words — density, palette, motion —
+    # carried in catalog `about` so every authoring model reads the choices, per Sol's #7 spec disposition; now
+    # 3,390 for the one line that teaches a board's tag id is its address — update or link, never redraw — the
+    # living-boards contract every authoring model must read to keep the chat's visual memory alive)
+    assert len(describe()) < 3390 * 4
 
 
 def test_atoms_take_one_line_each():

@@ -3,7 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pinLocale } from "../../lib/locale.testing";
 import { readBlocks } from "../../core/readBlocks";
 import type { ChartBlock } from "./read";
-import { fmt } from "./chartData";
+import { fmt, chartScales } from "./chartData";
+import { xyLayout } from "./layout";
+import { dotSpots } from "./ScatterMarks";
 import { Blocks } from "../../core/Blocks";
 
 beforeEach(() => pinLocale("en-US"));
@@ -180,7 +182,22 @@ describe("line charts", () => {
     expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("c");
     expect(container.querySelector(".hb-tip-on .hb-tip-note")!.textContent).toBe("▲ 2.8% since start");
     expect(container.querySelector(".hb-chart-big")!.textContent).toBe("24,100");
+    fireEvent.blur(svg, { relatedTarget: document.body });  // real leaving: focus hands off somewhere
+    expect(container.querySelector(".hb-tip-on")).toBeNull();
+  });
+
+  it("keeps the pick through a blur with no handoff target — Chrome's stale dialog-close cleanup", () => {
+    // Closing a drill dialog we opened makes real Chrome fire one more blur on the drawing a beat AFTER it
+    // has handed the keyboard back, with nothing in relatedTarget (the removed dialog is gone from the DOM).
+    // That is not leaving: clearing on it would erase the pick the return exists to preserve, and with it
+    // the coincident spot's click cycle. Leaving FOR REAL still clears — focus hands off to something.
+    const { container } = render(<Blocks blocks={line()} />);
+    const svg = container.querySelector<SVGSVGElement>("svg.hb-chart-svg")!;
+    fireEvent.keyDown(svg, { key: "ArrowLeft" });
+    expect(container.querySelector(".hb-tip-on")).not.toBeNull();
     fireEvent.blur(svg);
+    expect(container.querySelector(".hb-tip-on")).not.toBeNull();
+    fireEvent.blur(svg, { relatedTarget: document.body });
     expect(container.querySelector(".hb-tip-on")).toBeNull();
   });
 
@@ -267,5 +284,104 @@ describe("chart figure from block JSON", () => {
     expect(chart({ ...raw, figure: false })[0].spec.figure).toBe(false);
     expect(chart({ ...raw, figure: true })[0].spec.figure).toBe(true);
     expect(chart({ ...raw, figure: "no" })[0].spec.figure).toBeUndefined();
+  });
+});
+
+describe("scatter charts", () => {
+  const dots = () => chart({ kind: "scatter", title: "Size vs price", x: ["1", "2", "4"], unit: "kg",
+    series: [{ name: "Samples", data: [10, 14, 12] }] });
+
+  it("draw a dot per value and no line, end labels or change chip", () => {
+    const { container } = render(<Blocks blocks={dots()} />);
+    expect(container.querySelectorAll("circle.hb-chart-dot").length).toBe(3);
+    expect(container.querySelector("path.hb-chart-line")).toBeNull();
+    expect(container.querySelector("text.hb-chart-end")).toBeNull();
+    expect(container.querySelector(".hb-chip")).toBeNull();
+  });
+
+  it("keep the axes and the pick the other up-and-down charts have", () => {
+    const { container } = render(<Blocks blocks={dots()} />);
+    const labels = [...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent);
+    expect(labels).toEqual(["1", "2", "4"]);
+    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
+    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("2");
+    expect(container.querySelector(".hb-tip-on .hb-tip-value")!.textContent).toBe("14 kg");
+  });
+
+  it("dots at the SAME pixel group into one cluster spot; everything else stays single", () => {
+    // The pointer can only ever hit the topmost circle of a coincident pair, so the renderer groups dots
+    // by their exact drawn position: one spot per pixel, its members every point index drawn there (in
+    // ascending index order, across series), and the spot keeps its drawn position for the badge.
+    const spec = chart({ kind: "scatter", x: [1, 1, 3], unit: "kg",
+      series: [{ name: "V", data: [50, 50, 50] }] })[0].spec;
+    const layout = xyLayout(spec, 560, chartScales(spec, null));
+    const spots = dotSpots(spec, layout);
+    expect(spots.length).toBe(2);  // x=1 at 50 kg (twice), x=3 at 50 kg
+    const twin = spots.find((s) => s.members.length > 1)!;
+    expect(twin.members).toEqual([0, 1]);
+    expect(spots.filter((s) => s.members.length > 1).length).toBe(1);
+    // cross-series coincidents group too, and a group's members are DISTINCT point indices
+    const pair = chart({ kind: "scatter", x: [1, 2, 1], unit: "kg",
+      series: [{ name: "A", data: [50, 90, 7] }, { name: "B", data: [4, 9, 50] }] })[0].spec;
+    const spots2 = dotSpots(pair, xyLayout(pair, 560, chartScales(pair, null)));
+    expect(spots2.find((s) => s.members.length > 1)?.members).toEqual([0, 2]);
+    // same x, different y: never a cluster
+    const near = chart({ kind: "scatter", x: [1, 1], unit: "kg",
+      series: [{ name: "V", data: [10, 90] }] })[0].spec;
+    expect(dotSpots(near, xyLayout(near, 560, chartScales(near, null))).every((s) => s.members.length === 1)).toBe(true);
+  });
+});
+
+describe("histogram charts", () => {
+  it("draw a column per bin, counting the raw values into it", () => {
+    const blocks = chart({ kind: "histogram", title: "Scores", series: [{ name: "Students", data: [55, 61, 62, 70, 71, 88] }] });
+    const { container } = render(<Blocks blocks={blocks} />);
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(4);
+    expect([...container.querySelectorAll("text.hb-chart-value")].map((t) => t.textContent)).toEqual(["1", "2", "2", "1"]);
+    expect([...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent)).toEqual(["50–60", "60–70", "70–80", "80–90"]);
+    expect(container.textContent).toContain("Scores");
+  });
+  it("headline the number of values at rest and the picked bin's count when one is picked", () => {
+    const blocks = chart({ kind: "histogram", title: "Scores",
+      series: [{ data: [41, 55, 58, 60, 62, 63, 66, 68, 69, 70, 71, 72, 74, 75, 77, 79, 81, 84, 88, 93] }] });
+    const { container } = render(<Blocks blocks={blocks} />);
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("20");  // 20 values, not the last bin's 4
+    const svg = container.querySelector("svg.hb-chart-svg")!;
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("3");
+    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("40–60");
+  });
+});
+
+describe("histogram block JSON", () => {
+  it("bins the one series' raw values: x becomes the ranges, the series the counts", () => {
+    const [block] = chart({ kind: "histogram", title: "Exam scores", series: [{ name: "Scores", data: [55, 61, 62, 70, 71, 88] }] }) as any[];
+    expect(block.spec.type).toBe("histogram");
+    expect(block.spec.title).toBe("Exam scores");
+    expect(block.spec.x.length).toBe(block.spec.series[0].data.length);
+    expect(block.spec.series[0].data.reduce((a: number, b: number) => a + b, 0)).toBe(6);
+    expect(block.spec.x[0]).toContain("–");
+  });
+  it("ignores an x it was given and a second series it cannot bin", () => {
+    const [block] = chart({ kind: "hist", x: ["ignore", "me"], unit: "kg", series: [{ data: [1, 2, 3] }, { data: [9, 9, 9] }] }) as any[];
+    expect(block.spec.type).toBe("histogram");
+    expect(block.spec.series.length).toBe(1);
+    expect(block.spec.series[0].data).toEqual([1, 0, 1, 1]);
+    expect(block.spec.x[0]).toBe("1–1.5");
+    expect(block.spec.x[3]).toBe("2.5–3");
+    expect(block.spec.unit).toBeUndefined();  // the bars count values; the kg unit belongs to the bins
+  });
+  it("drops a histogram whose values are all gaps", () => {
+    expect(chart({ kind: "histogram", series: [{ data: [null, "x"] }] })).toEqual([]);
+  });
+});
+
+describe("scatter block JSON", () => {
+  it("reads like a line but keeps its kind", () => {
+    const [block] = chart({ kind: "scatter", x: [1, 2, 4], series: [{ name: "Points", data: [10, 14, 12] }] }) as any[];
+    expect(block.spec.type).toBe("scatter");
+    expect(block.spec.x).toEqual(["1", "2", "4"]);
+    expect(block.spec.series[0].data).toEqual([10, 14, 12]);
   });
 });

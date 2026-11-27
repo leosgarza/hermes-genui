@@ -1,5 +1,9 @@
-// Tabs: a bar of tab buttons above one panel. Only the picked tab's blocks are drawn; nothing is sent or saved.
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+// Tabs: a bar of tab buttons above one panel. Only the picked tab's blocks are drawn. Since round 7
+// the pick is the BOARD's answer from the click itself (core/blockState.ts): a never-updated board,
+// a living update, a move, or a reopen lands on the tab the reader left open — the door holds it
+// from the edit onward, mounted or headless alike.
+import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useStoredValue } from "../../core/blockState";
 import { InlineText } from "../../lib/InlineText";
 
 /**
@@ -14,14 +18,20 @@ export function tabAfterKey(current: number, count: number, key: string): number
 
 /** `labels` name the tabs; `panel(i)` draws tab i's blocks, called only for the picked tab. */
 export function Tabs({ labels, panel }: { labels: string[]; panel: (i: number) => ReactNode }) {
-  const [picked, setPicked] = useState(0);
+  const [answer, pick] = useStoredValue<number>({
+    door: "identity",
+    initial: () => 0,
+    revive: (saved) => (Number.isInteger(saved) && (saved as number) >= 0 ? (saved as number) : null),
+    stored: (value) => value,
+  });
+  const picked = answer < labels.length ? answer : 0;   // a bar that shrank falls back to the first tab, honestly
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const base = useId().replace(/[^a-zA-Z0-9]/g, "");
   const onKey = (e: KeyboardEvent) => {
     const next = tabAfterKey(picked, labels.length, e.key);
     if (next === picked) return;
     e.preventDefault();
-    setPicked(next);
+    pick(next);
     buttons.current[next]?.focus();
   };
   return (
@@ -31,7 +41,7 @@ export function Tabs({ labels, panel }: { labels: string[]; panel: (i: number) =
           <button key={i} type="button" role="tab" id={`${base}-tab-${i}`} aria-controls={`${base}-panel`}
             aria-selected={i === picked} tabIndex={i === picked ? 0 : -1}
             className={i === picked ? "hb-tab hb-tab-on" : "hb-tab"}
-            ref={(el) => { buttons.current[i] = el; }} onClick={() => setPicked(i)}>
+            ref={(el) => { buttons.current[i] = el; }} onClick={() => pick(i)}>
             <InlineText text={label} />
           </button>
         ))}

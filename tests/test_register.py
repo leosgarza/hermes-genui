@@ -53,7 +53,7 @@ def test_market_rules_are_in_the_tool_description():
 def test_registers_the_visual_nudge():
     ctx = FakeContext()
     plugin.register(ctx)
-    assert ctx.hooks == ["pre_llm_call", "transform_llm_output"]
+    assert ctx.hooks == ["pre_llm_call", "transform_llm_output", "post_tool_call"]
 
 
 class RecordingContext:
@@ -93,7 +93,8 @@ def test_register_registers_exactly_the_tool_registry_in_order(monkeypatch):
     assert all(t.schema["name"] == t.name for t in tools.TOOLS)
 
     hooks = [(call[1], call[2]) for call in ctx.calls if call[0] == "hook"]
-    assert hooks == [("pre_llm_call", plugin.visual_nudge), ("transform_llm_output", plugin.text_only)]
+    assert hooks == [("pre_llm_call", plugin.visual_nudge), ("transform_llm_output", plugin.text_only),
+                     ("post_tool_call", plugin.media_provenance)]
     sections = [call[1:] for call in ctx.calls if call[0] == "section"]
     assert sections == [(manifest.NAME, plugin.drawing_rule, {"max_chars": plugin.MAX_CHARS})]
     skills = [call[1:] for call in ctx.calls if call[0] == "skill"]

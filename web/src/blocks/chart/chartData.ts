@@ -2,9 +2,10 @@
 // Shared by the chart reader (read.ts) and the drawings (Chart.tsx, PieChart.tsx, HBarChart.tsx).
 import { formatAmount, formatCompact, formatIndian, formatNumber, formatPercent } from "../../lib/format";
 import { usesLakhCrore } from "../../lib/locale";
+import { niceTicks } from "./geometry";
 
 /** Every kind the chart block draws. */
-export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut"] as const;
+export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
 
 /** One series: its values (null for a gap), and for a combo's line its own unit and whether it has the right scale. */
@@ -21,10 +22,12 @@ export type ChartSpec = {
 };
 
 // Other names models use for the same kinds, written without spaces, dashes or underscores.
-const KIND_ALIASES: Record<string, ChartKind> = { doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar" };
+const KIND_ALIASES: Record<string, ChartKind> = {
+  doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar", hist: "histogram",
+};
 
 /** The kind to draw for the name the model wrote: a known name (any case) or an alias is that kind, anything else is a
- *  line. "pie" -> pie; "Donut" -> donut; "stacked_bar" -> stacked; "scatter" -> line; undefined -> line. */
+ *  line. "pie" -> pie; "Donut" -> donut; "stacked_bar" -> stacked; "scatter" -> scatter; undefined -> line. */
 export function chartKind(name: unknown): ChartKind {
   if (typeof name !== "string") return "line";
   const plain = name.toLowerCase().replace(/[\s_-]/g, "");
@@ -33,9 +36,11 @@ export function chartKind(name: unknown): ChartKind {
   return KIND_ALIASES[plain] ?? "line";
 }
 
-/** How many series a kind draws: stacked bars and areas show up to 6 parts (a budget's categories), the rest 3. */
+/** How many series a kind draws: stacked bars and areas show up to 6 parts (a budget's categories), a histogram
+ *  bins the values of its one series, the rest 3. */
 export function maxSeries(kind: ChartKind): number {
   if (kind === "stacked" || kind === "area") return 6;
+  if (kind === "histogram") return 1;
   return 3;
 }
 
@@ -117,6 +122,23 @@ export function pieSlices(x: string[], data: (number | null)[]): { x: string[]; 
   let other = 0;
   for (const s of slices) if (!kept.has(s)) other += s.value;
   return { x: [...shown.map((s) => s.label), "Other"], data: [...shown.map((s) => s.value), other] };
+}
+
+/** A histogram's bins from the values of its one series: about six columns at round edges (niceTicks) covering
+ *  the spread; every value counts in exactly one bin, from the left edge up to the right one, the top value
+ *  included in the last. Labels read as ranges ("10–20", numbers through fmt); the counts are plain numbers.
+ *  [0..9] -> labels 0–2 … 8–10, counts [2,2,2,2,2];  [5,5] -> four bins around 5, the value in one;  [] -> nothing. */
+export function histogramBins(values: number[]): { labels: string[]; counts: number[] } {
+  if (!values.length) return { labels: [], counts: [] };
+  const edges = niceTicks(Math.min(...values), Math.max(...values), 5);
+  const step = edges.length > 1 ? edges[1] - edges[0] : 1;
+  const counts: number[] = new Array(Math.max(edges.length - 1, 1)).fill(0);
+  for (const v of values) {
+    const k = Math.min(counts.length - 1, Math.max(0, Math.floor((v - edges[0]) / step + 1e-9)));
+    counts[k]++;
+  }
+  const labels = counts.map((_, k) => `${fmt(edges[k])}–${fmt(edges[k + 1])}`);
+  return { labels, counts };
 }
 
 /** One part's band in a stack: from where it starts to where it ends. */
@@ -213,7 +235,7 @@ export function chartScales(spec: ChartSpec, bands: (Band | null)[][] | null): {
   }
   const leftValues = spec.series.filter((s) => !s.right).flatMap((s) => numbersOf(s.data));
   const rightValues = spec.series.filter((s) => s.right).flatMap((s) => numbersOf(s.data));
-  const fromZero = spec.type === "bar" || spec.type === "combo";
+  const fromZero = spec.type === "bar" || spec.type === "combo" || spec.type === "histogram";
   const right = rightValues.length ? scaleFor(rightValues, false) : null;
   return { left: scaleFor(leftValues, fromZero), right };
 }
