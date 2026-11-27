@@ -43,6 +43,8 @@ from .layout import check_container, check_tabs, text_container, text_tabs
 from .list import check_list, text_list
 from .progress import check_progress, text_progress
 from .simulate import check_simulate, text_simulate
+from .result import check_result, text_result
+from .suggestions import check_suggestions, text_suggestions
 from .source import check_source, text_source
 from .steps import check_steps, text_steps
 from .streak import check_streak, text_streak
@@ -68,6 +70,8 @@ TYPES = {
     "tiles": (check_tiles, text_tiles),
     "cards": (check_cards, text_cards),
     "tasks": (check_tasks, text_tasks),
+    "result": (check_result, text_result),
+    "suggestions": (check_suggestions, text_suggestions),
     "checklist": (check_checklist, text_checklist),
     "calculator": (check_calculator, text_calculator),
     "simulate": (check_simulate, text_simulate),

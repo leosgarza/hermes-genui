@@ -80,3 +80,10 @@
 @media (prefers-reduced-motion: reduce) {
   .hb-card-action { transition: none; }
 }
+
+
+/* Card facts: owner · milestone · trend · budget · ARR (only the ones set). */
+.hb-card-facts { display: flex; flex-wrap: wrap; gap: 10px 16px; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px dashed var(--hb-line); }
+.hb-card-facts > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.hb-card-facts dt { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--hb-muted); }
+.hb-card-facts dd { margin: 0; font-size: 12px; font-weight: 600; color: var(--hb-ink); }

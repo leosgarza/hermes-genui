@@ -16,6 +16,10 @@ import { Cards } from "./blocks/cards/Cards";
 import { readCards, type CardsBlock } from "./blocks/cards/read";
 import { Tasks } from "./blocks/tasks/Tasks";
 import { readTasks, type TasksBlock } from "./blocks/tasks/read";
+import { Result } from "./blocks/result/Result";
+import { readResult, type ResultBlock } from "./blocks/result/read";
+import { Suggestions } from "./blocks/suggestions/Suggestions";
+import { readSuggestions, type SuggestionsBlock } from "./blocks/suggestions/read";
 import { Chart } from "./blocks/chart/Chart";
 import { readChart, type ChartBlock } from "./blocks/chart/read";
 import { Checklist } from "./blocks/checklist/Checklist";
@@ -64,7 +68,7 @@ export type Block =
   | ListBlock | ProgressBlock | StreakBlock | HeatmapBlock | FlipBlock | FlowBlock | StepsBlock | LayersBlock
   | ActionsBlock | TilesBlock | ChecklistBlock | CalculatorBlock | SimulateBlock | FormBlock
   | HeadingBlock | TextBlock | StatBlock | DividerBlock | BadgeBlock | ButtonBlock | LinkBlock | ImageBlock | BarBlock
-  | ContainerBlock | TabsBlock | CardsBlock | TasksBlock;
+  | ContainerBlock | TabsBlock | CardsBlock | TasksBlock | ResultBlock | SuggestionsBlock;
 
 type Registry = { [K in Block["type"]]: BlockEntry<Extract<Block, { type: K }>> };
 
@@ -98,6 +102,8 @@ export const REGISTRY: Registry = {
   tiles: { read: readTiles, Component: ({ block }) => <Tiles items={block.items} /> },
   cards: { read: readCards, Component: ({ block }) => <Cards {...block} /> },
   tasks: { read: readTasks, Component: ({ block }) => <Tasks {...block} /> },
+  result: { read: readResult, Component: ({ block }) => <Result {...block} /> },
+  suggestions: { read: readSuggestions, Component: ({ block }) => <Suggestions {...block} /> },
   checklist: { read: readChecklist, Component: ({ block }) => <Checklist {...block} /> },
   calculator: { read: readCalculator, Component: ({ block }) => <Calculator {...block} /> },
   simulate: { read: readSimulate, Component: ({ block }) => <Simulate {...block} /> },

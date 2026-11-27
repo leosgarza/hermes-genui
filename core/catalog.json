@@ -505,6 +505,43 @@
    }
   },
   {
+   "kind": "suggestions",
+   "group": "block",
+   "for": "Proposed changes to accept or skip, each with a reason.",
+   "use_when": "Hermes proposes, the reader disposes: a short list of suggested changes, each with a reason, accepting or skipping in one tap.",
+   "fields": "items (1-20): text, reason, accept (message sent on tap), skip (message sent on tap).",
+   "example": {
+    "type": "suggestions",
+    "title": "Suggested",
+    "items": [
+     {
+      "text": "Move the deadline to Friday",
+      "reason": "two plans slipped",
+      "accept": "Accept: move the deadline to Friday",
+      "skip": "Skip that"
+     }
+    ]
+   }
+  },
+  {
+   "kind": "result",
+   "group": "block",
+   "for": "A delivered result card: a draft, a comparison, or an answer.",
+   "use_when": "When an agent has produced a finished output to show beside the work: the draft itself, the comparison itself, the answer with its sources.",
+   "fields": "body (required), title, sources (≤6: {label, url}), model.",
+   "example": {
+    "type": "result",
+    "title": "Draft reply",
+    "body": "Here is the reply I would send…",
+    "sources": [
+     {
+      "label": "IRS Notice 2026-1"
+     }
+    ],
+    "model": "Hermes"
+   }
+  },
+  {
    "kind": "checklist",
    "for": "Items to tick; ticks are saved.",
    "use_when": "Packing lists, to-dos, steps.",

@@ -10,6 +10,7 @@ export type CardAction = { label: string; run?: string; url?: string };
 export type CardItem = {
   title: string; id?: string; status?: string; ring?: CardRing; metrics?: CardMetric[];
   needs?: CardNeeds; freshness?: string; action?: CardAction;
+  owner?: string; milestone?: string; trend?: string; budget?: string; arr?: string;
 };
 export type CardsBlock = { type: "cards"; columns?: 1 | 2; items: CardItem[] };
 
@@ -70,6 +71,11 @@ function readCard(item: any): CardItem | null {
     needs: readNeeds(item.needs),
     freshness: str(item.freshness, 60),
     action: readAction(item.action),
+    owner: str(item.owner, 40),
+    milestone: str(item.milestone, 60),
+    trend: str(item.trend, 20),
+    budget: str(item.budget, 40),
+    arr: str(item.arr, 40),
   });
 }
 

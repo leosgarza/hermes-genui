@@ -48,6 +48,8 @@ function Card({ card }: { card: CardItem }) {
         </div>
       )}
 
+      <Facts card={card} />
+
       <NeedsLine card={card} />
 
       {(card.freshness || action) && (
@@ -62,6 +64,31 @@ function Card({ card }: { card: CardItem }) {
       )}
     </article>
   );
+}
+
+function Facts({ card }: { card: CardItem }) {
+  const rows: [string, string | undefined][] = [
+    ["owner", card.owner], ["milestone", card.milestone], ["trend", card.trend], ["budget", card.budget], ["ARR", card.arr],
+  ];
+  const shown = rows.filter(([, v]) => v) as [string, string][];
+  if (!shown.length) return null;
+  return (
+    <dl className="hb-card-facts">
+      {shown.map(([k, v]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd className={k === "trend" ? trendTone(v) : undefined}>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function trendTone(v: string): string {
+  const t = v.trim();
+  const down = t.startsWith("-") || /down|▼|↓/i.test(t);
+  const up = t.startsWith("+") || /up|▲|↑/i.test(t);
+  return `hb-tone-${down ? "bad" : up ? "good" : "neutral"}`;
 }
 
 /** The needs line: what needs the owner (tone-coloured), or a calm `clear` — but `unknown` whenever any value on the

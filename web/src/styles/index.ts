@@ -10,6 +10,8 @@ import callout from "../blocks/callout/callout.css";
 import kpis from "../blocks/kpis/kpis.css";
 import cards from "../blocks/cards/cards.css";
 import tasks from "../blocks/tasks/tasks.css";
+import result from "../blocks/result/result.css";
+import suggestions from "../blocks/suggestions/suggestions.css";
 import timeline from "../blocks/timeline/timeline.css";
 import layout from "../blocks/layout/layout.css";
 import chart from "../blocks/chart/chart.css";
@@ -31,7 +33,7 @@ import simulate from "../blocks/simulate/simulate.css";
 import form from "../blocks/form/form.css";
 
 export const STYLE_PARTS = [
-  tokens, shared, blockTag, atoms, source, callout, kpis, cards, tasks, timeline, layout, chart, images, table, list, heatmap, flip,
+  tokens, shared, blockTag, atoms, source, callout, kpis, cards, tasks, result, suggestions, timeline, layout, chart, images, table, list, heatmap, flip,
   flow, steps, layers, progress, streak, actions, tiles, checklist, calculator, simulate, form,
 ];
 
