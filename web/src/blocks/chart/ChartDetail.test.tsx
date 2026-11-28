@@ -99,7 +99,7 @@ describe("chart drill-down (up-and-down charts)", () => {
 
   it("a histogram bin's detail counts its values and tells their share", () => {
     const { container } = render(<Blocks blocks={chart({ kind: "histogram", title: "Scores",
-      series: [{ name: "Students", data: [55, 61, 62, 70, 71, 88] }] })} />);
+      x: ["50–60", "60–70", "70–80", "80–90"], series: [{ name: "Students", data: [1, 2, 2, 1] }] })} />);
     const svg = container.querySelector<SVGSVGElement>("svg.hb-chart-svg")!;
     svg.focus();
     fireEvent.keyDown(svg, { key: "ArrowRight" });
@@ -145,7 +145,9 @@ describe("scatter drill-down reads the clicked dot, not the x", () => {
   // clicked and keeps the first — the wrong datum, material for the reader's numbers. Each dot therefore
   // carries its own point index and the pick takes it from the element under the pointer; the detail says
   // which point it is ("Point 2 of 2"), so even exact duplicates each open their own.
-  const dots = (raw: object) => chart({ kind: "scatter", title: "Size vs price", unit: "kg", ...raw });
+  const dots = (raw: { x?: number[]; series: { name?: string; data: number[] }[] }) =>
+    chart({ kind: "scatter", title: "Size vs price", unit: "kg",
+      series: raw.series.map((s) => ({ name: s.name, points: s.data.map((y, p) => ({ x: raw.x?.[p], y })) })) });
   const values = (dialog: Element) => [...dialog.querySelectorAll(".hb-detail-value")].map((v) => v.textContent);
 
   const clickDot = (container: HTMLElement, k: number) => {
@@ -202,7 +204,9 @@ describe("coincident scatter dots: a real click reaches EACH point at the spot",
   // points is a CLUSTER: the first real click opens its first datum, and repeated clicks at the same spot
   // cycle through the rest (wrapping). The marker carries a small ×n badge, and the detail says which
   // datum at the spot is being shown. Keyboard arrows already reach every index, each its own datum.
-  const dots = (raw: object) => chart({ kind: "scatter", title: "Size vs price", unit: "kg", ...raw });
+  const dots = (raw: { x?: number[]; series: { name?: string; data: number[] }[] }) =>
+    chart({ kind: "scatter", title: "Size vs price", unit: "kg",
+      series: raw.series.map((s) => ({ name: s.name, points: s.data.map((y, p) => ({ x: raw.x?.[p], y })) })) });
   const values = (dialog: Element) => [...dialog.querySelectorAll(".hb-detail-value")].map((v) => v.textContent);
 
   const clickDot = (container: HTMLElement, k: number) => {

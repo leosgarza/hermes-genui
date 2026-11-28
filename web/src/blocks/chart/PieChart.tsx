@@ -1,10 +1,10 @@
 // Pie and donut: shares of a whole, with a legend beside the drawing (below it when the chart is narrower than 440px)
 // listing each slice's name, value and share, so no label is squeezed onto a slice.
 import { useRef, useState } from "react";
-import { fmt, partColour, seriesName, shareNote, sharePct, type ChartSpec } from "./chartData";
+import { chartLabel, fmt, partColour, seriesName, shareNote, sharePct, type ChartSpec } from "./chartData";
 import { ChartTip, type Tip } from "./ChartTip";
 import { ChartDetail, KIND_WORDS, type Detail } from "./ChartDetail";
-import { pickKeys } from "./pick";
+import { keepsPick, pickKeys } from "./pick";
 
 const BOX = 168, C = BOX / 2, OUTER = 80, HOLE = 52;  // the drawing's size and centre, the outer radius, a donut's hole
 
@@ -53,6 +53,9 @@ export function PieChart({ spec }: { spec: ChartSpec }) {
   const [tip, setTip] = useState<Tip | null>(null);
   const [drill, setDrill] = useState<{ at: number; detail: Detail } | null>(null);
   const svg = useRef<SVGSVGElement>(null);
+  const closed = useRef(0);  // when the detail last closed: a stale blur right after it is not the reader leaving
+  const box = spec.height ?? BOX;
+  const scale = box / BOX;
   const values = spec.series[0].data as number[];
   const total = values.reduce((sum, v) => sum + v, 0);
   const unit = spec.series[0].unit ?? spec.unit;
@@ -82,7 +85,7 @@ export function PieChart({ spec }: { spec: ChartSpec }) {
     const drawing = el.getBoundingClientRect();
     const around = body.getBoundingClientRect();
     const label = String(spec.x[i]);
-    setTip({ x: drawing.left - around.left + x, y: drawing.top - around.top + y, title: label,
+    setTip({ x: drawing.left - around.left + x * scale, y: drawing.top - around.top + y * scale, title: label,
       rows: sliceRows(i), note: valuesAreShares ? undefined : shareNote(values, values[i]) });
   }
   /** One slice, read closely: the same full value and share the hover card says, held still. */
@@ -97,10 +100,11 @@ export function PieChart({ spec }: { spec: ChartSpec }) {
   }
   const close = () => {
     setDrill(null);
+    closed.current = Date.now();
     svg.current?.focus();  // the dialog hands the keyboard back to the drawing it opened from
   };
   // Losing focus to the dialog is not leaving the pie: the picked slice must survive open and close.
-  const pickKeep = (i: number | null) => { if (i !== null || !drill) pick(i); };
+  const pickKeep = keepsPick(pick, () => drill !== null, closed);
   const faded = (i: number) => (picked === null || picked === i ? 1 : 0.5);
   const mouse = (i: number | null) => (e: { pointerType: string }) => e.pointerType === "mouse" && pickKeep(i);
 
@@ -115,8 +119,8 @@ export function PieChart({ spec }: { spec: ChartSpec }) {
           </div>
         )}
         <div className="hb-pie-body">
-          <svg ref={svg} width={BOX} height={BOX} viewBox={`0 0 ${BOX} ${BOX}`} className="hb-pie-svg" role="img"
-            aria-label={spec.title ?? "chart"} {...pickKeys(values.length, picked, pickKeep, false, () => picked !== null && open(picked))}>
+          <svg ref={svg} width={box} height={box} viewBox={`0 0 ${BOX} ${BOX}`} className="hb-pie-svg" role="img"
+            aria-label={chartLabel(spec)} {...pickKeys(values.length, picked, pickKeep, false, () => picked !== null && open(picked))}>
             {slices.map((s, i) => (
               <path key={i} d={slicePath(s.start, s.end, hole)} fill={sliceColour(String(spec.x[i]), i)} opacity={faded(i)}
                 className="hb-slice" onClick={() => open(i)} onPointerEnter={mouse(i)} onPointerLeave={mouse(null)} />
@@ -142,6 +146,7 @@ export function PieChart({ spec }: { spec: ChartSpec }) {
           </table>
           <ChartTip tip={tip} />
         </div>
+        {spec.caveat && <div className="hb-chart-caveat">{spec.caveat}</div>}
         {spec.source && <div className="hb-chart-source">{spec.source}</div>}
       </figure>
       {drill && <ChartDetail detail={drill.detail} onClose={close} />}

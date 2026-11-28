@@ -34,13 +34,20 @@ export function pickKeys(n: number, at: number | null, pick: (i: number | null) 
       e.preventDefault();
       pick(next);
     },
-    onBlur: (e: FocusEvent) => {
-      // A blur with nowhere to go is not leaving the drawing. When a drill-down dialog we opened is removed,
-      // real Chrome makes the drawing pass through exactly that event a beat AFTER it has handed the keyboard
-      // back (a delayed stale-focus cleanup for the removed dialog); clearing on it would erase the pick the
-      // return exists to preserve, and the cycle position with it. Leaving for real still clears: Tab hands
-      // focus to the next element (a relatedTarget), the mouse meets pointerleave, and Escape picks nothing.
-      if (e.relatedTarget) pick(null);
-    },
+    onBlur: () => pick(null),
+  };
+}
+
+/**
+ * A drawing's own pick setter, for charts that drill down. A blur is not always the reader leaving: when the
+ * drill-down dialog we opened is removed, real Chrome makes the drawing pass through a blur a beat AFTER it
+ * handed the keyboard back (a delayed stale-focus cleanup for the removed dialog). That blur must not erase the
+ * pick the round trip exists to preserve. `open` says whether a detail is up, `closedAt` when the last one
+ * closed; a null pick inside that window is stale, not a reader leaving (Escape and Tab still clear).
+ */
+export function keepsPick(setPick: (i: number | null) => void, open: () => boolean, closedAt: { current: number }) {
+  return (i: number | null) => {
+    if (i === null && (open() || Date.now() - closedAt.current < 250)) return;
+    setPick(i);
   };
 }

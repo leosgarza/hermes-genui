@@ -1,12 +1,12 @@
 // Horizontal bars: a row per x label, read top to bottom as a ranking. Asked for as hbar, or chosen for bars whose
 // labels read better as rows (kindToDraw in chartData.ts).
 import { Fragment, useRef, useState } from "react";
-import { fmt, partColour, seriesName, type ChartSpec } from "./chartData";
+import { chartLabel, fmt, partColour, seriesName, type ChartSpec } from "./chartData";
 import { hbarBarOf, hbarSpan } from "./hbarLayout";
 import { ChartTip, type Tip, type TipRow } from "./ChartTip";
 import { ChartDetail, KIND_WORDS, type Detail } from "./ChartDetail";
 import { ChartLegend } from "./Legend";
-import { pickKeys } from "./pick";
+import { keepsPick, pickKeys } from "./pick";
 
 /**
  * hbar: label | bar | value on each row, the label wrapping so a long name still reads on a phone. One series of
@@ -22,6 +22,7 @@ export function HBarChart({ spec }: { spec: ChartSpec }) {
   const box = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLDivElement>(null);
   const tracks = useRef<(HTMLDivElement | null)[]>([]);
+  const closed = useRef(0);  // when the detail last closed: a stale blur right after it is not the reader leaving
 
   const { lo, span, zeroAt } = hbarSpan(spec);  // the shared layout math (hbarLayout.ts) — the export measures what this draws
   const single = spec.series.length === 1;
@@ -67,10 +68,11 @@ export function HBarChart({ spec }: { spec: ChartSpec }) {
   }
   const close = () => {
     setDrill(null);
+    closed.current = Date.now();
     grid.current?.focus();  // the dialog hands the keyboard back to the drawing it opened from
   };
   // Losing focus to the dialog is not leaving the rows: the picked row must survive open and close.
-  const pickKeep = (i: number | null) => { if (i !== null || !drill) pick(i); };
+  const pickKeep = keepsPick(pick, () => drill !== null, closed);
 
   const shade = (i: number) => (picked === null || picked === i ? 1 : 0.55);
   const rowEvents = (i: number) => ({ onPointerEnter: () => pickKeep(i), onPointerDown: () => pickKeep(i), onClick: () => open(i) });
@@ -80,7 +82,8 @@ export function HBarChart({ spec }: { spec: ChartSpec }) {
         <figcaption className="hb-chart-title">{spec.title ?? spec.series[0].name ?? "Chart"}</figcaption>
         {!single && <ChartLegend series={spec.series} />}
         <div ref={box} className="hb-hbar-box">
-          <div ref={grid} className={`hb-hbar-grid${single ? "" : " hb-hbar-many"}`} role="img" aria-label={spec.title ?? "chart"}
+          <div ref={grid} className={`hb-hbar-grid${single ? "" : " hb-hbar-many"}`} role="img" aria-label={chartLabel(spec)}
+            style={spec.height ? { minHeight: spec.height } : undefined}
             {...pickKeys(spec.x.length, picked, pickKeep, true, () => picked !== null && open(picked))} onPointerLeave={() => pickKeep(null)}>
             {spec.x.map((label, i) => (
               <Fragment key={i}>
@@ -112,6 +115,8 @@ export function HBarChart({ spec }: { spec: ChartSpec }) {
           </div>
           <ChartTip tip={tip} />
         </div>
+        {spec.xLabel && <div className="hb-chart-axis-note">{spec.xLabel}</div>}
+        {spec.caveat && <div className="hb-chart-caveat">{spec.caveat}</div>}
         {spec.source && <div className="hb-chart-source">{spec.source}</div>}
       </figure>
       {drill && <ChartDetail detail={drill.detail} onClose={close} />}
