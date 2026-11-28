@@ -95,6 +95,14 @@ function https(v) {
   if (typeof v === "string" && /^https:\/\//.test(v)) return v;
   return void 0;
 }
+var LOOPBACK_HTTP = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?(?:[/?#]|$)/i;
+function safeLink(v) {
+  if (typeof v !== "string") return void 0;
+  const url = v.trim();
+  if (/^https:\/\//i.test(url)) return url;
+  if (LOOPBACK_HTTP.test(url)) return url;
+  return void 0;
+}
 function clean(o) {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== void 0));
 }
@@ -3103,7 +3111,7 @@ function PieChart({ spec }) {
   }
   const valuesAreShares = unit === "%";
   const biggest = values.indexOf(Math.max(...values));
-  const headline = valuesAreShares ? { value: sharePct(values[biggest] / total), label: String(spec.x[biggest]) } : { value: fmt(total, unit), label: "Total" };
+  const headline = spec.center && (spec.center.value || spec.center.label) ? { value: spec.center.value, label: spec.center.label } : valuesAreShares ? { value: sharePct(values[biggest] / total), label: String(spec.x[biggest]) } : { value: fmt(total, unit), label: "Total" };
   function pick(i) {
     setPicked(i);
     const el = svg.current;
@@ -3122,7 +3130,11 @@ function PieChart({ spec }) {
     });
   }
   const toggle = (i) => pick(picked === i ? null : i);
-  const faded = (i) => picked === null || picked === i ? 1 : 0.5;
+  const faded = (i) => {
+    if (picked !== null) return picked === i ? 1 : 0.5;
+    if (spec.highlight !== void 0) return spec.highlight === i ? 1 : 0.55;
+    return 1;
+  };
   const mouse = (i) => (e) => e.pointerType === "mouse" && pick(i);
   return /* @__PURE__ */ jsxs18("figure", { className: "hb-card hb-chart hb-pie", children: [
     /* @__PURE__ */ jsx21("figcaption", { className: "hb-chart-title", children: spec.title ?? spec.series[0].name ?? "Chart" }),
@@ -4187,33 +4199,61 @@ var RING_STROKE = {
   bad: "var(--hb-warn)",
   neutral: "var(--hb-accent)"
 };
-function Cards({ items, columns }) {
-  return /* @__PURE__ */ jsx31("div", { className: `hb-cards hb-cards-${columns === 1 ? 1 : 2}`, children: items.map((card, i) => /* @__PURE__ */ jsx31(Card2, { card }, i)) });
+function spanFillsRow(layout2) {
+  return layout2 === 2 || layout2 === "auto";
 }
-function Card2({ card }) {
+function Cards({ items, columns, shelves }) {
+  const layout2 = columns === 1 ? 1 : columns === 2 ? 2 : columns === 3 ? 3 : "auto";
+  if (shelves && shelves.length) {
+    return /* @__PURE__ */ jsx31("div", { className: "hb-cards-shelves", children: shelves.map((shelf, i) => /* @__PURE__ */ jsx31(Shelf, { shelf, layout: layout2 }, i)) });
+  }
+  return /* @__PURE__ */ jsx31(Wall, { cards: items ?? [], layout: layout2 });
+}
+function Wall({ cards, layout: layout2 }) {
+  const hero = spanFillsRow(layout2) && cards.some((card) => card.span === 2);
+  const grid = /* @__PURE__ */ jsx31("div", { className: hero ? `hb-cards hb-cards-${layout2} hb-cards-hero` : `hb-cards hb-cards-${layout2}`, children: cards.map((card, i) => /* @__PURE__ */ jsx31(Card2, { card, layout: layout2 }, i)) });
+  return layout2 === 3 || hero ? /* @__PURE__ */ jsx31("div", { className: "hb-cards-frame", children: grid }) : grid;
+}
+function Shelf({ shelf, layout: layout2 }) {
+  return /* @__PURE__ */ jsxs28("section", { className: "hb-card-shelf", "aria-label": shelf.label, children: [
+    /* @__PURE__ */ jsx31("h4", { className: "hb-card-shelf-label", children: shelf.label }),
+    /* @__PURE__ */ jsx31(Wall, { cards: shelf.items, layout: layout2 })
+  ] });
+}
+function Card2({ card, layout: layout2 }) {
   const { send } = useContext6(BlockActions);
   const band = card.ring || card.metrics && card.metrics.length;
   const action = card.action;
-  return /* @__PURE__ */ jsxs28("article", { className: "hb-card", "aria-label": cardLabel(card), children: [
+  const secondary = card.secondary;
+  const wide = card.span === 2 && spanFillsRow(layout2);
+  return /* @__PURE__ */ jsxs28("article", { className: wide ? "hb-card hb-card-wide" : "hb-card", "aria-label": cardLabel(card), children: [
     /* @__PURE__ */ jsxs28("header", { className: "hb-card-head", children: [
       /* @__PURE__ */ jsxs28("div", { className: "hb-card-titles", children: [
         /* @__PURE__ */ jsx31("h3", { className: "hb-card-title", children: card.title }),
         card.id && /* @__PURE__ */ jsx31("div", { className: "hb-card-id", children: card.id })
       ] }),
-      card.status && /* @__PURE__ */ jsx31("span", { className: `hb-card-chip hb-tone-${STATUS_TONE[card.status] ?? "neutral"}`, children: card.status })
+      card.status && /* @__PURE__ */ jsx31("span", { className: `hb-card-chip hb-tone-${STATUS_TONE[card.status] ?? "neutral"}`, children: card.status }),
+      card.tags && card.tags.length > 0 && /* @__PURE__ */ jsx31("ul", { className: "hb-card-tags", "aria-label": "tags", children: card.tags.map((tag, i) => /* @__PURE__ */ jsx31("li", { className: "hb-card-tag", children: tag }, i)) })
     ] }),
     band && /* @__PURE__ */ jsxs28("div", { className: "hb-card-band", children: [
       card.ring && /* @__PURE__ */ jsx31(Ring, { ring: card.ring }),
       card.metrics && card.metrics.length > 0 && /* @__PURE__ */ jsx31("dl", { className: "hb-card-metrics", children: card.metrics.map((m, i) => /* @__PURE__ */ jsxs28("div", { className: "hb-card-metric", children: [
         /* @__PURE__ */ jsx31("dt", { children: m.label }),
-        /* @__PURE__ */ jsx31("dd", { className: isUnknownWord(m.value) ? "hb-tone-neutral" : `hb-tone-${m.tone ?? "neutral"}`, children: m.value })
+        /* @__PURE__ */ jsxs28("dd", { className: isUnknownWord(m.value) ? "hb-tone-neutral" : `hb-tone-${m.tone ?? "neutral"}`, children: [
+          /* @__PURE__ */ jsx31("span", { className: "hb-card-value", children: m.value }),
+          m.trend && m.trend.length > 1 && /* @__PURE__ */ jsx31(Sparkline, { values: m.trend })
+        ] })
       ] }, i)) })
     ] }),
     /* @__PURE__ */ jsx31(Facts, { card }),
     /* @__PURE__ */ jsx31(NeedsLine, { card }),
-    (card.freshness || action) && /* @__PURE__ */ jsxs28("footer", { className: "hb-card-foot", children: [
-      /* @__PURE__ */ jsx31("span", { className: "hb-card-fresh", children: card.freshness ?? "" }),
-      action && (action.run ? /* @__PURE__ */ jsx31("button", { type: "button", className: "hb-card-action", onClick: () => send(action.run), children: action.label }) : action.url ? /* @__PURE__ */ jsx31("a", { className: "hb-card-action", href: action.url, target: "_blank", rel: "noreferrer", children: action.label }) : null)
+    (card.freshness || card.stale || action || secondary) && /* @__PURE__ */ jsxs28("footer", { className: "hb-card-foot", children: [
+      /* @__PURE__ */ jsx31("span", { className: card.stale ? "hb-card-fresh hb-card-fresh-dim" : "hb-card-fresh", children: card.freshness ?? "" }),
+      card.stale && /* @__PURE__ */ jsx31("span", { className: "hb-card-stale", children: "stale" }),
+      (action || secondary) && /* @__PURE__ */ jsxs28("span", { className: "hb-card-acts", children: [
+        action && (action.run ? /* @__PURE__ */ jsx31("button", { type: "button", className: "hb-card-action", onClick: () => send(action.run), children: action.label }) : action.url ? /* @__PURE__ */ jsx31("a", { className: "hb-card-action", href: action.url, target: "_blank", rel: "noreferrer", children: action.label }) : null),
+        secondary && (secondary.run ? /* @__PURE__ */ jsx31("button", { type: "button", className: "hb-card-secondary", onClick: () => send(secondary.run), children: secondary.label }) : secondary.url ? /* @__PURE__ */ jsx31("a", { className: "hb-card-secondary", href: secondary.url, target: "_blank", rel: "noreferrer", children: secondary.label }) : null)
+      ] })
     ] })
   ] });
 }
@@ -4257,13 +4297,15 @@ function Ring({ ring }) {
   const arc2 = circumference / 4 * 0.9;
   const centre = ring.label ?? (ring.at !== void 0 ? ring.stages[ring.at] : "unknown");
   const stroke = RING_STROKE[ring.tone ?? "neutral"] ?? "var(--hb-accent)";
+  const small = ring.size === "sm";
+  const box = small ? 28 : 40;
   return /* @__PURE__ */ jsxs28(
     "svg",
     {
-      className: "hb-card-ring",
+      className: small ? "hb-card-ring hb-card-ring-sm" : "hb-card-ring",
       viewBox: "0 0 40 40",
-      width: "40",
-      height: "40",
+      width: box,
+      height: box,
       role: "img",
       "aria-label": ringLabel(ring),
       children: [
@@ -4291,6 +4333,23 @@ function Ring({ ring }) {
     }
   );
 }
+var SPARK_W = 64;
+var SPARK_H = 20;
+function sparkPath(values) {
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const pad = 1.5;
+  const span = SPARK_H - 2 * pad;
+  const y = (v) => hi === lo ? SPARK_H / 2 : pad + (1 - (v - lo) / (hi - lo)) * span;
+  const x = (i) => i / (values.length - 1) * SPARK_W;
+  return values.map((v, i) => `${i ? "L" : "M"}${round(x(i))} ${round(y(v))}`).join("");
+}
+function round(n) {
+  return Math.round(n * 10) / 10;
+}
+function Sparkline({ values }) {
+  return /* @__PURE__ */ jsx31("svg", { className: "hb-card-spark", viewBox: `0 0 ${SPARK_W} ${SPARK_H}`, preserveAspectRatio: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsx31("path", { d: sparkPath(values) }) });
+}
 function isUnknownWord(value) {
   return value.trim().toLowerCase() === "unknown";
 }
@@ -4308,14 +4367,20 @@ function ringLabel(ring) {
 function cardLabel(card) {
   const status3 = card.status ? `, ${card.status}` : "";
   const needs = card.needs?.text ? `, needs you: ${card.needs.text}` : "";
-  return `${card.title}${status3}${needs}`;
+  const tags = card.tags && card.tags.length ? `, ${card.tags.join(", ")}` : "";
+  const stale = card.stale ? ", stale" : "";
+  return `${card.title}${status3}${needs}${tags}${stale}`;
 }
 
 // src/blocks/cards/read.ts
 var MAX_CARDS = 14;
 var MAX_METRICS = 3;
+var MAX_TAGS = 3;
+var TAG_CHARS = 24;
 var STATUSES = ["active", "parked", "done", "archived"];
 var TONES2 = ["good", "warn", "bad", "neutral"];
+var TREND_FEWEST = 2;
+var TREND_MOST = 60;
 function tone(v) {
   if (typeof v !== "string") return void 0;
   const word = v.trim().toLowerCase();
@@ -4326,25 +4391,53 @@ function status(v) {
   const word = v.trim().toLowerCase();
   return STATUSES.includes(word) ? word : void 0;
 }
+function ringSize(v) {
+  if (typeof v !== "string") return void 0;
+  const word = v.trim().toLowerCase();
+  return word === "sm" ? "sm" : word === "md" ? "md" : void 0;
+}
 function readCards(raw, here) {
   const list = firstList([raw.items, raw.cards]);
-  if (!list) return here.drop("cards needs items");
+  const read = list ? readList(list, here.at("items")) : [];
+  const items = read.length ? read : void 0;
+  const shelves = !items && Array.isArray(raw.shelves) ? readShelves(raw.shelves, here.at("shelves")) : void 0;
+  if (!items && !shelves) return here.drop("cards needs items or shelves");
+  const columns = raw.columns === 1 ? 1 : raw.columns === 2 ? 2 : raw.columns === 3 ? 3 : void 0;
+  return clean({ type: "cards", columns, items, shelves });
+}
+function readList(list, here) {
   const items = [];
   list.forEach((item, i) => {
     const card = readCard(item);
     if (!card) {
-      here.at("items").at(i).drop("card has no title");
+      here.at(i).drop("card has no title");
       return;
     }
-    if (card.action?.run && actsBeforeTheModel(card.action.run)) {
-      here.at("items").at(i).drop(NO_SEND);
+    const bad = [card.action, card.secondary].find((a) => a?.run && actsBeforeTheModel(a.run));
+    if (bad) {
+      here.at(i).drop(NO_SEND);
       return;
     }
     items.push(card);
   });
-  if (!items.length) return here.drop("cards has no card with a title");
-  const columns = raw.columns === 1 ? 1 : raw.columns === 2 ? 2 : void 0;
-  return clean({ type: "cards", columns, items: keepFirst(items, MAX_CARDS, here, "cards") });
+  return items.length ? keepFirst(items, MAX_CARDS, here, "cards") : [];
+}
+function readShelves(raw, here) {
+  const shelves = [];
+  raw.forEach((shelf, i) => {
+    const label = shelf && typeof shelf === "object" ? str(shelf.label, 60) : void 0;
+    if (!label) {
+      here.at(i).drop("shelf has no label");
+      return;
+    }
+    const items = Array.isArray(shelf.items) ? readList(shelf.items, here.at(i).at("items")) : [];
+    if (!items.length) {
+      here.at(i).drop("shelf has no card with a title");
+      return;
+    }
+    shelves.push({ label, items });
+  });
+  return shelves.length ? shelves : void 0;
 }
 function readCard(item) {
   if (!item || typeof item !== "object") return null;
@@ -4354,11 +4447,15 @@ function readCard(item) {
     title,
     id: str(item.id, 40),
     status: status(item.status),
+    span: item.span === 1 || item.span === 2 ? item.span : void 0,
     ring: readRing(item.ring),
     metrics: readMetrics(item.metrics),
     needs: readNeeds(item.needs),
     freshness: str(item.freshness, 60),
+    stale: typeof item.stale === "boolean" ? item.stale : void 0,
+    tags: readTags(item.tags),
     action: readAction(item.action),
+    secondary: readAction(item.secondary),
     owner: str(item.owner, 40),
     milestone: str(item.milestone, 60),
     trend: str(item.trend, 20),
@@ -4371,7 +4468,8 @@ function readRing(v) {
   const stages = v.stages.filter((s) => typeof s === "string" && s.trim() !== "").map((s) => s.trim().slice(0, 24)).slice(0, 4);
   if (stages.length !== 4) return void 0;
   const at2 = Number.isInteger(v.at) && v.at >= 0 && v.at <= 3 ? v.at : void 0;
-  return clean({ stages, at: at2, label: str(v.label, 24), tone: tone(v.tone) });
+  const size = ringSize(v.size);
+  return clean({ stages, at: at2, label: str(v.label, 24), tone: tone(v.tone), size });
 }
 function readMetrics(v) {
   if (!Array.isArray(v)) return void 0;
@@ -4379,12 +4477,27 @@ function readMetrics(v) {
   for (const m of v) {
     if (!m || typeof m !== "object") continue;
     const label = str(m.label, 60);
-    const value = str(m.value, 60) ?? (typeof m.value === "number" ? String(m.value) : void 0);
+    const value = str(m.value, 60) ?? (num(m.value) !== null ? String(m.value) : void 0);
     if (!label || value === void 0) continue;
-    out.push(clean({ label, value, tone: tone(m.tone) }));
+    out.push(clean({ label, value, tone: tone(m.tone), trend: readTrend(m.trend) }));
     if (out.length >= MAX_METRICS) break;
   }
   return out.length ? out : void 0;
+}
+function readTrend(v) {
+  if (!Array.isArray(v)) return void 0;
+  const numbers = v.map(num).filter((n) => n !== null);
+  return numbers.length >= TREND_FEWEST ? numbers.slice(-TREND_MOST) : void 0;
+}
+function readTags(v) {
+  if (!Array.isArray(v)) return void 0;
+  const tags = [];
+  for (const tag of v) {
+    const text = str(tag, TAG_CHARS);
+    if (text) tags.push(text);
+    if (tags.length >= MAX_TAGS) break;
+  }
+  return tags.length ? tags : void 0;
 }
 function readNeeds(v) {
   if (!v || typeof v !== "object") return void 0;
@@ -4395,7 +4508,7 @@ function readAction(v) {
   if (!v || typeof v !== "object") return void 0;
   const label = str(v.label, 60);
   if (!label) return void 0;
-  return clean({ label, run: str(v.run, 300), url: https(v.url) });
+  return clean({ label, run: str(v.run, 300), url: safeLink(v.url) });
 }
 
 // src/blocks/tasks/Tasks.tsx
@@ -4595,7 +4708,9 @@ function readSpec(d) {
     x = slices.x;
     series = [{ ...series[0], data: slices.data }];
   }
-  return specOf(d, type, x, series, unit);
+  const spec = specOf(d, type, x, series, unit);
+  if (type === "pie" || type === "donut") readWheel(spec, d, x);
+  return spec;
 }
 function readPoints(d, type, here) {
   let rawSeries = Array.isArray(d.series) ? d.series : [];
@@ -4698,6 +4813,20 @@ function sortByFirstSeries(spec) {
   });
   spec.x = order.map((i) => spec.x[i]);
   spec.series = spec.series.map((s) => ({ ...s, data: order.map((i) => s.data[i] ?? null) }));
+}
+function readWheel(spec, d, drawnX) {
+  const centre = d.center;
+  if (centre && typeof centre === "object") {
+    const label = typeof centre.label === "string" ? centre.label.trim().slice(0, 24) : "";
+    const value = typeof centre.value === "string" ? centre.value.trim().slice(0, 12) : typeof centre.value === "number" && isFinite(centre.value) ? String(centre.value).slice(0, 12) : "";
+    if (label || value) spec.center = { label, value };
+  }
+  if (!Number.isInteger(d.highlight) || !Array.isArray(d.x)) return;
+  const named = d.x[d.highlight];
+  if (typeof named === "undefined") return;
+  const at2 = drawnX.indexOf(String(named));
+  if (at2 < 0) return;
+  spec.highlight = at2;
 }
 function readSeries(s, k, type, chartUnit) {
   const name = typeof s.name === "string" ? s.name : void 0;
@@ -5993,7 +6122,7 @@ function KpiCard({ item, trendColour }) {
     /* @__PURE__ */ jsx41("div", { className: "hb-kpi-label", children: item.label }),
     /* @__PURE__ */ jsx41("div", { className: valueClass, title: full !== shown ? full : void 0, children: shown }),
     change && /* @__PURE__ */ jsx41("div", { className: changeClass(item), children: change }),
-    item.trend && /* @__PURE__ */ jsx41(Sparkline, { values: item.trend, colour: trendColour })
+    item.trend && /* @__PURE__ */ jsx41(Sparkline2, { values: item.trend, colour: trendColour })
   ] });
 }
 function Kpis({ items }) {
@@ -6005,20 +6134,20 @@ function changeClass(item) {
   const direction = change > 0 ? "hb-kpi-up" : change < 0 ? "hb-kpi-down" : "hb-kpi-flat";
   return `hb-kpi-change ${direction}${item.invert_tone ? " hb-kpi-invert" : ""}`;
 }
-var SPARK_W = 120;
-var SPARK_H = 28;
+var SPARK_W2 = 120;
+var SPARK_H2 = 28;
 var SPARK_PAD = 2;
-function Sparkline({ values, colour }) {
-  return /* @__PURE__ */ jsx41("svg", { className: "hb-kpi-spark", viewBox: `0 0 ${SPARK_W} ${SPARK_H}`, preserveAspectRatio: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsx41("path", { d: sparkPath(values), style: colour ? { stroke: colour } : void 0 }) });
+function Sparkline2({ values, colour }) {
+  return /* @__PURE__ */ jsx41("svg", { className: "hb-kpi-spark", viewBox: `0 0 ${SPARK_W2} ${SPARK_H2}`, preserveAspectRatio: "none", "aria-hidden": "true", children: /* @__PURE__ */ jsx41("path", { d: sparkPath2(values), style: colour ? { stroke: colour } : void 0 }) });
 }
-function sparkPath(values) {
+function sparkPath2(values) {
   const known = values.filter((v) => v !== null);
   if (!known.length) return "";
   const lo = Math.min(...known);
   const hi = Math.max(...known);
-  const span = SPARK_H - 2 * SPARK_PAD;
-  const y = (v) => hi === lo ? SPARK_H / 2 : SPARK_PAD + (1 - (v - lo) / (hi - lo)) * span;
-  const x = (i) => i / (values.length - 1) * SPARK_W;
+  const span = SPARK_H2 - 2 * SPARK_PAD;
+  const y = (v) => hi === lo ? SPARK_H2 / 2 : SPARK_PAD + (1 - (v - lo) / (hi - lo)) * span;
+  const x = (i) => i / (values.length - 1) * SPARK_W2;
   let d = "";
   let pen = false;
   values.forEach((v, i) => {
@@ -6026,18 +6155,18 @@ function sparkPath(values) {
       pen = false;
       return;
     }
-    d += `${pen ? "L" : "M"}${round(x(i))} ${round(y(v))}`;
+    d += `${pen ? "L" : "M"}${round2(x(i))} ${round2(y(v))}`;
     pen = true;
   });
   return d;
 }
-function round(n) {
+function round2(n) {
   return Math.round(n * 10) / 10;
 }
 
 // src/blocks/kpis/read.ts
-var TREND_FEWEST = 2;
-var TREND_MOST = 60;
+var TREND_FEWEST2 = 2;
+var TREND_MOST2 = 60;
 var MAX_CHIP = 1e15;
 function readKpi(item) {
   let value = num(item.value);
@@ -6051,7 +6180,7 @@ function readKpi(item) {
   if (kpi.unit === void 0) delete kpi.unit;
   if (kpi.change === null) delete kpi.change;
   if (item.invert_tone === true) kpi.invert_tone = true;
-  const trend = readTrend(item.trend);
+  const trend = readTrend2(item.trend);
   if (trend) kpi.trend = trend;
   return kpi;
 }
@@ -6066,11 +6195,11 @@ function changeFrom(previous, value, unit) {
   if (unit === "pt") return moved;
   return before === 0 ? null : moved / Math.abs(before) * 100;
 }
-function readTrend(v) {
+function readTrend2(v) {
   if (!Array.isArray(v)) return void 0;
-  const slots = v.slice(-TREND_MOST).map((x) => num(x));
+  const slots = v.slice(-TREND_MOST2).map((x) => num(x));
   const known = slots.filter((n) => n !== null).length;
-  return known >= TREND_FEWEST ? slots : void 0;
+  return known >= TREND_FEWEST2 ? slots : void 0;
 }
 function readKpis(raw, here) {
   if (!Array.isArray(raw.items)) return here.drop("kpis needs items");
@@ -6709,7 +6838,7 @@ function readLayers(raw, here) {
 
 // src/blocks/list/read.ts
 var MAX_ITEMS2 = 12;
-function readList(raw, here) {
+function readList2(raw, here) {
   const list = firstList([raw.items, raw.rows]);
   if (!list) return here.drop("list needs items");
   const items = [];
@@ -8724,7 +8853,7 @@ var REGISTRY = {
   tracker: { read: readTracker, Component: ({ block }) => /* @__PURE__ */ jsx61(Tracker, { ...block }) },
   prepared: { read: readPrepared, Component: ({ block }) => /* @__PURE__ */ jsx61(Prepared, { ...block }) },
   table: { read: readTable, Component: ({ block }) => /* @__PURE__ */ jsx61(Table, { ...block }) },
-  list: { read: readList, Component: ({ block }) => /* @__PURE__ */ jsx61(List, { ...block }) },
+  list: { read: readList2, Component: ({ block }) => /* @__PURE__ */ jsx61(List, { ...block }) },
   progress: { read: readProgress, Component: ({ block }) => /* @__PURE__ */ jsx61(Progress, { ...block }) },
   streak: { read: readStreak, Component: ({ block }) => /* @__PURE__ */ jsx61(Streak, { ...block }) },
   heatmap: { read: readHeatmap, Component: ({ block }) => /* @__PURE__ */ jsx61(Heatmap, { ...block }) },
@@ -10957,8 +11086,43 @@ var kpis_default = "/* Headline numbers */\n/* Cards keep a readable width (130-
 var cards_default = `/* Cards: a compact wall of project cards. One border, one radius, one padding per card \u2014 no nested panels. A 2-up grid
    on a wide board, a single column when narrow. Colours are tokens only, so light/dark and every theme follow. */
 .hb-cards { display: grid; gap: var(--hb-gap, 10px); }
-.hb-cards-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+/* A board that states columns: 2, and a board that says nothing at all, keep the auto-fit that shipped boards draw. */
+.hb-cards-2,
+.hb-cards-auto { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .hb-cards-1 { grid-template-columns: 1fr; }
+/* Three up needs about 1100px of THE WALL, not of the window: the same board is drawn in a chat column, in the
+   Mission Control pane (~380-700px) and in the webapp, so the wall measures its own frame and collapses to two
+   below ~1100px and to one below ~720px. 1099 (not 1100) because a board stops at a 1100px reading width in chat
+   (tokens.css): that board is exactly the consumer's ask \u2014 three 360px cards, six on a screen \u2014 and must not
+   collapse. The media queries are the fallback for engines without container queries; the container rules come
+   last, so a narrow pane wins over a wide window. */
+.hb-cards-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1099px) { .hb-cards-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .hb-cards-3 { grid-template-columns: minmax(0, 1fr); } }
+.hb-cards-frame { container-type: inline-size; }
+@container (max-width: 1099px) { .hb-cards-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 720px) { .hb-cards-3 { grid-template-columns: minmax(0, 1fr); } }
+
+/* A two-up wall that holds a hero: the hero takes the whole row and the cards beside it sit in exactly two tracks.
+   An auto-fit would put three ordinary cards on a 1000px wall, which is not what "2-up beside a hero" means (the spec
+   asks for the hero full width and the rest 2-up). The wall measures itself, so a chat column, a narrow pane and the
+   webapp all collapse to one track below ~620px \u2014 about the width where two 300px cards stop fitting. */
+.hb-cards-2.hb-cards-hero,
+.hb-cards-auto.hb-cards-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 620px) { .hb-cards-2.hb-cards-hero, .hb-cards-auto.hb-cards-hero { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 620px) { .hb-cards-2.hb-cards-hero, .hb-cards-auto.hb-cards-hero { grid-template-columns: minmax(0, 1fr); } }
+
+/* Shelves: labelled groups of cards inside one block, each group its own wall. */
+.hb-cards-shelves { display: flex; flex-direction: column; gap: 18px; }
+.hb-card-shelf { display: flex; flex-direction: column; gap: 8px; }
+.hb-card-shelf-label {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--hb-muted);
+}
 
 .hb-card {
   display: flex;
@@ -10970,6 +11134,10 @@ var cards_default = `/* Cards: a compact wall of project cards. One border, one 
   border-radius: 14px;
   background: var(--hb-card);
 }
+
+/* A card that asks for the whole row (span 2 on a two-up wall): same anatomy, a slightly larger title. */
+.hb-card-wide { grid-column: 1 / -1; }
+.hb-card-wide .hb-card-title { font-size: 17px; line-height: 22px; }
 
 .hb-card-head { display: flex; align-items: flex-start; gap: 10px; }
 .hb-card-titles { min-width: 0; flex: 1; }
@@ -10994,20 +11162,60 @@ var cards_default = `/* Cards: a compact wall of project cards. One border, one 
   text-transform: capitalize;
 }
 
+/* Up to three tiny tags beside the status chip: muted and unchanging, never the colour of \`needs\`. They truncate
+   instead of wrapping, and the row does not exist at all when a card has none. */
+.hb-card-tags { display: flex; flex: none; gap: 4px; margin: 0; padding: 0; list-style: none; max-width: 45%; }
+.hb-card-tag {
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--hb-line);
+  border-radius: 999px;
+  background: var(--hb-well);
+  color: var(--hb-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hb-card-band { display: flex; align-items: center; gap: 14px; }
 .hb-card-ring { flex: none; }
 .hb-card-ring-label { font-size: 7px; font-weight: 600; fill: var(--hb-ink-2); }
+/* A narrow card's ring is 28px instead of 40px; the 12px it gives up stays in the band as a margin, so the metrics
+   column starts where it always did and nothing jumps between the two sizes. The centre word keeps the same 7px the
+   40px ring draws it at (9 viewBox units of the 40-unit box), and the drawing is allowed to overhang its own 28px
+   box into that reserved margin, so a full word ("smooth", "unknown") is never cut. */
+.hb-card-ring-sm { margin-right: 12px; overflow: visible; }
+.hb-card-ring-sm .hb-card-ring-label { font-size: 9px; }
 
 .hb-card-metrics { flex: 1; min-width: 0; margin: 0; display: flex; flex-direction: column; gap: 3px; }
 .hb-card-metric { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12px; line-height: 16px; }
 .hb-card-metric dt { color: var(--hb-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hb-card-metric dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hb-card-metric dd { margin: 0; display: flex; align-items: center; gap: 6px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hb-card-spark { flex: none; width: 64px; height: 20px; overflow: visible; }
+.hb-card-spark path { fill: none; stroke: var(--hb-accent); stroke-width: 1.5; opacity: 0.75; vector-effect: non-scaling-stroke; }
 
 .hb-card-needs { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 12px; line-height: 16px; }
 .hb-card-dot { flex: none; width: 7px; height: 7px; border-radius: 999px; background: currentColor; }
 
 .hb-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
 .hb-card-fresh { font-size: 10.5px; color: var(--hb-muted); }
+/* A stale card's figures are old: the freshness line dims and a plain word says so (never colour alone). */
+.hb-card-fresh-dim { opacity: 0.65; }
+.hb-card-stale {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--hb-line);
+  border-radius: 999px;
+  color: var(--hb-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+}
+.hb-card-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .hb-card-action {
   flex: none;
   padding: 3px 9px;
@@ -11023,6 +11231,23 @@ var cards_default = `/* Cards: a compact wall of project cards. One border, one 
 }
 .hb-card-action:hover { background: var(--hb-accent-soft); }
 .hb-card-action:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }
+
+/* A card's second action is the quieter one: a plain text link, no border, no fill. */
+.hb-card-secondary {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hb-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.hb-card-secondary:hover { color: var(--hb-accent-ink); }
+.hb-card-secondary:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; border-radius: 4px; }
 
 /* Compact boards retighten the card's own rhythm (the padding already follows the density tokens). */
 .hb-blocks[data-density="compact"] .hb-card { gap: 6px; }

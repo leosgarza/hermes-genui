@@ -22,6 +22,14 @@ def test_a_gauge_needs_one_number_and_one_series():
         "0: a gauge takes one series"]
 
 
+def test_a_gauge_refuses_a_second_reading():
+    """Only data[0] is drawn, so a second reading is refused rather than silently dropped."""
+    assert check_blocks([{"type": "chart", "kind": "gauge", "series": [{"data": [68, 90]}]}]) == [
+        "0.series.0: a gauge needs one number"]
+    assert check_blocks([{"type": "chart", "kind": "gauge", "series": [{"data": []}]}]) == [
+        "0.series.0: a gauge needs one number"]
+
+
 def test_a_gauge_max_is_above_its_min():
     assert check_blocks([{"type": "chart", "kind": "gauge", "series": [{"data": [5]}],
                           "min": 10, "max": 5}]) == ["0: max must be greater than min"]

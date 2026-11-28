@@ -53,6 +53,9 @@ export type ChartSpec = {
   min?: number; max?: number; target?: number;
   /** gauge and bullet: the range ends behind the track, worst to best; drawn as quiet bands. */
   bands?: number[];
+  /** pie, donut: the words in the middle (the drawing's own headline when absent), and the slice to emphasise. */
+  center?: { label: string; value: string };
+  highlight?: number;
 };
 
 // Other names models use for the same kinds, written without spaces, dashes or underscores.

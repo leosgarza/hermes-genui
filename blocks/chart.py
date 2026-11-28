@@ -3,7 +3,7 @@ funnel, pareto, radar, control, bubble, box or treemap."""
 
 import re
 
-from .common import change_chip, fmt_num, is_number, safe_text, short_text
+from .common import change_chip, fmt_num, has_text, is_number, safe_text, short_text
 
 CHART_KINDS = ("line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut",
                "scatter", "waterfall", "histogram", "range", "gauge", "bullet", "funnel", "pareto",
@@ -156,7 +156,8 @@ def check_chart(block: dict, path: str) -> list[tuple[str, str]]:
             return [(path, "a histogram needs a count above zero")]
     if kind in ("pie", "donut", "treemap") and not any(v > 0 for v in numbers):
         return [(path, f"a {kind} needs at least one positive value")]
-    return _check_tone(block, kind, len(series), path) + _check_controls(block, kind, path)
+    problems = _check_centre(block, kind, path) + _check_highlight(block, kind, x, path)
+    return problems + _check_tone(block, kind, len(series), path) + _check_controls(block, kind, path)
 
 
 def _check_controls(block: dict, kind: str, path: str) -> list[tuple[str, str]]:
@@ -280,6 +281,36 @@ def _check_window(series: dict, i: int, count: int, path: str) -> list[tuple[str
     return problems
 
 
+def _check_centre(block: dict, kind: str, path: str) -> list[tuple[str, str]]:
+    """A donut's (or pie's) centre words: {label, value}, both short text. Any other kind ignores them silently.
+
+    {"kind": "donut", "center": {"label": "PLAN", "value": "smooth"}, …} → []
+    {"kind": "donut", "center": {"label": "PLAN"}, …} → [("0.center", "center needs a label and a value")]
+    """
+    if kind not in ("pie", "donut") or "center" not in block:
+        return []
+    centre = block["center"]
+    if not (isinstance(centre, dict) and has_text(centre.get("label")) and has_text(centre.get("value"))):
+        return [(f"{path}.center", "center needs a label and a value")]
+    return []
+
+
+def _check_highlight(block: dict, kind: str, x: list, path: str) -> list[tuple[str, str]]:
+    """A donut's (or pie's) emphasised slice: an index into x. Any other kind ignores it silently.
+
+    {"kind": "donut", "highlight": 0, "x": ["PLAN", "TRACK"], …} → []
+    {"kind": "donut", "highlight": 2, "x": ["PLAN", "TRACK"], …}
+        → [("0.highlight", "highlight must be an index into x")]
+    """
+    if kind not in ("pie", "donut") or "highlight" not in block:
+        return []
+    at = block["highlight"]
+    if not (isinstance(at, int) and not isinstance(at, bool) and 0 <= at < len(x)):
+        return [(f"{path}.highlight", "highlight must be an index into x")]
+    return []
+
+
+
 def _check_tone(block: dict, kind: str, series_count: int, path: str) -> list[tuple[str, str]]:
     """The optional tone: only "change" (one line, green above its first value and orange below), only on a line
     chart with one series.
@@ -318,6 +349,25 @@ def _series_line(series: dict, labels: list) -> str:
             named += f" and {len(missing) - len(shown)} more"
         line += f", {len(missing)} gap{'' if len(missing) == 1 else 's'} ({named})"
     return line
+
+
+def _slices_note(block: dict, x: list) -> str:
+    """The words in a donut's middle and the slice it lights, kept for a reader who cannot see the drawing.
+
+    {"center": {"label": "PLAN", "value": "smooth"}} → " · centre PLAN smooth"
+    {"highlight": 1, "x": ["PLAN", "TRACK"]} → " · highlighted TRACK"
+    """
+    note = ""
+    centre = block.get("center")
+    if isinstance(centre, dict):
+        label = safe_text(centre.get("label"), 40)
+        value = safe_text(centre.get("value"), 40)
+        if label and value:
+            note += f" · centre {label} {value}"
+    highlight = block.get("highlight")
+    if isinstance(highlight, int) and not isinstance(highlight, bool) and 0 <= highlight < len(x):
+        note += f" · highlighted {safe_text(x[highlight], 40)}"
+    return note
 
 
 def _slices(x: list, series: dict, top: int = 4) -> str:
@@ -479,6 +529,25 @@ def _windows_line(x: list, series: dict) -> str:
     return "; ".join(parts)
 
 
+def _centre_words(block: dict, x: list) -> str:
+    """A donut's or pie's centre words and its emphasised slice, for the text fallback: fields the drawing shows and
+    a reader of the text would otherwise never hear. Nothing when the block carries neither.
+
+    {"center": {"label": "PLAN", "value": "smooth"}, "highlight": 1, "x": ["PLAN", "TRACK"]}
+      → " · centre PLAN smooth · highlighted TRACK"
+    """
+    parts: list[str] = []
+    centre = block.get("center")
+    if isinstance(centre, dict):
+        words = [w for w in (safe_text(centre.get("label"), 24), safe_text(centre.get("value"), 24)) if w]
+        if words:
+            parts.append("centre " + " ".join(words))
+    at = block.get("highlight")
+    if isinstance(at, int) and not isinstance(at, bool) and 0 <= at < len(x):
+        parts.append(f"highlighted {safe_text(x[at], MAX_LABEL)}")
+    return "".join(f" · {part}" for part in parts)
+
+
 def text_chart(block: dict) -> str:
     """The title (and unit), then each series first → last, a histogram's bins and counts, a range's windows, a
     scatter's ranges and highest point, a bridge's steps, or a pie's top slices. A written caveat becomes a second
@@ -514,7 +583,9 @@ def text_chart(block: dict) -> str:
         if isinstance(ns, list):
             series = [s for s in ns if isinstance(s, dict)]
     if kind in ("pie", "donut"):
-        body = _slices(x, series[0])
+        body = _slices(x, series[0]) + _slices_note(block, x)
+        if body:
+            body += _centre_words(block, x)
     elif kind == "histogram":
         body = _bins_line(x, series[0])
     elif kind == "range":
@@ -551,18 +622,17 @@ def text_chart(block: dict) -> str:
 
 
 def _check_gauge(block: dict, path: str) -> list[tuple[str, str]]:
-    """A gauge: one series holding one number, optional numeric min/max/target, and max above min.
+    """A gauge: one series holding exactly one number, optional numeric min/max/target, and max above min.
 
     {"series": [{"data": [68]}], "min": 0, "max": 100, "target": 75} → []
     {"series": [{"data": ["x"]}]} → [(".series.0", "a gauge needs one number")]
+    {"series": [{"data": [68, 90]}]} → [(".series.0", "a gauge needs one number")]   # a second reading would be lost
     """
     series = block.get("series")
     if not isinstance(series, list) or len(series) != 1:
         return [(path, "a gauge takes one series")]
     data = series[0].get("data") if isinstance(series[0], dict) else None
-    if not isinstance(data, list) or not data:
-        return [(f"{path}.series.0", "series needs a data list")]
-    if not is_number(data[0]):
+    if not isinstance(data, list) or len(data) != 1 or not is_number(data[0]):
         return [(f"{path}.series.0", "a gauge needs one number")]
     problems: list[tuple[str, str]] = []
     for key in ("min", "max", "target"):

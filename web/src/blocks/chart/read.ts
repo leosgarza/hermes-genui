@@ -97,7 +97,9 @@ function readSpec(d: any): ChartSpec | null {
     x = slices.x;
     series = [{ ...series[0], data: slices.data }];
   }
-  return specOf(d, type, x, series, unit);
+  const spec = specOf(d, type, x, series, unit);
+  if (type === "pie" || type === "donut") readWheel(spec, d, x);
+  return spec;
 }
 
 /**
@@ -221,6 +223,24 @@ function sortByFirstSeries(spec: ChartSpec): void {
 
 /** One series as written → its name, its numbers (anything else a gap), its own unit, and which scale it uses. A
  *  histogram counts, so a negative count is a gap. */
+
+/** A pie's or donut's centre words and its emphasised slice. Both are indices/words about x as the model wrote it,
+ *  so a highlight still points at the right slice after pieSlices dropped the empty ones. Anything else is ignored. */
+function readWheel(spec: ChartSpec, d: any, drawnX: string[]): void {
+  const centre = d.center;
+  if (centre && typeof centre === "object") {
+    const label = typeof centre.label === "string" ? centre.label.trim().slice(0, 24) : "";
+    const value = typeof centre.value === "string" ? centre.value.trim().slice(0, 12)
+      : typeof centre.value === "number" && isFinite(centre.value) ? String(centre.value).slice(0, 12) : "";
+    if (label || value) spec.center = { label, value };
+  }
+  if (!Number.isInteger(d.highlight) || !Array.isArray(d.x)) return;
+  const named = d.x[d.highlight as number];
+  if (typeof named === "undefined") return;
+  const at = drawnX.indexOf(String(named));
+  if (at < 0) return;
+  spec.highlight = at;
+}
 function readSeries(s: any, k: number, type: ChartKind, chartUnit: string | undefined): ChartSeries {
   const name = typeof s.name === "string" ? s.name : undefined;
   const data = s.data.map((v: any) => {
