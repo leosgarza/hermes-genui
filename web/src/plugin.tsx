@@ -7,6 +7,8 @@ import { host, CHAT_EMPTY_AREA, TRANSCRIPT_DIRECTIVE_AREA } from "@hermes/plugin
 import { BlockActions, composerActions, type Rest, type SendOptions } from "./host/actions";
 import { BlockTag } from "./host/BlockTag";
 import { LibraryEntry } from "./host/LibraryChrome";
+import { registerLive } from "./live/register";
+import { openAndFill } from "./live/open";
 import css from "./styles";
 
 const ID = "hermes-genui";
@@ -31,7 +33,8 @@ export default {
     const load = (blockId: string) => ctx.rest(`/blocks/${blockId}`);
     const rest: Rest = (path, init) => ctx.rest(path, init);
     // host.composer is looked up on each tap, not once here, so a composer the app sets up later is still found.
-    // opts rides along: a block that forces its own message (a ticked table selection) must not lose that at this seam.
+    // opts rides along: a block that forces its own message (a follow-up tapped from a board's strip, a ticked
+    // table selection) must not lose that at this seam.
     const send = (text: string, opts?: SendOptions) => composerActions(host?.composer).send(text, opts);
     const fill = (text: string) => composerActions(host?.composer).fill(text);
     ctx.register({
@@ -62,5 +65,10 @@ export default {
         ),
       },
     });
+    // The plugin's pages: Today, an assembled dashboard, and each kept dashboard.
+    // A tap on a page opens a chat first: a page has no message box.
+    // The promise goes to the page, so a block's send can answer with what the fill acknowledged.
+    const open = (text: string) => openAndFill(text, host ?? {});
+    registerLive(ctx, open);
   },
 };

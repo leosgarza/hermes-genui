@@ -5,7 +5,7 @@ title, an optional id line, a status chip, a 4-segment lifecycle ring, up to thr
 freshness, and one action — per card.
 """
 
-from .common import NO_SEND, acts_before_the_model, has_text, safe_text
+from .common import NO_SEND, acts_before_the_model, has_text, md_link, safe_text, safe_url
 
 CARD_MAX = 14
 METRIC_MAX = 3
@@ -132,9 +132,20 @@ def text_cards(block: dict) -> str:
             lines.append(needs)
         action = item.get("action")
         if isinstance(action, dict) and has_text(action.get("label")):
-            lines.append(f"[{safe_text(action.get('label'), 40)}]")
+            lines.append(_action_line(action))
         cards.append("\n".join(lines))
     return "\n\n".join(cards)
+
+
+def _action_line(action: dict) -> str:
+    """A card's action as Markdown: its label, linked when it carries a url the reader would keep.
+
+    {"label": "Browser", "url": "https://x.org/p"} → "[Browser](https://x.org/p)"
+    {"label": "Open chat", "run": "Open…"} → "[Open chat]"
+    """
+    label = safe_text(action.get("label"), 40)
+    url = safe_url(action.get("url"), https_only=True)
+    return md_link(label, url) if url else f"[{label}]"
 
 
 def _head(title: str, status: object) -> str:

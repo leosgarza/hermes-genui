@@ -579,9 +579,14 @@ const rest = (path: string, init?: { method?: string; body?: unknown }) =>
   }).then((r) =>
     r.ok ? r.json() : r.text().then((t) => Promise.reject(new Error(`${path} -> ${r.status} ${t}`))));
 
-// THE REAL PLUGIN, registered the way the app registers it: one ctx, two contributions.
+// THE REAL PLUGIN, registered the way the app registers it: one ctx, the words the host hands it (its
+// timer included — the live pages poll through it).
 const regs: any[] = [];
-plugin.register({ register: (r: any) => { regs.push(r); }, rest });
+plugin.register({ register: (r: any) => { regs.push(r); }, rest,
+  setInterval: (fn: () => void, ms: number) => {
+    const t = setInterval(fn, ms);
+    return () => clearInterval(t);
+  } });
 window.__areas = regs.map((r) => String(r.area));
 const shelf = regs.find((r) => String(r.area) === "chat.empty");
 window.__shelf = Boolean(shelf && typeof shelf.data?.render === "function");
@@ -699,15 +704,16 @@ class TestNewChatShelf:
 
         with chrome_page(shelf_bundle, None, door_url) as p:
             cdp = p.cdp
-            # The REAL plugin registered both halves, and the chat.empty half is render-shaped.
-            assert sorted(cdp.js("window.__areas")) == sorted(["transcript.directives", "chat.empty"])
+            # The REAL plugin registered every half: the tag, the shelf, and the live Today page.
+            assert sorted(cdp.js("window.__areas")) == sorted(["transcript.directives", "chat.empty", "routes"])
             assert cdp.js("window.__shelf") is True
             # A boardless page: no transcript drew, no pin stands — only the host-level entry.
             assert cdp.js("document.querySelector('.hb-tag') === null") is True
             wait_js(cdp, "document.querySelector('.hb-lib-entry') !== null", 15)
             assert cdp.js("document.querySelector('.hb-pin') === null") is True
-            # an unopened shelf costs the door NOTHING — not one request.
-            assert cdp.js("window.__net.length") == 0
+            # an unopened shelf costs the door NOTHING: only the live pages' own poll asks (head, then the list).
+            asked = {u[len(door_url):] for u, _m in cdp.js("window.__net")}
+            assert asked <= {"/dashboard/head", "/pages"}, cdp.js("window.__net")
 
             # Keyboard-first: a real Tab reaches the entry, a trusted Enter opens the shelf.
             reached = False

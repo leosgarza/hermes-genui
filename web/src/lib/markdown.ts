@@ -471,9 +471,11 @@ function textKpis(block: Record<string, unknown>): string {
 }
 
 // chart.py
-const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram"];
+const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "waterfall",
+  "histogram", "range", "gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble", "box", "treemap"];
 const KIND_ALIASES: Record<string, string> = {
   doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar", hist: "histogram",
+  rangebar: "range", floatingbar: "range", dial: "gauge", speedometer: "gauge", bulletgraph: "bullet",
 };
 
 /** chart.chart_kind — the same lenient word the drawing side reads. */
@@ -589,25 +591,263 @@ function scatterLine(series: Record<string, unknown>[], title: string): string {
   return label ? `${line} (${label})` : line;
 }
 
+/** chart._signed — a step with its sign: 3200 → "+3,200"; -1450 → "-1,450"; 0 → "0". */
+function signed(value: number): string {
+  return value > 0 ? `+${fmtNum(value)}` : fmtNum(value);
+}
+
+/** chart._waterfall_line — a bridge's points in order: each step with its sign, each total as its balance, a step
+ *  that cannot be read named as unknown and the closing total then "not stated". */
+function waterfallLine(series: Record<string, unknown>): string {
+  const points = (isList(series.points) ? series.points : []).filter(isDict);
+  let balance = 0;
+  let moved = false;   // whether a step has moved the balance yet
+  let broken = false;
+  const parts: string[] = [];
+  for (const p of points) {
+    const label = safeText(p.label, MAX_LABEL);
+    const total = p.total === true;
+    if (broken) {
+      if (total) parts.push(label ? `${label} not stated` : "closing not stated");
+      continue;
+    }
+    if (total) {
+      const opening = p.value;
+      if (!moved && isNum(opening)) balance = opening;
+      parts.push(`${label} ${fmtNum(balance)}`.trim());
+      continue;
+    }
+    const value = p.value;
+    if (!isNum(value)) {
+      parts.push(label ? `${label}, unknown` : "unknown");
+      broken = true;
+      continue;
+    }
+    balance += value;
+    moved = true;
+    parts.push(`${signed(value)} ${label}`.trim());
+  }
+  return parts.filter(Boolean).join(" → ");
+}
+
+/** chart._windows_line — each x's window, its dot, and where the dot sits when it falls outside. */
+function windowsLine(x: unknown[], series: Record<string, unknown>): string {
+  const lows = isList(series.low) ? series.low : [];
+  const highs = isList(series.high) ? series.high : [];
+  const nows = isList(series.now) ? series.now : [];
+  const parts: string[] = [];
+  x.forEach((label, i) => {
+    const low = i < lows.length ? lows[i] : null;
+    const high = i < highs.length ? highs[i] : null;
+    const now = i < nows.length ? nows[i] : null;
+    const name = safeText(label);
+    if (!isNum(low) || !isNum(high)) {
+      parts.push(`${name} no window`.trim());
+      return;
+    }
+    let part = `${name} ${fmtNum(low)}-${fmtNum(high)}`.trim();
+    if (isNum(now)) {
+      part += `, now ${fmtNum(now)}`;
+      part += now > high ? " (above the band)" : now < low ? " (below the band)" : "";
+    }
+    parts.push(part);
+  });
+  return parts.join("; ");
+}
+
+/** chart._range_points — the points form [{label, low, high, now}] turned into x plus the parallel arrays the rest
+ *  of the chart reads. A series already written as low/high/now arrays is left alone. */
+function rangePoints(block: Record<string, unknown>, x: unknown[], series: Record<string, unknown>[]):
+    [unknown[], Record<string, unknown>[]] {
+  const first = series.length ? series[0] : {};
+  const hasWindows = isList(first.low) || isList(first.high);
+  const points = !hasWindows && isList(first.points) ? first.points
+    : !hasWindows && isList(block.points) ? block.points : null;
+  if (!isList(points)) return [x, series];
+  const labels: unknown[] = [], lows: unknown[] = [], highs: unknown[] = [], nows: unknown[] = [];
+  points.forEach((p, j) => {
+    if (!isDict(p)) return;
+    const label = "label" in p ? p.label : p.x;
+    labels.push(label !== null && label !== undefined ? label : `Point ${j + 1}`);
+    lows.push("low" in p ? p.low : null);
+    highs.push("high" in p ? p.high : null);
+    nows.push("now" in p ? p.now : null);
+  });
+  const wide = x.length ? x : labels;
+  const converted: Record<string, unknown> = { ...first, low: lows, high: highs };
+  if (nows.some((v) => v !== null && v !== undefined)) converted.now = nows;
+  return [wide, [converted, ...series.slice(1)]];
+}
+
+/** chart._gauge_line — the one reading, with its unit and its target when one was given. */
+function gaugeLine(block: Record<string, unknown>, series: Record<string, unknown>): string {
+  const data = isList(series.data) ? series.data : [];
+  const value = data.length ? data[0] : null;
+  if (!isNum(value)) return "";
+  const unit = safeText(block.unit, 20);
+  let reading = fmtNum(value) + (unit === "%" ? "%" : unit ? ` ${unit}` : "");
+  if (isNum(block.target)) reading += ` (target ${fmtNum(block.target)})`;
+  return reading;
+}
+
+/** chart._bullet_line — each row as "label actual/target", or just the actual when no target series was given. */
+function bulletLine(block: Record<string, unknown>, series: Record<string, unknown>[]): string {
+  const x = isList(block.x) ? block.x : [];
+  const actual = series.length && isList(series[0].data) ? series[0].data : [];
+  const targets = series.length > 1 && isList(series[1].data) ? series[1].data : [];
+  const cells: string[] = [];
+  x.forEach((label, i) => {
+    let seg = safeText(label);
+    const v = i < actual.length ? actual[i] : null;
+    const t = i < targets.length ? targets[i] : null;
+    if (isNum(v)) seg += ` ${fmtNum(v)}`;
+    if (isNum(t)) seg += `/${fmtNum(t)}`;
+    if (seg) cells.push(seg);
+  });
+  return cells.join(" · ");
+}
+
+/** chart._steps_list_line — a funnel's or a pareto's stages in order: "Visit 1,200 · Signup 300". */
+function stepsListLine(block: Record<string, unknown>, series: Record<string, unknown>): string {
+  const x = isList(block.x) ? block.x : [];
+  const data = isList(series.data) ? series.data : [];
+  const cells: string[] = [];
+  for (let i = 0; i < Math.min(x.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v)) cells.push(`${safeText(x[i])} ${fmtNum(v)}`);
+  }
+  return cells.join(" · ");
+}
+
+/** chart._radar_line — each series by name with its values: "Now 6 / 4; Goal 9 / 8". */
+function radarLine(series: Record<string, unknown>[]): string {
+  return series.slice(0, 3).map((s) => {
+    const name = safeText(s.name) || "Series";
+    const values = (isList(s.data) ? s.data : []).filter(isNum).map((v) => fmtNum(v)).join(" / ");
+    return `${name} ${values}`;
+  }).join("; ");
+}
+
+/** chart._control_line — a control chart's centre and count, and how many readings sit outside the 3-sigma limits. */
+function controlLine(series: Record<string, unknown>): string {
+  const vals = (isList(series.data) ? series.data : []).filter(isNum);
+  if (!vals.length) return "";
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const sd = Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length);
+  const outside = vals.filter((v) => v > mean + 3 * sd || v < mean - 3 * sd).length;
+  const tail = outside ? `, ${outside} outside the limits` : ", within the limits";
+  return `mean ${fmtNum(mean)}, n ${vals.length}${tail}`;
+}
+
+/** chart._points_line — one bubble series, spread rather than trend: "Samples 3 points, y 10 → 14". */
+function pointsLine(series: Record<string, unknown>): string {
+  const data = (isList(series.data) ? series.data : []).filter(isNum);
+  if (!data.length) return "";
+  const name = safeText(series.name);
+  const head = name ? `${name} ` : "";
+  return `${head}${data.length} points, y ${fmtNum(Math.min(...data))} → ${fmtNum(Math.max(...data))}`;
+}
+
+/** chart._bubble_line — the growing series as points and its y range (the second series is each bubble's size). */
+function bubbleLine(series: Record<string, unknown>[]): string {
+  return series.slice(0, 1).map(pointsLine).filter(Boolean).join("; ");
+}
+
+/** chart._box_line — each group's median, named by its series (then by its x label). */
+function boxLine(block: Record<string, unknown>, series: Record<string, unknown>[]): string {
+  const parts: string[] = [];
+  const xs = isList(block.x) ? block.x : [];
+  series.slice(0, 8).forEach((s, i) => {
+    const vals = (isList(s.data) ? s.data : []).filter(isNum).sort((a, b) => a - b);
+    if (!vals.length) return;
+    const mid = Math.floor(vals.length / 2);
+    const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+    const label = safeText(s.name) || (i < xs.length ? safeText(xs[i]) : "") || "Group";
+    parts.push(`${label} median ${fmtNum(median)}`);
+  });
+  return parts.join(" · ");
+}
+
+/** chart._treemap_line — the parts with an area, largest first, with each one's share: "Rent 30 (100%)". */
+function treemapLine(block: Record<string, unknown>, series: Record<string, unknown>): string {
+  const data = isList(series.data) ? series.data : [];
+  const xs = isList(block.x) ? block.x : [];
+  const pairs: [string, number][] = [];
+  for (let i = 0; i < Math.min(xs.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v) && v > 0) pairs.push([safeText(xs[i]), v]);
+  }
+  const total = pairs.reduce((s, [, v]) => s + v, 0) || 1;
+  pairs.sort((a, b) => b[1] - a[1]);
+  return pairs.slice(0, 6).map(([label, v]) => `${label} ${fmtNum(v)} (${roundHalfEven((v / total) * 100, 0)}%)`)
+    .join(" · ");
+}
+
 function textChart(block: Record<string, unknown>): string {
-  const series = (isList(block.series) ? block.series : []).filter(isDict);
-  if (!series.length) return "";
+  let series = (isList(block.series) ? block.series : []).filter(isDict);
+  let labels = isList(block.x) ? block.x : [];
   const kind = chartKind(block.kind);
-  const labels = isList(block.x) ? block.x : [];
+  if (block.sortDesc === true && (kind === "bar" || kind === "hbar") && series.length) {
+    // chart.text_chart's sortDesc: nulls last, then biggest first, ties in the order written.
+    const values = (isList(series[0].data) ? series[0].data : []).map((v) => (isNum(v) ? v : null));
+    const at = (i: number) => (i < values.length ? values[i] : null);
+    const order = labels.map((_, i) => i).sort((a, b) => {
+      const na = at(a) === null, nb = at(b) === null;
+      if (na !== nb) return na ? 1 : -1;
+      if (!na && at(a) !== at(b)) return (at(b) as number) - (at(a) as number);
+      return a - b;
+    });
+    labels = order.map((i) => labels[i]);
+    series = series.map((s) => {
+      const data = isList(s.data) ? s.data : [];
+      return { ...s, data: order.map((i) => (i < data.length ? data[i] : null)) };
+    });
+  }
+  if ((kind === "scatter" || kind === "waterfall" || kind === "range") && isList(block.points)) {
+    const first = series.length ? series[0] : {};
+    const hasPoints = isList(first.points);
+    const windows = isList(first.low) || isList(first.high);
+    if (!hasPoints && !(kind === "range" && windows)) series = [{ ...first, points: block.points }, ...series.slice(1)];
+  }
+  if (!series.length) return "";
+  const title = safeText(block.title, 80);
+  if (kind === "range") [labels, series] = rangePoints(block, labels, series);
   let body = "";
-  if (kind === "histogram") {
-    body = binsLine(labels, series[0]);
-  } else if (kind === "scatter") {
-    body = scatterLine(series, safeText(block.title, 80));
-  } else if (kind === "pie" || kind === "donut") {
+  if (kind === "pie" || kind === "donut") {
     body = slices(labels, series[0]);
+  } else if (kind === "histogram") {
+    body = binsLine(labels, series[0]);
+  } else if (kind === "range") {
+    body = windowsLine(labels, series[0]);
+  } else if (kind === "scatter") {
+    body = scatterLine(series, title);
+  } else if (kind === "waterfall") {
+    body = waterfallLine(series[0]);
+  } else if (kind === "gauge") {
+    body = gaugeLine(block, series[0]);
+  } else if (kind === "bullet") {
+    body = bulletLine(block, series);
+  } else if (kind === "funnel" || kind === "pareto") {
+    body = stepsListLine(block, series[0]);
+  } else if (kind === "radar") {
+    body = radarLine(series);
+  } else if (kind === "control") {
+    body = controlLine(series[0]);
+  } else if (kind === "bubble") {
+    body = bubbleLine(series);
+  } else if (kind === "box") {
+    body = boxLine(block, series);
+  } else if (kind === "treemap") {
+    body = treemapLine(block, series[0]);
   } else {
     body = series.slice(0, 6).map((s) => seriesLine(s, labels)).filter(Boolean).join("; ");
   }
   if (!body) return "";
   const unit = safeText(block.unit, 20);
-  const title = `**${safeText(block.title) || "Chart"}**` + (unit ? ` (${unit})` : "");
-  return `${title}: ${body}`;
+  const head = `**${title || "Chart"}**` + (unit ? ` (${unit})` : "");
+  const line = `${head}: ${body}`;
+  const caveat = safeText(block.caveat, 120);
+  return caveat ? `${line}\n_${caveat}_` : line;
 }
 
 // images.py — a local path, or a web URL.
@@ -1004,6 +1244,146 @@ function textForm(block: Record<string, unknown>): string {
   return (title ? [`**${title}**`] : []).concat(lines, ["(answer in a message)"]).join("\n");
 }
 
+// cards.py — the block pack's wall of project cards.
+const CARD_MAX = 14;
+
+/** common.has_text: a non-blank string. */
+function hasTextText(v: unknown): boolean {
+  return isStr(v) && v.trim() !== "";
+}
+
+/** cards._unknown_word */
+function unknownWord(v: unknown): boolean {
+  return isStr(v) && v.trim().toLowerCase() === "unknown";
+}
+
+/** cards._has_unknown: a value the card would draw positively reports "unknown". */
+function hasUnknown(item: Record<string, unknown>): boolean {
+  const ring = item.ring;
+  if (isDict(ring) && unknownWord(ring.label)) return true;
+  const metrics = item.metrics;
+  if (isList(metrics)) return metrics.some((m) => isDict(m) && unknownWord(m.value));
+  return false;
+}
+
+/** cards._ring_line */
+function cardRingLine(ring: Record<string, unknown>): string {
+  const stages = isList(ring.stages) ? ring.stages : [];
+  if (!stages.length) return "";
+  const labels = stages.slice(0, 4).map((s) => safeText(s, 24)).join(" · ");
+  const at = ring.at;
+  const shown = isNum(at) && Number.isInteger(at) && at >= 0 && at < stages.length;
+  const now = shown ? ` (now: ${safeText(stages[at], 24)})` : "";
+  const centre = hasTextText(ring.label) ? ` · ${safeText(ring.label, 24)}` : "";
+  return `${labels}${now}${centre}`;
+}
+
+/** cards._needs_line */
+function cardNeedsLine(item: Record<string, unknown>): string {
+  const needs = item.needs;
+  const asked = isDict(needs) && hasTextText(needs.text);
+  let line = asked ? `needs you: ${safeText(needs.text, 120)}` : "";
+  if (!line) line = hasUnknown(item) ? "unknown" : "clear";
+  const freshness = hasTextText(item.freshness) ? safeText(item.freshness, 40) : "";
+  return freshness ? `${line} · ${freshness}` : line;
+}
+
+/** cards._action_line — a card's action: linked when it carries a url the reader keeps, label-only when it runs. */
+function cardActionLine(action: Record<string, unknown>): string {
+  const label = safeText(action.label, 40);
+  const url = safeUrl(action.url, true);
+  return url ? mdLink(label, url) : `[${label}]`;
+}
+
+/** cards.text_cards — one card per paragraph, shelves keeping a heading is a later pack's shape. */
+function textCards(block: Record<string, unknown>): string {
+  const items = isList(block.items) ? block.items : [];
+  const cards: string[] = [];
+  for (const item of items.slice(0, CARD_MAX)) {
+    if (!isDict(item)) continue;
+    const title = safeText(item.title, 80);
+    if (!title) continue;
+    const status = hasTextText(item.status) ? safeText(item.status, 20) : "";
+    const lines = [status ? `**${title}** — ${status}` : `**${title}**`];
+    if (isDict(item.ring)) {
+      const ring = cardRingLine(item.ring);
+      if (ring) lines.push(ring);
+    }
+    if (isList(item.metrics) && item.metrics.length) {
+      const cells = item.metrics.filter((m) => isDict(m) && hasTextText(m.label))
+        .map((m) => `${safeText((m as Record<string, unknown>).label, 40)} ` +
+          `${safeText((m as Record<string, unknown>).value, 40)}`);
+      if (cells.length) lines.push(cells.join(" · "));
+    }
+    const facts: string[] = [];
+    for (const [key, label] of [["owner", "owner"], ["milestone", "milestone"], ["trend", "trend"],
+      ["budget", "budget"], ["arr", "ARR"]] as const) {
+      if (hasTextText(item[key])) facts.push(`${label} ${safeText(item[key], 40)}`);
+    }
+    if (facts.length) lines.push(facts.join(" · "));
+    const needs = cardNeedsLine(item);
+    if (needs) lines.push(needs);
+    if (isDict(item.action) && hasTextText(item.action.label)) lines.push(cardActionLine(item.action));
+    cards.push(lines.join("\n"));
+  }
+  return cards.join("\n\n");
+}
+
+// tasks.py
+const TASK_MAX = 40;
+
+/** tasks.text_tasks — one line per task: status box, title, then owner / due / priority. */
+function textTasks(block: Record<string, unknown>): string {
+  const items = isList(block.items) ? block.items : [];
+  const boxes: Record<string, string> = { done: "[x]", doing: "[~]", blocked: "[!]", todo: "[ ]" };
+  const lines: string[] = [];
+  for (const item of items.slice(0, TASK_MAX)) {
+    if (!isDict(item) || !hasTextText(item.title)) continue;
+    const title = safeText(item.title, 120);
+    const status = hasTextText(item.status) ? safeText(item.status, 10).toLowerCase() : "todo";
+    const meta: string[] = [];
+    for (const key of ["owner", "due"]) if (hasTextText(item[key])) meta.push(safeText(item[key], 40));
+    const priority = safeText(item.priority, 8);
+    if (hasTextText(item.priority)) meta.push(`!${priority}`);
+    const tail = meta.length ? ` — ${meta.join(", ")}` : "";
+    const box = Object.hasOwn(boxes, status) ? boxes[status] : "[ ]";
+    lines.push(`- ${box} ${title}${tail}`);
+  }
+  return lines.join("\n");
+}
+
+// result.py
+const SOURCES_MAX = 6;
+
+/** result.text_result — the title, the body, and the sources as a short list. */
+function textResult(block: Record<string, unknown>): string {
+  const lines: string[] = [];
+  const title = safeText(block.title, 80);
+  if (title) lines.push(`**${title}**`);
+  const body = safeText(block.body, 600);
+  if (body) lines.push(body);
+  const sources = isList(block.sources) ? block.sources : [];
+  for (const source of sources.slice(0, SOURCES_MAX)) {
+    if (isDict(source) && hasTextText(source.label)) lines.push(`- ${safeText(source.label, 80)}`);
+  }
+  return lines.join("\n");
+}
+
+// suggestions.py
+const SUG_MAX = 20;
+
+/** suggestions.text_suggestions — one line per suggestion: its text, then its reason. */
+function textSuggestions(block: Record<string, unknown>): string {
+  const items = isList(block.items) ? block.items : [];
+  const lines: string[] = [];
+  for (const item of items.slice(0, SUG_MAX)) {
+    if (!isDict(item) || !hasTextText(item.text)) continue;
+    const reason = safeText(item.reason, 120);
+    lines.push(`- ${safeText(item.text, 160)}` + (reason ? ` — ${reason}` : ""));
+  }
+  return lines.join("\n");
+}
+
 // text_fallback.RENDERERS — every type but the layout ones. Unknown types give nothing, as over the wire.
 // (steps takes the flow-label map as its second word, like text_steps does over there.)
 const RENDERERS: Record<string, (block: Record<string, unknown>, labels?: Labels) => string> = {
@@ -1013,6 +1393,7 @@ const RENDERERS: Record<string, (block: Record<string, unknown>, labels?: Labels
   stat: textStat, kpis: textKpis, chart: textChart, images: textImages, include: textInclude, flip: textFlip,
   button: textButton, actions: textActions, layers: textLayers, timeline: textTimeline, heatmap: textHeatmap,
   flow: textFlow, calculator: textCalculator, simulate: textSimulate, form: textForm, steps: textSteps,
+  cards: textCards, tasks: textTasks, result: textResult, suggestions: textSuggestions,
 };
 
 const SIMPLE: Record<string, (block: Record<string, unknown>, depth: number, labels: Labels) => string> = {};

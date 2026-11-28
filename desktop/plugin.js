@@ -1367,8 +1367,8 @@ function fmt(v, unit, { full = false } = {}) {
   const short2 = !full && abs >= SHORT_FROM;
   const digits = abs >= 1e3 ? 0 : 2;
   const s = short2 ? formatCompact(abs, rupees || usesLakhCrore() ? "en-IN" : void 0) : rupees ? formatIndian(abs, digits) : formatNumber(abs, { digits });
-  const signed = `${v < 0 ? "-" : ""}${sign}${s}`;
-  return sign || !unit || unit === "pts" || unit.length > MAX_UNIT ? signed : `${signed} ${unit}`;
+  const signed2 = `${v < 0 ? "-" : ""}${sign}${s}`;
+  return sign || !unit || unit === "pts" || unit.length > MAX_UNIT ? signed2 : `${signed2} ${unit}`;
 }
 function fmtSpan(low, high, unit, { full = false } = {}) {
   if (low === null || high === null) {
@@ -2573,9 +2573,9 @@ function HBarChart({ spec }) {
   const closed = useRef4(0);
   const { lo, span, zeroAt } = hbarSpan(spec);
   const single = spec.series.length === 1;
-  const signed = lo < 0;
+  const signed2 = lo < 0;
   const colourOf3 = (k, v) => {
-    if (!single || !signed) return partColour(k);
+    if (!single || !signed2) return partColour(k);
     return v >= 0 ? "var(--hb-good)" : "var(--hb-warn)";
   };
   const unitOf2 = (k) => spec.series[k].unit ?? spec.unit;
@@ -2645,7 +2645,7 @@ function HBarChart({ spec }) {
                 const v = s.data[i] ?? null;
                 const bar = v === null ? null : barOf(v);
                 return /* @__PURE__ */ jsxs9("div", { className: "hb-hbar-track", children: [
-                  signed && /* @__PURE__ */ jsx12("div", { className: "hb-hbar-zero", style: { left: `${zeroAt}%` } }),
+                  signed2 && /* @__PURE__ */ jsx12("div", { className: "hb-hbar-zero", style: { left: `${zeroAt}%` } }),
                   v !== null && bar && /* @__PURE__ */ jsx12("div", { className: "hb-hbar-bar", style: {
                     left: `${bar.left}%`,
                     width: `${bar.width}%`,
@@ -2656,7 +2656,7 @@ function HBarChart({ spec }) {
               }) }),
               /* @__PURE__ */ jsx12("div", { className: "hb-hbar-values", ...rowEvents(i), children: spec.series.map((s, k) => {
                 const v = s.data[i] ?? null;
-                const tone2 = single && signed && v !== null ? v >= 0 ? " hb-hbar-up" : " hb-hbar-down" : "";
+                const tone2 = single && signed2 && v !== null ? v >= 0 ? " hb-hbar-up" : " hb-hbar-down" : "";
                 return /* @__PURE__ */ jsx12("span", { className: `hb-hbar-value${tone2}`, children: v === null ? "\u2013" : fmt(v, unitOf2(k)) }, k);
               }) })
             ] }, i))
@@ -9088,6 +9088,9 @@ function readBlocksNoted(data) {
   if (boardMotion !== void 0) noted.motion = boardMotion;
   return noted;
 }
+function readBlocks(data) {
+  return readBlocksNoted(data).blocks;
+}
 function alignOf(block) {
   return block.align;
 }
@@ -10229,13 +10232,40 @@ function textKpis(block) {
   const items = isList(block.items) ? block.items : [];
   return items.filter(isDict).map(figure).filter(Boolean).join("\n");
 }
-var CHART_KINDS2 = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram"];
+var CHART_KINDS2 = [
+  "line",
+  "bar",
+  "area",
+  "stacked",
+  "hbar",
+  "combo",
+  "pie",
+  "donut",
+  "scatter",
+  "waterfall",
+  "histogram",
+  "range",
+  "gauge",
+  "bullet",
+  "funnel",
+  "pareto",
+  "radar",
+  "control",
+  "bubble",
+  "box",
+  "treemap"
+];
 var KIND_ALIASES2 = {
   doughnut: "donut",
   stackedbar: "stacked",
   horizontalbar: "hbar",
   barh: "hbar",
-  hist: "histogram"
+  hist: "histogram",
+  rangebar: "range",
+  floatingbar: "range",
+  dial: "gauge",
+  speedometer: "gauge",
+  bulletgraph: "bullet"
 };
 function chartKind2(name) {
   if (!isStr(name)) return "line";
@@ -10327,25 +10357,232 @@ function scatterLine(series, title) {
   const label = safeText(top.label, MAX_LABEL2);
   return label ? `${line} (${label})` : line;
 }
+function signed(value) {
+  return value > 0 ? `+${fmtNum(value)}` : fmtNum(value);
+}
+function waterfallLine(series) {
+  const points = (isList(series.points) ? series.points : []).filter(isDict);
+  let balance2 = 0;
+  let moved = false;
+  let broken = false;
+  const parts2 = [];
+  for (const p of points) {
+    const label = safeText(p.label, MAX_LABEL2);
+    const total = p.total === true;
+    if (broken) {
+      if (total) parts2.push(label ? `${label} not stated` : "closing not stated");
+      continue;
+    }
+    if (total) {
+      const opening = p.value;
+      if (!moved && isNum(opening)) balance2 = opening;
+      parts2.push(`${label} ${fmtNum(balance2)}`.trim());
+      continue;
+    }
+    const value = p.value;
+    if (!isNum(value)) {
+      parts2.push(label ? `${label}, unknown` : "unknown");
+      broken = true;
+      continue;
+    }
+    balance2 += value;
+    moved = true;
+    parts2.push(`${signed(value)} ${label}`.trim());
+  }
+  return parts2.filter(Boolean).join(" \u2192 ");
+}
+function windowsLine(x, series) {
+  const lows = isList(series.low) ? series.low : [];
+  const highs = isList(series.high) ? series.high : [];
+  const nows = isList(series.now) ? series.now : [];
+  const parts2 = [];
+  x.forEach((label, i) => {
+    const low = i < lows.length ? lows[i] : null;
+    const high = i < highs.length ? highs[i] : null;
+    const now = i < nows.length ? nows[i] : null;
+    const name = safeText(label);
+    if (!isNum(low) || !isNum(high)) {
+      parts2.push(`${name} no window`.trim());
+      return;
+    }
+    let part = `${name} ${fmtNum(low)}-${fmtNum(high)}`.trim();
+    if (isNum(now)) {
+      part += `, now ${fmtNum(now)}`;
+      part += now > high ? " (above the band)" : now < low ? " (below the band)" : "";
+    }
+    parts2.push(part);
+  });
+  return parts2.join("; ");
+}
+function rangePoints(block, x, series) {
+  const first = series.length ? series[0] : {};
+  const hasWindows = isList(first.low) || isList(first.high);
+  const points = !hasWindows && isList(first.points) ? first.points : !hasWindows && isList(block.points) ? block.points : null;
+  if (!isList(points)) return [x, series];
+  const labels2 = [], lows = [], highs = [], nows = [];
+  points.forEach((p, j) => {
+    if (!isDict(p)) return;
+    const label = "label" in p ? p.label : p.x;
+    labels2.push(label !== null && label !== void 0 ? label : `Point ${j + 1}`);
+    lows.push("low" in p ? p.low : null);
+    highs.push("high" in p ? p.high : null);
+    nows.push("now" in p ? p.now : null);
+  });
+  const wide = x.length ? x : labels2;
+  const converted = { ...first, low: lows, high: highs };
+  if (nows.some((v) => v !== null && v !== void 0)) converted.now = nows;
+  return [wide, [converted, ...series.slice(1)]];
+}
+function gaugeLine(block, series) {
+  const data = isList(series.data) ? series.data : [];
+  const value = data.length ? data[0] : null;
+  if (!isNum(value)) return "";
+  const unit = safeText(block.unit, 20);
+  let reading = fmtNum(value) + (unit === "%" ? "%" : unit ? ` ${unit}` : "");
+  if (isNum(block.target)) reading += ` (target ${fmtNum(block.target)})`;
+  return reading;
+}
+function bulletLine(block, series) {
+  const x = isList(block.x) ? block.x : [];
+  const actual = series.length && isList(series[0].data) ? series[0].data : [];
+  const targets = series.length > 1 && isList(series[1].data) ? series[1].data : [];
+  const cells = [];
+  x.forEach((label, i) => {
+    let seg = safeText(label);
+    const v = i < actual.length ? actual[i] : null;
+    const t = i < targets.length ? targets[i] : null;
+    if (isNum(v)) seg += ` ${fmtNum(v)}`;
+    if (isNum(t)) seg += `/${fmtNum(t)}`;
+    if (seg) cells.push(seg);
+  });
+  return cells.join(" \xB7 ");
+}
+function stepsListLine(block, series) {
+  const x = isList(block.x) ? block.x : [];
+  const data = isList(series.data) ? series.data : [];
+  const cells = [];
+  for (let i = 0; i < Math.min(x.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v)) cells.push(`${safeText(x[i])} ${fmtNum(v)}`);
+  }
+  return cells.join(" \xB7 ");
+}
+function radarLine(series) {
+  return series.slice(0, 3).map((s) => {
+    const name = safeText(s.name) || "Series";
+    const values = (isList(s.data) ? s.data : []).filter(isNum).map((v) => fmtNum(v)).join(" / ");
+    return `${name} ${values}`;
+  }).join("; ");
+}
+function controlLine(series) {
+  const vals = (isList(series.data) ? series.data : []).filter(isNum);
+  if (!vals.length) return "";
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const sd = Math.sqrt(vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length);
+  const outside = vals.filter((v) => v > mean + 3 * sd || v < mean - 3 * sd).length;
+  const tail = outside ? `, ${outside} outside the limits` : ", within the limits";
+  return `mean ${fmtNum(mean)}, n ${vals.length}${tail}`;
+}
+function pointsLine(series) {
+  const data = (isList(series.data) ? series.data : []).filter(isNum);
+  if (!data.length) return "";
+  const name = safeText(series.name);
+  const head = name ? `${name} ` : "";
+  return `${head}${data.length} points, y ${fmtNum(Math.min(...data))} \u2192 ${fmtNum(Math.max(...data))}`;
+}
+function bubbleLine(series) {
+  return series.slice(0, 1).map(pointsLine).filter(Boolean).join("; ");
+}
+function boxLine(block, series) {
+  const parts2 = [];
+  const xs = isList(block.x) ? block.x : [];
+  series.slice(0, 8).forEach((s, i) => {
+    const vals = (isList(s.data) ? s.data : []).filter(isNum).sort((a, b) => a - b);
+    if (!vals.length) return;
+    const mid = Math.floor(vals.length / 2);
+    const median = vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2;
+    const label = safeText(s.name) || (i < xs.length ? safeText(xs[i]) : "") || "Group";
+    parts2.push(`${label} median ${fmtNum(median)}`);
+  });
+  return parts2.join(" \xB7 ");
+}
+function treemapLine(block, series) {
+  const data = isList(series.data) ? series.data : [];
+  const xs = isList(block.x) ? block.x : [];
+  const pairs = [];
+  for (let i = 0; i < Math.min(xs.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v) && v > 0) pairs.push([safeText(xs[i]), v]);
+  }
+  const total = pairs.reduce((s, [, v]) => s + v, 0) || 1;
+  pairs.sort((a, b) => b[1] - a[1]);
+  return pairs.slice(0, 6).map(([label, v]) => `${label} ${fmtNum(v)} (${roundHalfEven(v / total * 100, 0)}%)`).join(" \xB7 ");
+}
 function textChart(block) {
-  const series = (isList(block.series) ? block.series : []).filter(isDict);
-  if (!series.length) return "";
+  let series = (isList(block.series) ? block.series : []).filter(isDict);
+  let labels2 = isList(block.x) ? block.x : [];
   const kind = chartKind2(block.kind);
-  const labels2 = isList(block.x) ? block.x : [];
+  if (block.sortDesc === true && (kind === "bar" || kind === "hbar") && series.length) {
+    const values = (isList(series[0].data) ? series[0].data : []).map((v) => isNum(v) ? v : null);
+    const at2 = (i) => i < values.length ? values[i] : null;
+    const order = labels2.map((_, i) => i).sort((a, b) => {
+      const na = at2(a) === null, nb = at2(b) === null;
+      if (na !== nb) return na ? 1 : -1;
+      if (!na && at2(a) !== at2(b)) return at2(b) - at2(a);
+      return a - b;
+    });
+    labels2 = order.map((i) => labels2[i]);
+    series = series.map((s) => {
+      const data = isList(s.data) ? s.data : [];
+      return { ...s, data: order.map((i) => i < data.length ? data[i] : null) };
+    });
+  }
+  if ((kind === "scatter" || kind === "waterfall" || kind === "range") && isList(block.points)) {
+    const first = series.length ? series[0] : {};
+    const hasPoints = isList(first.points);
+    const windows = isList(first.low) || isList(first.high);
+    if (!hasPoints && !(kind === "range" && windows)) series = [{ ...first, points: block.points }, ...series.slice(1)];
+  }
+  if (!series.length) return "";
+  const title = safeText(block.title, 80);
+  if (kind === "range") [labels2, series] = rangePoints(block, labels2, series);
   let body = "";
-  if (kind === "histogram") {
-    body = binsLine(labels2, series[0]);
-  } else if (kind === "scatter") {
-    body = scatterLine(series, safeText(block.title, 80));
-  } else if (kind === "pie" || kind === "donut") {
+  if (kind === "pie" || kind === "donut") {
     body = slices(labels2, series[0]);
+  } else if (kind === "histogram") {
+    body = binsLine(labels2, series[0]);
+  } else if (kind === "range") {
+    body = windowsLine(labels2, series[0]);
+  } else if (kind === "scatter") {
+    body = scatterLine(series, title);
+  } else if (kind === "waterfall") {
+    body = waterfallLine(series[0]);
+  } else if (kind === "gauge") {
+    body = gaugeLine(block, series[0]);
+  } else if (kind === "bullet") {
+    body = bulletLine(block, series);
+  } else if (kind === "funnel" || kind === "pareto") {
+    body = stepsListLine(block, series[0]);
+  } else if (kind === "radar") {
+    body = radarLine(series);
+  } else if (kind === "control") {
+    body = controlLine(series[0]);
+  } else if (kind === "bubble") {
+    body = bubbleLine(series);
+  } else if (kind === "box") {
+    body = boxLine(block, series);
+  } else if (kind === "treemap") {
+    body = treemapLine(block, series[0]);
   } else {
     body = series.slice(0, 6).map((s) => seriesLine(s, labels2)).filter(Boolean).join("; ");
   }
   if (!body) return "";
   const unit = safeText(block.unit, 20);
-  const title = `**${safeText(block.title) || "Chart"}**` + (unit ? ` (${unit})` : "");
-  return `${title}: ${body}`;
+  const head = `**${title || "Chart"}**` + (unit ? ` (${unit})` : "");
+  const line = `${head}: ${body}`;
+  const caveat = safeText(block.caveat, 120);
+  return caveat ? `${line}
+_${caveat}_` : line;
 }
 var LOCAL_PATH = /^(?:[A-Za-z]:[\\/]|\/|\\\\)/;
 function isLocalPath(v) {
@@ -10640,14 +10877,14 @@ function textSimulate(block) {
   }
   const unit = safeText(block.unit, SIM_UNIT);
   const rows2 = [];
-  for (const when of timesOf2(to, step)) {
+  for (const when2 of timesOf2(to, step)) {
     const withTime = new Map(names);
-    withTime.set(t.name, when);
+    withTime.set(t.name, when2);
     const cells = piles.map((p) => {
       const v = arithmetic(F(p).formula, withTime, true);
       return v === null ? "\u2013" : withUnit(amount(v), unit);
     });
-    rows2.push([fmtNum(when), ...cells]);
+    rows2.push([fmtNum(when2), ...cells]);
   }
   const header = [tableCell(t.unit) || t.name, ...piles.map((p) => tableCell(F(p).name))];
   const title = safeText(block.title, SIM_TITLE);
@@ -10695,6 +10932,121 @@ function textForm(block) {
   const title = safeText(block.title);
   return (title ? [`**${title}**`] : []).concat(lines, ["(answer in a message)"]).join("\n");
 }
+var CARD_MAX = 14;
+function hasTextText(v) {
+  return isStr(v) && v.trim() !== "";
+}
+function unknownWord(v) {
+  return isStr(v) && v.trim().toLowerCase() === "unknown";
+}
+function hasUnknown(item) {
+  const ring = item.ring;
+  if (isDict(ring) && unknownWord(ring.label)) return true;
+  const metrics = item.metrics;
+  if (isList(metrics)) return metrics.some((m) => isDict(m) && unknownWord(m.value));
+  return false;
+}
+function cardRingLine(ring) {
+  const stages = isList(ring.stages) ? ring.stages : [];
+  if (!stages.length) return "";
+  const labels2 = stages.slice(0, 4).map((s) => safeText(s, 24)).join(" \xB7 ");
+  const at2 = ring.at;
+  const shown = isNum(at2) && Number.isInteger(at2) && at2 >= 0 && at2 < stages.length;
+  const now = shown ? ` (now: ${safeText(stages[at2], 24)})` : "";
+  const centre = hasTextText(ring.label) ? ` \xB7 ${safeText(ring.label, 24)}` : "";
+  return `${labels2}${now}${centre}`;
+}
+function cardNeedsLine(item) {
+  const needs = item.needs;
+  const asked = isDict(needs) && hasTextText(needs.text);
+  let line = asked ? `needs you: ${safeText(needs.text, 120)}` : "";
+  if (!line) line = hasUnknown(item) ? "unknown" : "clear";
+  const freshness = hasTextText(item.freshness) ? safeText(item.freshness, 40) : "";
+  return freshness ? `${line} \xB7 ${freshness}` : line;
+}
+function cardActionLine(action) {
+  const label = safeText(action.label, 40);
+  const url = safeUrl3(action.url, true);
+  return url ? mdLink(label, url) : `[${label}]`;
+}
+function textCards(block) {
+  const items = isList(block.items) ? block.items : [];
+  const cards = [];
+  for (const item of items.slice(0, CARD_MAX)) {
+    if (!isDict(item)) continue;
+    const title = safeText(item.title, 80);
+    if (!title) continue;
+    const status3 = hasTextText(item.status) ? safeText(item.status, 20) : "";
+    const lines = [status3 ? `**${title}** \u2014 ${status3}` : `**${title}**`];
+    if (isDict(item.ring)) {
+      const ring = cardRingLine(item.ring);
+      if (ring) lines.push(ring);
+    }
+    if (isList(item.metrics) && item.metrics.length) {
+      const cells = item.metrics.filter((m) => isDict(m) && hasTextText(m.label)).map((m) => `${safeText(m.label, 40)} ${safeText(m.value, 40)}`);
+      if (cells.length) lines.push(cells.join(" \xB7 "));
+    }
+    const facts = [];
+    for (const [key, label] of [
+      ["owner", "owner"],
+      ["milestone", "milestone"],
+      ["trend", "trend"],
+      ["budget", "budget"],
+      ["arr", "ARR"]
+    ]) {
+      if (hasTextText(item[key])) facts.push(`${label} ${safeText(item[key], 40)}`);
+    }
+    if (facts.length) lines.push(facts.join(" \xB7 "));
+    const needs = cardNeedsLine(item);
+    if (needs) lines.push(needs);
+    if (isDict(item.action) && hasTextText(item.action.label)) lines.push(cardActionLine(item.action));
+    cards.push(lines.join("\n"));
+  }
+  return cards.join("\n\n");
+}
+var TASK_MAX = 40;
+function textTasks(block) {
+  const items = isList(block.items) ? block.items : [];
+  const boxes = { done: "[x]", doing: "[~]", blocked: "[!]", todo: "[ ]" };
+  const lines = [];
+  for (const item of items.slice(0, TASK_MAX)) {
+    if (!isDict(item) || !hasTextText(item.title)) continue;
+    const title = safeText(item.title, 120);
+    const status3 = hasTextText(item.status) ? safeText(item.status, 10).toLowerCase() : "todo";
+    const meta = [];
+    for (const key of ["owner", "due"]) if (hasTextText(item[key])) meta.push(safeText(item[key], 40));
+    const priority2 = safeText(item.priority, 8);
+    if (hasTextText(item.priority)) meta.push(`!${priority2}`);
+    const tail = meta.length ? ` \u2014 ${meta.join(", ")}` : "";
+    const box = Object.hasOwn(boxes, status3) ? boxes[status3] : "[ ]";
+    lines.push(`- ${box} ${title}${tail}`);
+  }
+  return lines.join("\n");
+}
+var SOURCES_MAX = 6;
+function textResult(block) {
+  const lines = [];
+  const title = safeText(block.title, 80);
+  if (title) lines.push(`**${title}**`);
+  const body = safeText(block.body, 600);
+  if (body) lines.push(body);
+  const sources = isList(block.sources) ? block.sources : [];
+  for (const source of sources.slice(0, SOURCES_MAX)) {
+    if (isDict(source) && hasTextText(source.label)) lines.push(`- ${safeText(source.label, 80)}`);
+  }
+  return lines.join("\n");
+}
+var SUG_MAX = 20;
+function textSuggestions(block) {
+  const items = isList(block.items) ? block.items : [];
+  const lines = [];
+  for (const item of items.slice(0, SUG_MAX)) {
+    if (!isDict(item) || !hasTextText(item.text)) continue;
+    const reason = safeText(item.reason, 120);
+    lines.push(`- ${safeText(item.text, 160)}` + (reason ? ` \u2014 ${reason}` : ""));
+  }
+  return lines.join("\n");
+}
 var RENDERERS = {
   heading: textHeading,
   text: textText,
@@ -10726,7 +11078,11 @@ var RENDERERS = {
   calculator: textCalculator,
   simulate: textSimulate,
   form: textForm,
-  steps: textSteps
+  steps: textSteps,
+  cards: textCards,
+  tasks: textTasks,
+  result: textResult,
+  suggestions: textSuggestions
 };
 var SIMPLE = {};
 for (const [kind, fn] of Object.entries(RENDERERS)) {
@@ -11749,6 +12105,295 @@ function IconClose2() {
       children: /* @__PURE__ */ jsx67("path", { d: "M6 6l12 12M18 6L6 18" })
     }
   );
+}
+
+// src/live/DashboardView.tsx
+import { useCallback as useCallback3, useEffect as useEffect14, useRef as useRef22, useState as useState31 } from "react";
+
+// src/live/RefreshBar.tsx
+import { jsx as jsx68, jsxs as jsxs64 } from "react/jsx-runtime";
+function when(iso, now = /* @__PURE__ */ new Date()) {
+  const at2 = new Date(iso);
+  const time = at2.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  if (at2.toDateString() === now.toDateString()) return time;
+  return `${at2.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${time}`;
+}
+function RefreshBar({ label, at: at2, refreshing, error, schedule, onRefresh }) {
+  return /* @__PURE__ */ jsxs64("div", { className: "hb-refresh", role: "status", children: [
+    /* @__PURE__ */ jsx68("span", { className: "hb-refresh-label", children: label }),
+    /* @__PURE__ */ jsx68("span", { className: "hb-refresh-when", children: at2 ? `updated ${when(at2)}` : "not filled yet" }),
+    schedule && /* @__PURE__ */ jsxs64("span", { className: "hb-refresh-when", children: [
+      "\xB7 refreshes ",
+      schedule
+    ] }),
+    error && /* @__PURE__ */ jsx68("span", { className: "hb-refresh-error", children: error }),
+    /* @__PURE__ */ jsxs64(
+      "button",
+      {
+        type: "button",
+        className: "hb-refresh-button",
+        disabled: refreshing,
+        onClick: onRefresh,
+        "aria-label": refreshing ? "Refreshing" : `Refresh ${label}`,
+        children: [
+          /* @__PURE__ */ jsx68("span", { "aria-hidden": "true", children: "\u21BB" }),
+          " ",
+          refreshing ? "Refreshing\u2026" : "Refresh"
+        ]
+      }
+    )
+  ] });
+}
+
+// src/live/DashboardView.tsx
+import { jsx as jsx69, jsxs as jsxs65 } from "react/jsx-runtime";
+function snapshotOf(b) {
+  if (b.snapshots) return b.snapshots;
+  if (b.at !== void 0 || b.refreshing !== void 0) {
+    return { at: b.at ?? null, refreshing: Boolean(b.refreshing), error: b.error ?? null, schedule: b.schedule ?? null };
+  }
+  return null;
+}
+var EMPTY = [{ type: "callout", tone: "info", text: "No dashboard yet. Ask Hermes: \u201CCreate my personal dashboard\u201D, or \u201Cput my bills and NVDA on my Today page\u201D." }];
+function checklistsByPath(node, found = {}) {
+  if (Array.isArray(node)) node.forEach((n) => checklistsByPath(n, found));
+  else if (node && typeof node === "object") {
+    const block = node;
+    if (block.type === "checklist" && typeof block.path === "string" && Array.isArray(block.items)) {
+      found[block.path] = block.items.map((i) => i.id);
+    }
+    Object.values(node).forEach((v) => {
+      if (v && typeof v === "object") checklistsByPath(v, found);
+    });
+  }
+  return found;
+}
+function signature(ids) {
+  const text = JSON.stringify(ids);
+  let h = 0;
+  for (let i = 0; i < text.length; i += 1) h = h * 31 + text.charCodeAt(i) | 0;
+  return (h >>> 0).toString(36);
+}
+function DashboardView({ load, fill, saveTicks, post, refreshNow = 0, refresh, refreshLabel = "Snapshot" }) {
+  const [board, setBoard] = useState31(null);
+  const [missing, setMissing] = useState31(false);
+  const live = useRef22(false);
+  const lastTicks = useRef22({});
+  const reload = useCallback3(async () => {
+    try {
+      const next = await load();
+      if (!next) return;
+      setMissing(false);
+      const snapshot = snapshotOf(next);
+      live.current = Boolean(next.live) || Boolean(snapshot?.refreshing);
+      setBoard({
+        title: next.title,
+        greeting: next.greeting ?? null,
+        blocks: readBlocks(next.title ? next.blocks : EMPTY),
+        // The host's OWN freshness facts — this view is a kept dashboard that refreshes itself (live from the
+        // spec, a job running, or a schedule); no board word and no model judgment feeds this. The badge wears
+        // it; the poll timer still uses the narrower `live.current` (a scheduled page keeps its calm 30 s beat).
+        live: live.current || Boolean(snapshot?.schedule),
+        at: /* @__PURE__ */ new Date(),
+        snapshot
+      });
+    } catch {
+      setMissing(true);
+    }
+  }, [load]);
+  useEffect14(() => {
+    if (refreshNow) void reload();
+  }, [refreshNow, reload]);
+  useEffect14(() => {
+    let stop = false;
+    let timer;
+    const tick = async () => {
+      if (!(typeof document !== "undefined" && document.hidden)) await reload();
+      if (!stop) timer = setTimeout(tick, live.current ? 5e3 : 3e4);
+    };
+    void tick();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [reload]);
+  const send = async (text) => {
+    try {
+      return await fill(text) === false ? "failed" : "drafted";
+    } catch {
+      return "failed";
+    }
+  };
+  if (!board) {
+    return /* @__PURE__ */ jsx69("div", { className: "hb-blocks hb-dash", children: /* @__PURE__ */ jsx69("p", { className: "hb-dash-sub", children: missing ? "This page isn't in this profile. Switch back to the profile it was made in, or ask Hermes to make it here." : "Loading\u2026" }) });
+  }
+  const ids = checklistsByPath(board.blocks);
+  const sig = signature(ids);
+  const rest = async (path, init) => {
+    if (init?.method === "POST" && post && path.startsWith("/assistant/items/")) {
+      try {
+        return await post(path, init);
+      } finally {
+        void reload();
+      }
+    }
+    if (init?.method !== "PUT") return {};
+    const state = init.body?.state ?? {};
+    const ticks = {};
+    for (const [where, ticked] of Object.entries(state)) {
+      const now = Array.isArray(ticked) ? ticked : [];
+      const before = new Set(lastTicks.current[`${sig}:${where}`] ?? []);
+      const after = new Set(now);
+      (ids[where] ?? []).forEach((id, n) => {
+        if (id && before.has(n) !== after.has(n)) ticks[id] = after.has(n);
+      });
+      lastTicks.current[`${sig}:${where}`] = now;
+    }
+    if (Object.keys(ticks).length) await saveTicks(ticks);
+    return { ok: true };
+  };
+  return /* @__PURE__ */ jsxs65("div", { className: "hb-blocks hb-dash", children: [
+    board.blocks[0]?.type !== "briefing" && /* @__PURE__ */ jsxs65("header", { className: "hb-dash-head", children: [
+      /* @__PURE__ */ jsx69("div", { className: "hb-dash-date", children: board.at.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) }),
+      /* @__PURE__ */ jsx69("h1", { children: board.greeting ?? board.title ?? "Today" })
+    ] }),
+    refresh && board.snapshot && /* @__PURE__ */ jsx69(RefreshBar, { label: refreshLabel, ...board.snapshot, onRefresh: async () => {
+      setBoard((b) => b ? { ...b, snapshot: { ...b.snapshot, refreshing: true, error: null } } : b);
+      try {
+        await refresh();
+      } finally {
+        void reload();
+      }
+    } }),
+    /* @__PURE__ */ jsx69(BlockActions.Provider, { value: { send, fill, rest, blockId: `dashboard-${sig}` }, children: /* @__PURE__ */ jsx69(Blocks, { blocks: board.blocks, live: board.live }, sig) })
+  ] });
+}
+
+// src/live/pages.ts
+var BOARD_PATH = "/genui-board";
+function pageRoutes(register, view) {
+  const shown = /* @__PURE__ */ new Map();
+  return (list) => {
+    const wanted = new Map(list.filter((p) => p.kind === "dashboard" && /^[a-z0-9-]{1,40}$/.test(p.slug)).map((p) => [p.slug, p.title]));
+    for (const [slug2, entry2] of shown) {
+      if (wanted.get(slug2) !== entry2.title) {
+        entry2.off.forEach((off) => off());
+        shown.delete(slug2);
+      }
+    }
+    for (const [slug2, title] of wanted) {
+      if (shown.has(slug2)) continue;
+      const path = `${BOARD_PATH}/${slug2}`;
+      shown.set(slug2, { title, off: [
+        register({ id: `hermes-genui-page-${slug2}`, area: "routes", title, data: { path }, render: () => view(slug2) }),
+        register({
+          id: `hermes-genui-page-${slug2}-nav`,
+          area: "sidebar.nav",
+          data: { codicon: "dashboard", label: title, path }
+        })
+      ] });
+    }
+  };
+}
+
+// src/live/register.tsx
+import { jsx as jsx70 } from "react/jsx-runtime";
+var POLL_MS = 5e3;
+var TODAY_PATH = "/genui-today";
+function registerLive(ctx, fill) {
+  let hasDashboard = false;
+  let nav = null;
+  ctx.register({
+    id: "hermes-genui-today",
+    area: "routes",
+    title: "Today",
+    data: { path: TODAY_PATH },
+    render: () => /* @__PURE__ */ jsx70(
+      DashboardView,
+      {
+        fill,
+        load: () => ctx.rest("/dashboard"),
+        post: (path, init) => ctx.rest(path, init),
+        saveTicks: async (ticks) => {
+          await ctx.rest("/dashboard/state", { method: "PUT", body: { ticks } });
+        },
+        refresh: async () => {
+          await ctx.rest("/pages/today/refresh", { method: "POST" });
+        },
+        refreshLabel: "Work sections"
+      }
+    )
+  });
+  const sync = () => {
+    if (hasDashboard && !nav) {
+      nav = ctx.register({
+        id: "hermes-genui-today-nav",
+        area: "sidebar.nav",
+        data: { codicon: "pulse", label: "Today", path: TODAY_PATH }
+      });
+    } else if (!hasDashboard && nav) {
+      nav();
+      nav = null;
+    }
+  };
+  const checkHead = async () => {
+    try {
+      const head = await ctx.rest("/dashboard/head");
+      hasDashboard = Boolean(head?.title);
+      sync();
+    } catch {
+      hasDashboard = false;
+      sync();
+    }
+  };
+  const syncPages = pageRoutes(ctx.register, (slug2) => /* @__PURE__ */ jsx70(
+    DashboardView,
+    {
+      fill,
+      load: () => ctx.rest(`/pages/${slug2}`),
+      saveTicks: async () => {
+      },
+      refresh: async () => {
+        await ctx.rest(`/pages/${slug2}/refresh`, { method: "POST" });
+      }
+    }
+  ));
+  const checkPages = async () => {
+    try {
+      const listed2 = await ctx.rest("/pages");
+      if (Array.isArray(listed2?.pages)) syncPages(listed2.pages);
+    } catch {
+      syncPages([]);
+    }
+  };
+  const poll = () => Promise.all([checkHead(), checkPages()]);
+  void poll();
+  ctx.setInterval(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
+    void poll();
+  }, POLL_MS);
+}
+
+// src/live/open.ts
+var sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function tryInsert(host2, text) {
+  try {
+    return Boolean(await host2.composer?.insertText(null, text, { mode: "block" }));
+  } catch {
+    return false;
+  }
+}
+async function openAndFill(text, host2, { waitMs = 2e3, stepMs = 100 } = {}) {
+  let landed = await tryInsert(host2, text);
+  if (!landed && host2.navigate) {
+    host2.navigate("/");
+    for (let waited = 0; !landed && waited < waitMs; waited += stepMs) {
+      await sleep(stepMs);
+      landed = await tryInsert(host2, text);
+    }
+  }
+  if (landed) host2.composer?.focus(null);
+  return landed;
 }
 
 // src/styles/tokens.css
@@ -12925,7 +13570,7 @@ var STYLE_PARTS = [
 var styles_default = STYLE_PARTS.join("\n");
 
 // src/plugin.tsx
-import { jsx as jsx68 } from "react/jsx-runtime";
+import { jsx as jsx71 } from "react/jsx-runtime";
 var ID4 = "hermes-genui";
 var STYLE_ID = "hermes-genui-css";
 function injectStyles() {
@@ -12951,16 +13596,18 @@ var plugin_default = {
       area: TRANSCRIPT_DIRECTIVE_AREA,
       data: {
         name: "blocks",
-        render: ({ attrs, sessionId, streaming }) => /* @__PURE__ */ jsx68(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id, sessionScope: sessionId }, children: /* @__PURE__ */ jsx68(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
+        render: ({ attrs, sessionId, streaming }) => /* @__PURE__ */ jsx71(BlockActions.Provider, { value: { send, fill, rest, blockId: attrs?.id, sessionScope: sessionId }, children: /* @__PURE__ */ jsx71(BlockTag, { id: attrs?.id, streaming: Boolean(streaming), load }) })
       }
     });
     ctx.register({
       id: "hermes-genui-shelf",
       area: CHAT_EMPTY_AREA,
       data: {
-        render: () => /* @__PURE__ */ jsx68(BlockActions.Provider, { value: { send, fill, rest }, children: /* @__PURE__ */ jsx68(LibraryEntry, {}) })
+        render: () => /* @__PURE__ */ jsx71(BlockActions.Provider, { value: { send, fill, rest }, children: /* @__PURE__ */ jsx71(LibraryEntry, {}) })
       }
     });
+    const open = (text) => openAndFill(text, host ?? {});
+    registerLive(ctx, open);
   }
 };
 export {

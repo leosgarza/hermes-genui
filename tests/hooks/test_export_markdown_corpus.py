@@ -115,6 +115,87 @@ def _cases() -> list:
         ("chart bar hbar words", [{
             "type": "chart", "kind": "hbar", "title": "Costs", "x": ["Stay", "Flights", "Local"],
             "series": [{"name": "Cost", "data": [42000, 31500, -28000]}]}]),
+        ("chart gauge bullet", [
+            {"type": "chart", "kind": "gauge", "title": "Coverage", "unit": "%",
+             "series": [{"data": [68]}], "min": 0, "max": 100, "target": 75},
+            {"type": "chart", "kind": "speedometer", "title": "Load", "series": [{"data": [42]}]},
+            {"type": "chart", "kind": "bullet", "title": "Targets", "x": ["Revenue", "Churn", "NPS"],
+             "series": [{"data": [80, 12, 61]}, {"data": [100, 10, 70]}]},
+        ]),
+        ("chart funnel pareto", [
+            {"type": "chart", "kind": "funnel", "title": "Signup", "x": ["Visit", "Signup", "Paid"],
+             "series": [{"data": [1200, 300, 90]}]},
+            {"type": "chart", "kind": "pareto", "title": "Defects", "x": ["A", "B", "C"],
+             "series": [{"data": [50, 30, 20]}]},
+        ]),
+        ("chart waterfall", [{
+            "type": "chart", "kind": "waterfall", "title": "Cash flow", "unit": "€",
+            "series": [{"points": [
+                {"label": "Opening", "value": 2140, "total": True},
+                {"label": "Salary", "value": 3200},
+                {"label": "Rent", "value": -1450},
+                {"label": "Card fees"},
+                {"label": "Closing", "total": True},
+            ]}]}]),
+        ("chart range windows", [{
+            "type": "chart", "kind": "range", "title": "Temperature",
+            "x": ["Mon", "Tue", "Wed", "Thu"],
+            "series": [{"low": [18, 19, 20, None], "high": [34, 36, 38, None], "now": [26, 40, 30, 22]}]}]),
+        ("chart radar control", [
+            {"type": "chart", "kind": "radar", "title": "Skills", "x": ["Speed", "Depth", "Reach"],
+             "series": [{"name": "Now", "data": [6, 4, 7]}, {"name": "Goal", "data": [9, 8, 8]}]},
+            {"type": "chart", "kind": "control", "title": "Latency", "series": [{"data": [10, 12, 11, 10, 30]}]},
+        ]),
+        ("chart bubble box treemap", [
+            {"type": "chart", "kind": "bubble", "title": "Samples",
+             "series": [{"name": "Samples", "data": [10, 14, 12]}, {"data": [3, 5, 4]}]},
+            {"type": "chart", "kind": "box", "title": "Groups",
+             "series": [{"name": "Alpha", "data": [1, 2, 3, 4]}, {"name": "Beta", "data": [2, 4]}]},
+            {"type": "chart", "kind": "treemap", "title": "Spend", "x": ["Rent", "Food", "Fun"],
+             "series": [{"data": [30, 12, 6]}]},
+        ]),
+        ("chart caveat and sort", [{
+            "type": "chart", "kind": "bar", "title": "Spend", "sortDesc": True,
+            "x": ["Stay", "Flights"], "series": [{"name": "Cost", "data": [42000, 31500]}],
+            "caveat": "Q3 onward is a projection."}]),
+        ("chart points at chart level", [
+            {"type": "chart", "kind": "waterfall", "title": "Bridge", "points": [
+                {"label": "Open", "value": 10, "total": True},
+                {"label": "Add", "value": 5},
+                {"label": "Close", "total": True}]},
+            {"type": "chart", "kind": "scatter", "title": "Price against mileage", "points": [
+                {"x": 9, "y": 24.6, "label": "Fortuner"}, {"x": 62, "y": 1.2}]},
+            {"type": "chart", "kind": "range", "title": "Band", "points": [
+                {"label": "Mon", "low": 18, "high": 34, "now": 26},
+                {"label": "Tue", "low": 19, "high": 36}]},
+        ]),
+        ("chart sort with a gap", [{
+            "type": "chart", "kind": "bar", "title": "Spend", "sortDesc": True,
+            "x": ["A", "B", "C"], "series": [{"name": "Cost", "data": [10, None, 30]}]}]),
+        ("cards", [{"type": "cards", "items": [
+            {"title": "Mission Control", "status": "active",
+             "ring": {"stages": ["Plan", "Build", "Test", "Ship"], "at": 1, "label": "PLAN"},
+             "metrics": [{"label": "velocity", "value": "0.75/wk"}, {"label": "open", "value": 12}],
+             "owner": "Leo", "milestone": "M3", "trend": "up", "budget": "₹2Cr", "arr": "₹40L",
+             "needs": {"text": "a go/no-go on the slip"}, "freshness": "2h ago"},
+            {"title": "Dory", "ring": {"stages": ["Plan", "Build", "Test", "Ship"]},
+             "metrics": [{"label": "close", "value": "unknown"}],
+             "action": {"label": "Browser", "url": "https://x.org/p"}},
+            {"title": "Quiet", "action": {"label": "Open chat", "run": "Open the chat"}},
+        ]}]),
+        ("tasks", [{"type": "tasks", "items": [
+            {"title": "Fix roof", "owner": "Leo", "due": "Fri", "status": "doing", "priority": "high"},
+            {"title": "Pay tax", "status": "done"},
+            {"title": "Chase invoice", "status": "blocked", "priority": "med", "owner": "Sam"},
+            {"title": "No status"},
+        ]}]),
+        ("result", [{"type": "result", "title": "Draft reply",
+                     "body": "Hi Sam,\nhere is the plan.",
+                     "sources": [{"label": "IRS 2026"}, {"label": "Bank export"}]}]),
+        ("suggestions", [{"type": "suggestions", "items": [
+            {"text": "Move the deadline", "reason": "two plans slipped"},
+            {"text": "Close the ticket"},
+        ]}]),
         ("images strip", [{"type": "images", "title": "Picks", "images": [
             {"url": "https://a.org/1.jpg", "caption": "One", "source": "Wikimedia"},
             {"url": "/Users/me/gen.png", "caption": "Made"},

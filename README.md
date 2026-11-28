@@ -396,17 +396,11 @@ flowchart LR
 | The assistant's checks | Your **profile's model**: each check sends it the new mail, read through your own mail server. A cloud model means your mail goes to that provider. |
 | Refreshing a kept dashboard | Your **profile's model**: it gets the results of the recorded tool calls. |
 
-<<<<<<< HEAD
-**What stays local:**
-- Boards are saved as JSON in your profile, under `plugin-data/hermes-genui/`, with checklist ticks next to them.
-- A short list (the last 500) of image references tools returned — photo URLs and the paths of images
-  `image_generate` saved — is kept as `photo-urls.txt` beside them, so `show_blocks` can refuse pictures the model
-  made up.
-=======
 **What stays local**, in your profile under `plugin-data/hermes-genui/`:
 - **Boards** are saved as JSON, with checklist ticks next to them.
-- **Photo URLs** (`photo-urls.txt`): the URLs `find_photos` returned, plus https image URLs returned by Hermes's own
-  `image_generate`. Local file paths are never recorded. These are the only images a block may draw.
+- **Photo URLs** (`photo-urls.txt`): the last 500 image references tools returned — the URLs `find_photos`
+  returned, plus https image URLs returned by Hermes's own `image_generate` and the local paths it saved. These are
+  the only images a block may draw.
 - **The stand-in photo tool** is off by default. Switching `photo_test_tool` on registers `standin_photos`, which
   returns a fixed https link, a local path or a dead link so the photo path can be tried without an image key.
 - **The assistant's memory** (`assistant/`): its settings, the items it tracks (title, dates, amount, the sender,
@@ -419,7 +413,6 @@ flowchart LR
   `scripts/` folder; it's removed when you stop the assistant.
 - **In the browser:** which of Needs you or Handled you last looked at.
 - System stats and your scheduled-task list are read on the machine running Hermes and never sent anywhere.
->>>>>>> upstream/main
 - Desktop lists sessions from every profile, so a board that isn't in the active profile is looked up in your other
   profiles' folders on the same machine. Any profile can then load another profile's board by its id.
 - There's no telemetry and no account.
@@ -465,15 +458,10 @@ dashboard's refresh schedule, the model asks you before putting any of them back
   - DNS is pinned against rebinding.
   - Each redirect is checked again, up to 3.
   - Size and time limits apply.
-<<<<<<< HEAD
-- **Buttons can't send** slash commands, shell lines or `@file` references.
 - **A generated image drawn from disk is one a Hermes tool made.** `show_blocks` only accepts a local path its
-  provenance list saw a tool return, and Desktop reads that path through the app's own file reader — which also
-  refuses sensitive files and files over its size cap. The plugin never reads or fetches the file itself, and a photo
-  whose read fails simply hides.
-=======
+  provenance list saw a tool return, and Desktop reads that path through the app's own file reader. The plugin never
+  reads or fetches the file itself; a path the host refuses or cannot read simply hides the photo.
 - **A kept dashboard repeats read-only calls only**, on the servers it was built from.
->>>>>>> upstream/main
 - **Calculator formulas** are read by a small parser with no `eval` and with operation budgets.
 - **Board size, depth, text length and counts are all capped.**
 

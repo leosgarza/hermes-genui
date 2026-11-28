@@ -65,10 +65,10 @@ from test_chart_scatter_cluster_chrome import (  # noqa: E402
 from test_layout_alignment import CHROME  # noqa: E402
 
 WINDOW_W, WINDOW_H = 1100, 820
-BUNDLE_SHA256 = "3883e550b7bc3871a081a7c50d0ef420f277dd5f76653e6565b8f4b9fb6df18d"  # #9 round-7 rebuild —
-# edit-time identity filing (blockState door "identity" + forgetBlock that destroys nothing) changed the
-# host bundle; the mirror loads THE frozen bundle of this tree (round-6's 6a2efc63… predates the unification;
-# round-5's 0e37f819… predates the headless-update walk; #8's 22cec44c… predates the adaptive renderer)
+BUNDLE_SHA256 = "7f78eedd0f92a26406da70c78be19cfa55c5cfc3b4107b9852ee8242ecbb6795"  # CodeRabbit round rebuild —
+# the live pages are registered again (registerLive(ctx, open) restored), so the host bundle changed; the mirror loads
+# THE frozen bundle of this tree (round-7's 3883e550… predates the restoration; round-6's 6a2efc63… predates the
+# unification; round-5's 0e37f819… predates the headless-update walk)
 
 
 @pytest.fixture
@@ -197,15 +197,20 @@ class TestFrozenArtifactLoadsThroughTheShippedLoader:
             assert cdp.js("window.__pluginId") == "hermes-genui"
             regs = cdp.js("window.__registrations")
             ids = sorted(r["id"] for r in regs)
-            assert ids == ["hermes-genui:hermes-genui-shelf", "hermes-genui:hermes-genui-tag"], ids
+            assert ids == ["hermes-genui:hermes-genui-shelf", "hermes-genui:hermes-genui-tag",
+                           "hermes-genui:hermes-genui-today"], ids
             areas = {r["id"]: r["area"] for r in regs}
             assert areas["hermes-genui:hermes-genui-tag"] == "transcript.directives"
             assert areas["hermes-genui:hermes-genui-shelf"] == "chat.empty"
+            # the live pages are registered again: Today's route is there before the first poll answers
+            assert areas["hermes-genui:hermes-genui-today"] == "routes"
             # the empty chat is the mirror host's chat.empty slot: the plugin's own registration drew
             # the entry into the CURRENT session pane — nobody hand-invoked render.
             wait_js(cdp, "document.querySelector('.hh-pane[data-session=\"chat-new\"] .hb-lib-entry') !== null", 15)
             assert cdp.js("document.querySelectorAll('.hh-directive').length") == 0
-            assert cdp.js("window.__net.length") == 0  # an unopened shelf costs the door nothing
+            # an unopened shelf costs the door nothing: only the live pages' own poll asks (head, then the list)
+            asked = {u[len(door_url):] for u, _m in cdp.js("window.__net")}
+            assert asked <= {"/dashboard/head", "/pages"}, cdp.js("window.__net")
 
 
 class TestReattachReachesAndRendersInTheNewChat:

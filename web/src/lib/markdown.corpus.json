@@ -474,6 +474,560 @@
   "expected": "**Costs**: Cost 42,000 → -28,000 (▼ 166.7%)"
  },
  {
+  "name": "chart gauge bullet",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "gauge",
+    "title": "Coverage",
+    "unit": "%",
+    "series": [
+     {
+      "data": [
+       68
+      ]
+     }
+    ],
+    "min": 0,
+    "max": 100,
+    "target": 75
+   },
+   {
+    "type": "chart",
+    "kind": "speedometer",
+    "title": "Load",
+    "series": [
+     {
+      "data": [
+       42
+      ]
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "bullet",
+    "title": "Targets",
+    "x": [
+     "Revenue",
+     "Churn",
+     "NPS"
+    ],
+    "series": [
+     {
+      "data": [
+       80,
+       12,
+       61
+      ]
+     },
+     {
+      "data": [
+       100,
+       10,
+       70
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Coverage** (%): 68% (target 75)\n\n**Load**: 42\n\n**Targets**: Revenue 80/100 · Churn 12/10 · NPS 61/70"
+ },
+ {
+  "name": "chart funnel pareto",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "funnel",
+    "title": "Signup",
+    "x": [
+     "Visit",
+     "Signup",
+     "Paid"
+    ],
+    "series": [
+     {
+      "data": [
+       1200,
+       300,
+       90
+      ]
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "pareto",
+    "title": "Defects",
+    "x": [
+     "A",
+     "B",
+     "C"
+    ],
+    "series": [
+     {
+      "data": [
+       50,
+       30,
+       20
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Signup**: Visit 1,200 · Signup 300 · Paid 90\n\n**Defects**: A 50 · B 30 · C 20"
+ },
+ {
+  "name": "chart waterfall",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "waterfall",
+    "title": "Cash flow",
+    "unit": "€",
+    "series": [
+     {
+      "points": [
+       {
+        "label": "Opening",
+        "value": 2140,
+        "total": true
+       },
+       {
+        "label": "Salary",
+        "value": 3200
+       },
+       {
+        "label": "Rent",
+        "value": -1450
+       },
+       {
+        "label": "Card fees"
+       },
+       {
+        "label": "Closing",
+        "total": true
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Cash flow** (€): Opening 2,140 → +3,200 Salary → -1,450 Rent → Card fees, unknown → Closing not stated"
+ },
+ {
+  "name": "chart range windows",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "range",
+    "title": "Temperature",
+    "x": [
+     "Mon",
+     "Tue",
+     "Wed",
+     "Thu"
+    ],
+    "series": [
+     {
+      "low": [
+       18,
+       19,
+       20,
+       null
+      ],
+      "high": [
+       34,
+       36,
+       38,
+       null
+      ],
+      "now": [
+       26,
+       40,
+       30,
+       22
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Temperature**: Mon 18-34, now 26; Tue 19-36, now 40 (above the band); Wed 20-38, now 30; Thu no window"
+ },
+ {
+  "name": "chart radar control",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "radar",
+    "title": "Skills",
+    "x": [
+     "Speed",
+     "Depth",
+     "Reach"
+    ],
+    "series": [
+     {
+      "name": "Now",
+      "data": [
+       6,
+       4,
+       7
+      ]
+     },
+     {
+      "name": "Goal",
+      "data": [
+       9,
+       8,
+       8
+      ]
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "control",
+    "title": "Latency",
+    "series": [
+     {
+      "data": [
+       10,
+       12,
+       11,
+       10,
+       30
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Skills**: Now 6 / 4 / 7; Goal 9 / 8 / 8\n\n**Latency**: mean 14.6, n 5, within the limits"
+ },
+ {
+  "name": "chart bubble box treemap",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "bubble",
+    "title": "Samples",
+    "series": [
+     {
+      "name": "Samples",
+      "data": [
+       10,
+       14,
+       12
+      ]
+     },
+     {
+      "data": [
+       3,
+       5,
+       4
+      ]
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "box",
+    "title": "Groups",
+    "series": [
+     {
+      "name": "Alpha",
+      "data": [
+       1,
+       2,
+       3,
+       4
+      ]
+     },
+     {
+      "name": "Beta",
+      "data": [
+       2,
+       4
+      ]
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "treemap",
+    "title": "Spend",
+    "x": [
+     "Rent",
+     "Food",
+     "Fun"
+    ],
+    "series": [
+     {
+      "data": [
+       30,
+       12,
+       6
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Samples**: Samples 3 points, y 10 → 14\n\n**Groups**: Alpha median 2.5 · Beta median 3\n\n**Spend**: Rent 30 (62%) · Food 12 (25%) · Fun 6 (12%)"
+ },
+ {
+  "name": "chart caveat and sort",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "bar",
+    "title": "Spend",
+    "sortDesc": true,
+    "x": [
+     "Stay",
+     "Flights"
+    ],
+    "series": [
+     {
+      "name": "Cost",
+      "data": [
+       42000,
+       31500
+      ]
+     }
+    ],
+    "caveat": "Q3 onward is a projection."
+   }
+  ],
+  "expected": "**Spend**: Cost 42,000 → 31,500 (▼ 25%)\n_Q3 onward is a projection._"
+ },
+ {
+  "name": "chart points at chart level",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "waterfall",
+    "title": "Bridge",
+    "points": [
+     {
+      "label": "Open",
+      "value": 10,
+      "total": true
+     },
+     {
+      "label": "Add",
+      "value": 5
+     },
+     {
+      "label": "Close",
+      "total": true
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "scatter",
+    "title": "Price against mileage",
+    "points": [
+     {
+      "x": 9,
+      "y": 24.6,
+      "label": "Fortuner"
+     },
+     {
+      "x": 62,
+      "y": 1.2
+     }
+    ]
+   },
+   {
+    "type": "chart",
+    "kind": "range",
+    "title": "Band",
+    "points": [
+     {
+      "label": "Mon",
+      "low": 18,
+      "high": 34,
+      "now": 26
+     },
+     {
+      "label": "Tue",
+      "low": 19,
+      "high": 36
+     }
+    ]
+   }
+  ],
+  "expected": "**Bridge**: Open 10 → +5 Add → Close 15\n\n**Price against mileage**: 2 points; mileage 9 to 62, price 1.2 to 24.6; highest 24.6 at 9 (Fortuner)\n\n**Band**: Mon 18-34, now 26; Tue 19-36"
+ },
+ {
+  "name": "chart sort with a gap",
+  "blocks": [
+   {
+    "type": "chart",
+    "kind": "bar",
+    "title": "Spend",
+    "sortDesc": true,
+    "x": [
+     "A",
+     "B",
+     "C"
+    ],
+    "series": [
+     {
+      "name": "Cost",
+      "data": [
+       10,
+       null,
+       30
+      ]
+     }
+    ]
+   }
+  ],
+  "expected": "**Spend**: Cost 30 → 10 (▼ 66.7%), 1 gap (B)"
+ },
+ {
+  "name": "cards",
+  "blocks": [
+   {
+    "type": "cards",
+    "items": [
+     {
+      "title": "Mission Control",
+      "status": "active",
+      "ring": {
+       "stages": [
+        "Plan",
+        "Build",
+        "Test",
+        "Ship"
+       ],
+       "at": 1,
+       "label": "PLAN"
+      },
+      "metrics": [
+       {
+        "label": "velocity",
+        "value": "0.75/wk"
+       },
+       {
+        "label": "open",
+        "value": 12
+       }
+      ],
+      "owner": "Leo",
+      "milestone": "M3",
+      "trend": "up",
+      "budget": "₹2Cr",
+      "arr": "₹40L",
+      "needs": {
+       "text": "a go/no-go on the slip"
+      },
+      "freshness": "2h ago"
+     },
+     {
+      "title": "Dory",
+      "ring": {
+       "stages": [
+        "Plan",
+        "Build",
+        "Test",
+        "Ship"
+       ]
+      },
+      "metrics": [
+       {
+        "label": "close",
+        "value": "unknown"
+       }
+      ],
+      "action": {
+       "label": "Browser",
+       "url": "https://x.org/p"
+      }
+     },
+     {
+      "title": "Quiet",
+      "action": {
+       "label": "Open chat",
+       "run": "Open the chat"
+      }
+     }
+    ]
+   }
+  ],
+  "expected": "**Mission Control** — active\nPlan · Build · Test · Ship (now: Build) · PLAN\nvelocity 0.75/wk · open 12\nowner Leo · milestone M3 · trend up · budget ₹2Cr · ARR ₹40L\nneeds you: a go/no-go on the slip · 2h ago\n\n**Dory**\nPlan · Build · Test · Ship\nclose unknown\nunknown\n[Browser](https://x.org/p)\n\n**Quiet**\nclear\n[Open chat]"
+ },
+ {
+  "name": "tasks",
+  "blocks": [
+   {
+    "type": "tasks",
+    "items": [
+     {
+      "title": "Fix roof",
+      "owner": "Leo",
+      "due": "Fri",
+      "status": "doing",
+      "priority": "high"
+     },
+     {
+      "title": "Pay tax",
+      "status": "done"
+     },
+     {
+      "title": "Chase invoice",
+      "status": "blocked",
+      "priority": "med",
+      "owner": "Sam"
+     },
+     {
+      "title": "No status"
+     }
+    ]
+   }
+  ],
+  "expected": "- [~] Fix roof — Leo, Fri, !high\n- [x] Pay tax\n- [!] Chase invoice — Sam, !med\n- [ ] No status"
+ },
+ {
+  "name": "result",
+  "blocks": [
+   {
+    "type": "result",
+    "title": "Draft reply",
+    "body": "Hi Sam,\nhere is the plan.",
+    "sources": [
+     {
+      "label": "IRS 2026"
+     },
+     {
+      "label": "Bank export"
+     }
+    ]
+   }
+  ],
+  "expected": "**Draft reply**\nHi Sam, here is the plan.\n- IRS 2026\n- Bank export"
+ },
+ {
+  "name": "suggestions",
+  "blocks": [
+   {
+    "type": "suggestions",
+    "items": [
+     {
+      "text": "Move the deadline",
+      "reason": "two plans slipped"
+     },
+     {
+      "text": "Close the ticket"
+     }
+    ]
+   }
+  ],
+  "expected": "- Move the deadline — two plans slipped\n- Close the ticket"
+ },
+ {
   "name": "images strip",
   "blocks": [
    {

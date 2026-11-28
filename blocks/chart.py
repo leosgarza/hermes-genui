@@ -540,7 +540,9 @@ def text_chart(block: dict) -> str:
     elif kind == "treemap":
         body = _treemap_line(block, series[0])
     else:
-        body = "; ".join(line for line in (_series_line(s, block.get("x") or []) for s in series[:6]) if line)
+        # x (not block["x"]): a sorted bar chart's labels were reordered with its values, so a gap is named by the
+        # label that now sits on it.
+        body = "; ".join(line for line in (_series_line(s, x) for s in series[:6]) if line)
     if not body:
         return ""
     unit = safe_text(block.get("unit"), 20)

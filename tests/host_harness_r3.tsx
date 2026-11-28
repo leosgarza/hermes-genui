@@ -242,7 +242,16 @@ function makeCtx(pluginId: string, rest: (path: string, init?: any) => Promise<u
       registry.byArea.set(c.area, l.filter((x) => x !== c));
     };
   };
-  return { source, register, rest };
+  return {
+    source,
+    register,
+    rest,
+    // the shipped ctx's timer: returns its own unsubscribe, the shape registerLive keeps
+    setInterval: (fn: () => void, ms: number) => {
+      const t = globalThis.setInterval(fn, ms);
+      return () => globalThis.clearInterval(t);
+    },
+  };
 }
 
 // --- kI/FI/II/LI/yz/bz: the shipped transcript splitter + directive slot ------------------------------
