@@ -1,11 +1,10 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pinLocale } from "../../lib/locale.testing";
-import { readBlocks } from "../../core/readBlocks";
+import { readBlocks, readBlocksNoted } from "../../core/readBlocks";
 import type { ChartBlock } from "./read";
-import { fmt, chartScales } from "./chartData";
-import { xyLayout } from "./layout";
-import { dotSpots } from "./ScatterMarks";
+import { chartLabel, fmt, missingLabels } from "./chartData";
+import { lineRuns } from "./geometry";
 import { Blocks } from "../../core/Blocks";
 
 beforeEach(() => pinLocale("en-US"));
@@ -36,6 +35,20 @@ describe("Chart", () => {
     const blocks = chart({ kind: "pie", x: ["Rent", "SIP", "Food"], unit: "₹", series: [{ name: "Budget", data: [30000, 25000, 15000] }] });
     const { container } = render(<Blocks blocks={blocks} />);
     expect(container.querySelectorAll("path.hb-slice").length).toBe(3);
+  });
+
+  it("puts the caveat outside the image and captions the axes in the drawing's margin", () => {
+    const blocks = chart({ kind: "line", title: "Revenue", x: ["Q1", "Q2", "Q3"],
+      series: [{ name: "Revenue", data: [10, 12, 14] }], xLabel: "Quarter", yLabel: "Revenue",
+      caveat: "Q3 onward is a projection.", source: "company filings" });
+    const { container } = render(<Blocks blocks={blocks} />);
+    expect(container.querySelector(".hb-chart-caveat")!.textContent).toBe("Q3 onward is a projection.");
+    const svg = container.querySelector("svg.hb-chart-svg")!;
+    expect(svg.getAttribute("aria-label")).toContain("Quarter along the bottom. Revenue up the side.");
+    expect(svg.getAttribute("aria-label")).toContain("Q3 onward is a projection.");
+    const titles = [...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent);
+    expect(titles).toContain("Quarter");
+    expect(titles).toContain("Revenue");
   });
 
   it("draws a row per hbar label", () => {
@@ -182,22 +195,7 @@ describe("line charts", () => {
     expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("c");
     expect(container.querySelector(".hb-tip-on .hb-tip-note")!.textContent).toBe("▲ 2.8% since start");
     expect(container.querySelector(".hb-chart-big")!.textContent).toBe("24,100");
-    fireEvent.blur(svg, { relatedTarget: document.body });  // real leaving: focus hands off somewhere
-    expect(container.querySelector(".hb-tip-on")).toBeNull();
-  });
-
-  it("keeps the pick through a blur with no handoff target — Chrome's stale dialog-close cleanup", () => {
-    // Closing a drill dialog we opened makes real Chrome fire one more blur on the drawing a beat AFTER it
-    // has handed the keyboard back, with nothing in relatedTarget (the removed dialog is gone from the DOM).
-    // That is not leaving: clearing on it would erase the pick the return exists to preserve, and with it
-    // the coincident spot's click cycle. Leaving FOR REAL still clears — focus hands off to something.
-    const { container } = render(<Blocks blocks={line()} />);
-    const svg = container.querySelector<SVGSVGElement>("svg.hb-chart-svg")!;
-    fireEvent.keyDown(svg, { key: "ArrowLeft" });
-    expect(container.querySelector(".hb-tip-on")).not.toBeNull();
     fireEvent.blur(svg);
-    expect(container.querySelector(".hb-tip-on")).not.toBeNull();
-    fireEvent.blur(svg, { relatedTarget: document.body });
     expect(container.querySelector(".hb-tip-on")).toBeNull();
   });
 
@@ -255,6 +253,204 @@ describe("donuts", () => {
   });
 });
 
+describe("scatter charts", () => {
+  const cars = (extra: object = {}) => chart({ kind: "scatter", title: "Price against mileage", unit: "₹L",
+    series: [{ name: "Listed cars", points: [
+      { x: 62, y: 1.2, label: "Maruti 800" }, { x: 9, y: 24.6, label: "Fortuner" },
+      { x: 40, y: 8, label: "City" }] }], ...extra });
+
+  it("draws a dot per point that has two numbers", () => {
+    const { container } = render(<Blocks blocks={cars()} />);
+    expect(container.querySelectorAll("circle.hb-chart-dot").length).toBe(3);
+    expect(container.querySelectorAll("path.hb-chart-line").length).toBe(0);
+  });
+
+  it("keeps a point with an unknown y out of the drawing and says nothing about it", () => {
+    const blocks = chart({ kind: "scatter", series: [{ points: [{ x: 1, y: 2 }, { x: 3, y: null }] }] });
+    expect(blocks[0].spec.series[0].points).toEqual([{ x: 1, y: 2 }, { x: 3, y: null }]);
+    expect(render(<Blocks blocks={blocks} />).container.querySelectorAll("circle.hb-chart-dot").length).toBe(1);
+  });
+
+  it("drops a point with no x, and the whole chart when no point is left", () => {
+    const noted = readBlocksNoted([{ type: "chart", kind: "scatter", series: [{ points: [{ x: 2, y: 3 }, { y: 4 }] }] }]);
+    expect(noted.blocks.length).toBe(1);
+    expect(noted.dropped.map((d) => d.why)).toEqual(["a point needs a number on both scales"]);
+    const empty = readBlocksNoted([{ type: "chart", kind: "scatter", series: [{ points: [{ y: 4 }] }] }]);
+    expect(empty.blocks).toEqual([]);
+    expect(empty.dropped.map((d) => d.why).at(-1)).toBe("scatter needs a point with a number on both scales");
+  });
+
+  it("names the drawing with both scales and their ranges", () => {
+    const { container } = render(<Blocks blocks={cars()} />);
+    expect(container.querySelector("svg.hb-chart-svg")!.getAttribute("aria-label"))
+      .toBe("Price against mileage: mileage 9 to 62, price 1.2 to 24.6, 3 points");
+  });
+
+  it("titles each dot with its place on both scales", () => {
+    const { container } = render(<Blocks blocks={cars()} />);
+    expect([...container.querySelectorAll("circle.hb-chart-dot title")].map((t) => t.textContent))
+      .toEqual(["mileage 9, price 24.6, Fortuner", "mileage 40, price 8, City", "mileage 62, price 1.2, Maruti 800"]);
+  });
+
+  it("walks the keys left to right and shows the point in the hover card", () => {
+    const { container } = render(<Blocks blocks={cars()} />);
+    const svg = container.querySelector("svg.hb-chart-svg")!;
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("Fortuner");
+    expect(container.querySelector(".hb-tip-on .hb-tip-name")!.textContent).toBe("mileage 9");
+    expect(container.querySelector(".hb-tip-on .hb-tip-value")!.textContent).toBe("price ₹24.6L");
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("City");
+    fireEvent.keyDown(svg, { key: "Escape" });
+    expect(container.querySelector(".hb-tip-on")).toBeNull();
+  });
+
+  it("gives two groups of points their own colours and a legend", () => {
+    const blocks = chart({ kind: "scatter", series: [
+      { name: "Petrol", points: [{ x: 610, y: 8.2 }, { x: 540, y: 9.1 }] },
+      { name: "Diesel", points: [{ x: 690, y: 9.4 }] }] });
+    const { container } = render(<Blocks blocks={blocks} />);
+    const fills = [...container.querySelectorAll("circle.hb-chart-dot")].map((c) => c.getAttribute("fill"));
+    expect(fills).toEqual(["var(--hb-chart-1)", "var(--hb-chart-1)", "var(--hb-chart-2)"]);
+    expect([...container.querySelectorAll(".hb-legend-item")].map((i) => i.textContent)).toEqual(["Petrol", "Diesel"]);
+  });
+});
+
+describe("waterfall charts", () => {
+  const bridge = (extra: object = {}) => chart({ kind: "waterfall", title: "Revenue to net profit", unit: "₹Cr",
+    series: [{ name: "Bridge", points: [
+      { label: "Gross revenue", value: 120, total: true }, { label: "Returns", value: -8 },
+      { label: "Discounts", value: -5 }, { label: "Net profit", total: true }] }], ...extra });
+
+  it("draws a bar per point, a total from zero and a step between its balances", () => {
+    const { container } = render(<Blocks blocks={bridge()} />);
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(4);
+    expect(container.querySelectorAll("line.hb-waterfall-link").length).toBe(3);  // one per join
+    expect(container.querySelector("svg.hb-chart-svg")!.getAttribute("aria-label"))
+      .toBe("Revenue to net profit: 4 of 4 bars, balance ₹107 Cr");
+  });
+
+  it("colours a total with the first colour and a step by its direction", () => {
+    const { container } = render(<Blocks blocks={bridge()} />);
+    expect([...container.querySelectorAll("path.hb-chart-bar")].map((b) => b.getAttribute("fill")))
+      .toEqual(["var(--hb-chart-1)", "var(--hb-warn)", "var(--hb-warn)", "var(--hb-chart-1)"]);
+  });
+
+  it("writes each value with its sign on the bars", () => {
+    const { container } = render(<Blocks blocks={bridge()} />);
+    expect([...container.querySelectorAll("text.hb-chart-value")].map((t) => t.textContent))
+      .toEqual(["₹120 Cr", "-₹8 Cr", "-₹5 Cr", "₹107 Cr"]);
+    expect([...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent))
+      .toEqual(["Gross revenue", "Returns", "Discounts", "Net profit"]);
+  });
+
+  it("shows the closing balance, then the picked bar's", () => {
+    const { container } = render(<Blocks blocks={bridge()} />);
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("₹107 Cr");
+    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("₹120 Cr");
+    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("Gross revenue");
+  });
+
+  it("names the step and the balance it produced in the hover card", () => {
+    const { container } = render(<Blocks blocks={bridge()} />);
+    const svg = container.querySelector("svg.hb-chart-svg")!;
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    const tip = container.querySelector(".hb-tip-on")!;
+    expect(tip.querySelector(".hb-tip-title")!.textContent).toBe("Returns");
+    expect(tip.querySelector(".hb-tip-name")!.textContent).toBe("▼ decrease");
+    expect(tip.querySelector(".hb-tip-value")!.textContent).toBe("-₹8 Cr");
+    expect(tip.querySelector(".hb-tip-note")!.textContent).toBe("balance ₹112 Cr");
+  });
+
+  it("draws nothing after an unknown step, and keeps its label and the closing total unstated", () => {
+    const blocks = chart({ kind: "waterfall", x: ["Rent", "Card", "Close"],
+      series: [{ points: [{ label: "Rent", value: -2 }, { label: "Card", value: null }, { label: "Close", total: true }] }] });
+    const { container } = render(<Blocks blocks={blocks} />);
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(1);
+    expect([...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent)).toEqual(["Rent", "Card", "Close"]);
+    expect(container.querySelector(".hb-chart-big")).toBeNull();
+  });
+
+  it("hides the headline balance with figure: false", () => {
+    const { container } = render(<Blocks blocks={bridge({ figure: false })} />);
+    expect(container.querySelector(".hb-chart-big")).toBeNull();
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(4);
+  });
+
+  it("draws a step with a value written as total: true as a step", () => {
+    const blocks = chart({ kind: "waterfall", series: [{ points: [{ label: "Opening", value: 40, total: "true" }] }] });
+    expect(blocks[0].spec.series[0].points).toEqual([{ label: "Opening", value: 40 }]);
+  });
+});
+
+describe("histograms", () => {
+  const hist = () => chart({ kind: "histogram", title: "Delivery times", unit: "orders", x: ["0-15", "15-30", "30-45"],
+    series: [{ name: "Orders", data: [4, 12, 0] }] });
+
+  it("draws the bins as touching columns from zero, with their counts on top", () => {
+    const { container } = render(<Blocks blocks={hist()} />);
+    const bars = [...container.querySelectorAll("rect.hb-chart-bar")] as SVGRectElement[];
+    expect(bars.length).toBe(2);  // a count of 0 is a known zero and draws no column
+    expect(Number(bars[0].getAttribute("width"))).toBeGreaterThan(90);  // the whole 96px slot, less a hairline
+    const right = Number(bars[0].getAttribute("x")) + Number(bars[0].getAttribute("width"));
+    expect(Number(bars[1].getAttribute("x")) - right).toBeCloseTo(1);
+    expect(bars.map((b) => b.getAttribute("fill"))).toEqual(["var(--hb-chart-1)", "var(--hb-chart-1)"]);
+    expect([...container.querySelectorAll("text.hb-chart-value")].map((t) => t.textContent)).toEqual(["4 orders", "12 orders", "0 orders"]);
+  });
+
+  it("reads its tallest bin as the headline, beside how many it counted", () => {
+    const { container } = render(<Blocks blocks={hist()} />);
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("12 orders");
+    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("15-30 · 16 counted");
+    expect(container.querySelector(".hb-chip")).toBeNull();  // a distribution has no change to show
+  });
+
+  it("names the bin and its count in the hover card", () => {
+    const { container } = render(<Blocks blocks={hist()} />);
+    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("0-15");
+    expect(container.querySelector(".hb-tip-on .hb-tip-name")!.textContent).toBe("Orders");
+    expect(container.querySelector(".hb-tip-on .hb-tip-value")!.textContent).toBe("4 orders");
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("4 orders");
+  });
+});
+
+describe("ranges", () => {
+  const delivery = () => chart({ kind: "range", title: "Delivery time", unit: "min", x: ["Mon", "Tue", "Wed"],
+    series: [{ name: "Delivery", low: [18, 19, 20], high: [34, 36, 38], now: [26, 31, 42] }] });
+
+  it("draws a band from low to high with the dot where the latest reading sits", () => {
+    const { container } = render(<Blocks blocks={delivery()} />);
+    const bands = [...container.querySelectorAll("rect.hb-chart-band")] as SVGRectElement[];
+    expect(bands.length).toBe(3);
+    expect(bands.map((b) => b.getAttribute("fill"))).toEqual(["var(--hb-chart-1)", "var(--hb-chart-1)", "var(--hb-chart-1)"]);
+    const dots = [...container.querySelectorAll("circle.hb-chart-dot")].map((d) => Number(d.getAttribute("cy")));
+    expect(dots.length).toBe(3);
+    expect(dots[2]).toBeLessThan(Number(bands[2].getAttribute("y")));  // 42 sits above 20-38
+  });
+
+  it("writes the scale on the left and the picked window in the headline", () => {
+    const { container } = render(<Blocks blocks={delivery()} />);
+    expect([...container.querySelectorAll("text.hb-chart-tick")].length).toBeGreaterThan(1);
+    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("42 min");
+    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("Wed · 20 min–38 min");
+  });
+
+  it("says when the dot sits outside the band, and when a window is missing", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "range", unit: "min", x: ["Mon", "Tue"],
+      series: [{ low: [18, null], high: [34, null], now: [42, null] }] })} />);
+    const svg = container.querySelector("svg.hb-chart-svg")!;
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("Mon");
+    expect(container.querySelector(".hb-tip-on .hb-tip-value")!.textContent).toBe("18 min–34 min");
+    expect(container.querySelector(".hb-tip-on .hb-tip-note")!.textContent).toBe("now 42 min, above the band");
+    fireEvent.keyDown(svg, { key: "ArrowRight" });
+    expect(container.querySelector(".hb-tip-on .hb-tip-note")!.textContent).toBe("no window");
+  });
+});
+
 describe("fmt", () => {
   it("formats crore amounts in rupees", () => {
     expect(fmt(72275, "₹Cr")).toBe("₹72,275 Cr");
@@ -287,101 +483,83 @@ describe("chart figure from block JSON", () => {
   });
 });
 
-describe("scatter charts", () => {
-  const dots = () => chart({ kind: "scatter", title: "Size vs price", x: ["1", "2", "4"], unit: "kg",
-    series: [{ name: "Samples", data: [10, 14, 12] }] });
 
-  it("draw a dot per value and no line, end labels or change chip", () => {
-    const { container } = render(<Blocks blocks={dots()} />);
-    expect(container.querySelectorAll("circle.hb-chart-dot").length).toBe(3);
-    expect(container.querySelector("path.hb-chart-line")).toBeNull();
-    expect(container.querySelector("text.hb-chart-end")).toBeNull();
-    expect(container.querySelector(".hb-chip")).toBeNull();
+describe("a null in the data", () => {
+  const specOf = (raw: object) => chart(raw)[0].spec;
+
+  it("splits a line's points at each gap, a lone point in a run of its own", () => {
+    expect(lineRuns([[0, 10], [5, 20]])).toEqual([{ from: 0, pts: [[0, 10], [5, 20]] }]);
+    expect(lineRuns([[0, 10], null, [20, 17], [30, 12]])).toEqual([
+      { from: 0, pts: [[0, 10]] },
+      { from: 2, pts: [[20, 17], [30, 12]] },
+    ]);
+    expect(lineRuns([null, [10, 4], null])).toEqual([{ from: 1, pts: [[10, 4]] }]);
+    expect(lineRuns([null, null])).toEqual([]);
   });
 
-  it("keep the axes and the pick the other up-and-down charts have", () => {
-    const { container } = render(<Blocks blocks={dots()} />);
-    const labels = [...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent);
-    expect(labels).toEqual(["1", "2", "4"]);
-    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
-    fireEvent.keyDown(container.querySelector("svg.hb-chart-svg")!, { key: "ArrowRight" });
-    expect(container.querySelector(".hb-tip-on .hb-tip-title")!.textContent).toBe("2");
-    expect(container.querySelector(".hb-tip-on .hb-tip-value")!.textContent).toBe("14 kg");
+  it("names the labels no series measured, so a gap isn't read out as a zero", () => {
+    const gapped = specOf({ kind: "line", title: "Orders per day", x: ["Mon", "Tue", "Wed"],
+      series: [{ data: [3, null, 5] }, { data: [1, null, 2] }] });
+    expect(missingLabels(gapped)).toEqual(["Tue"]);
+    expect(chartLabel(gapped)).toBe("Orders per day. line chart. 3 to 5, up 66.7%. Tue no data");
+    const whole = specOf({ title: "Orders", kind: "line", x: ["Mon", "Tue"], series: [{ data: [3, 4] }] });
+    expect(missingLabels(whole)).toEqual([]);
+    expect(chartLabel(whole)).toBe("Orders. line chart. 3 to 4, up 33.3%");
   });
 
-  it("dots at the SAME pixel group into one cluster spot; everything else stays single", () => {
-    // The pointer can only ever hit the topmost circle of a coincident pair, so the renderer groups dots
-    // by their exact drawn position: one spot per pixel, its members every point index drawn there (in
-    // ascending index order, across series), and the spot keeps its drawn position for the badge.
-    const spec = chart({ kind: "scatter", x: [1, 1, 3], unit: "kg",
-      series: [{ name: "V", data: [50, 50, 50] }] })[0].spec;
-    const layout = xyLayout(spec, 560, chartScales(spec, null));
-    const spots = dotSpots(spec, layout);
-    expect(spots.length).toBe(2);  // x=1 at 50 kg (twice), x=3 at 50 kg
-    const twin = spots.find((s) => s.members.length > 1)!;
-    expect(twin.members).toEqual([0, 1]);
-    expect(spots.filter((s) => s.members.length > 1).length).toBe(1);
-    // cross-series coincidents group too, and a group's members are DISTINCT point indices
-    const pair = chart({ kind: "scatter", x: [1, 2, 1], unit: "kg",
-      series: [{ name: "A", data: [50, 90, 7] }, { name: "B", data: [4, 9, 50] }] })[0].spec;
-    const spots2 = dotSpots(pair, xyLayout(pair, 560, chartScales(pair, null)));
-    expect(spots2.find((s) => s.members.length > 1)?.members).toEqual([0, 2]);
-    // same x, different y: never a cluster
-    const near = chart({ kind: "scatter", x: [1, 1], unit: "kg",
-      series: [{ name: "V", data: [10, 90] }] })[0].spec;
-    expect(dotSpots(near, xyLayout(near, 560, chartScales(near, null))).every((s) => s.members.length === 1)).toBe(true);
+  it("breaks a line at the gap and puts a dot on a lone observation", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "line", title: "Orders", x: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      series: [{ name: "Orders", data: [12, null, 0, 9, 14] }] })} />);
+    expect(container.querySelectorAll("path.hb-chart-line").length).toBe(1);  // Wed to Fri only
+    // the end label's dot and the lone Monday observation
+    expect(container.querySelectorAll("circle.hb-chart-dot").length).toBe(2);
+    expect(container.querySelector("svg.hb-chart-svg")!.getAttribute("aria-label")).toBe("Orders. line chart. 12 to 14, up 16.7%. Tue no data");
   });
-});
 
-describe("histogram charts", () => {
-  it("draw a column per bin, counting the raw values into it", () => {
-    const blocks = chart({ kind: "histogram", title: "Scores", series: [{ name: "Students", data: [55, 61, 62, 70, 71, 88] }] });
-    const { container } = render(<Blocks blocks={blocks} />);
-    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(4);
-    expect([...container.querySelectorAll("text.hb-chart-value")].map((t) => t.textContent)).toEqual(["1", "2", "2", "1"]);
-    expect([...container.querySelectorAll("text.hb-chart-axis")].map((t) => t.textContent)).toEqual(["50–60", "60–70", "70–80", "80–90"]);
-    expect(container.textContent).toContain("Scores");
+  it("breaks a change line, which is one series too", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "line", tone: "change", x: ["a", "b", "c", "d"],
+      series: [{ data: [100, null, 120, 130] }] })} />);
+    expect(container.querySelectorAll("path.hb-chart-line").length).toBe(1);
   });
-  it("headline the number of values at rest and the picked bin's count when one is picked", () => {
-    const blocks = chart({ kind: "histogram", title: "Scores",
-      series: [{ data: [41, 55, 58, 60, 62, 63, 66, 68, 69, 70, 71, 72, 74, 75, 77, 79, 81, 84, 88, 93] }] });
-    const { container } = render(<Blocks blocks={blocks} />);
-    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("20");  // 20 values, not the last bin's 4
+
+  it("draws no bar for a gap, a tick on the baseline instead, and no value above it", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "bar", x: ["Q1", "Q2", "Q3"], series: [{ data: [3, null, 5] }] })} />);
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(2);
+    expect(container.querySelectorAll("rect.hb-chart-gap").length).toBe(1);
+    expect([...container.querySelectorAll("text.hb-chart-value")].map((t) => t.textContent)).toEqual(["3", "5"]);
+  });
+
+  it("keeps a written zero a bar, so it reads apart from an unknown", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "bar", x: ["Q1", "Q2"], series: [{ data: [0, null] }] })} />);
+    expect(container.querySelectorAll("path.hb-chart-bar").length).toBe(1);
+    expect(container.querySelectorAll("rect.hb-chart-gap").length).toBe(1);
+  });
+
+  it("fills each stretch of an area on its own", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "area", x: ["a", "b", "c", "d"], series: [{ name: "Rent", data: [1, 2, null, 4] }] })} />);
+    expect(container.querySelectorAll('path[fill-opacity=".3"]').length).toBe(1);
+  });
+
+  it("says no data in the hover card where nothing was measured", () => {
+    const { container } = render(<Blocks blocks={chart({ kind: "bar", title: "Revenue", x: ["Q1", "Q2"], series: [{ name: "Revenue", data: [3, null] }] })} />);
     const svg = container.querySelector("svg.hb-chart-svg")!;
-    fireEvent.keyDown(svg, { key: "ArrowRight" });
-    expect(container.querySelector(".hb-chart-big")!.textContent).toBe("3");
-    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("40–60");
+    fireEvent.keyDown(svg, { key: "ArrowRight" });  // Q1, which has a value
+    expect(container.querySelector(".hb-tip-on .hb-tip-row")).toBeTruthy();
+    fireEvent.keyDown(svg, { key: "ArrowRight" });  // Q2, where nothing was measured
+    const tip = container.querySelector(".hb-tip-on")!;
+    expect(tip.querySelector(".hb-tip-title")!.textContent).toBe("Q2");
+    expect(tip.querySelectorAll(".hb-tip-row").length).toBe(0);
+    expect(tip.querySelector(".hb-tip-note")!.textContent).toBe("no data");
   });
-});
 
-describe("histogram block JSON", () => {
-  it("bins the one series' raw values: x becomes the ranges, the series the counts", () => {
-    const [block] = chart({ kind: "histogram", title: "Exam scores", series: [{ name: "Scores", data: [55, 61, 62, 70, 71, 88] }] }) as any[];
-    expect(block.spec.type).toBe("histogram");
-    expect(block.spec.title).toBe("Exam scores");
-    expect(block.spec.x.length).toBe(block.spec.series[0].data.length);
-    expect(block.spec.series[0].data.reduce((a: number, b: number) => a + b, 0)).toBe(6);
-    expect(block.spec.x[0]).toContain("–");
-  });
-  it("ignores an x it was given and a second series it cannot bin", () => {
-    const [block] = chart({ kind: "hist", x: ["ignore", "me"], unit: "kg", series: [{ data: [1, 2, 3] }, { data: [9, 9, 9] }] }) as any[];
-    expect(block.spec.type).toBe("histogram");
-    expect(block.spec.series.length).toBe(1);
-    expect(block.spec.series[0].data).toEqual([1, 0, 1, 1]);
-    expect(block.spec.x[0]).toBe("1–1.5");
-    expect(block.spec.x[3]).toBe("2.5–3");
-    expect(block.spec.unit).toBeUndefined();  // the bars count values; the kg unit belongs to the bins
-  });
-  it("drops a histogram whose values are all gaps", () => {
-    expect(chart({ kind: "histogram", series: [{ data: [null, "x"] }] })).toEqual([]);
-  });
-});
-
-describe("scatter block JSON", () => {
-  it("reads like a line but keeps its kind", () => {
-    const [block] = chart({ kind: "scatter", x: [1, 2, 4], series: [{ name: "Points", data: [10, 14, 12] }] }) as any[];
-    expect(block.spec.type).toBe("scatter");
-    expect(block.spec.x).toEqual(["1", "2", "4"]);
-    expect(block.spec.series[0].data).toEqual([10, 14, 12]);
+  it("leaves a gap out of a stacked column and a stacked area, never a zero-height part", () => {
+    const series = () => [{ name: "Rent", data: [3, 4, null] }, { name: "Food", data: [2, 5, null] }];
+    const stacked = render(<Blocks blocks={chart({ kind: "stacked", x: ["Q1", "Q2", "Q3"], series: series() })} />);
+    // two parts on Q1 and on Q2, and nothing at all on Q3, where neither part holds a value
+    expect(stacked.container.querySelectorAll("rect[rx]").length).toBe(4);
+    cleanup();
+    const area = render(<Blocks blocks={chart({ kind: "area", x: ["Q1", "Q2", "Q3"], series: series() })} />);
+    // each part fills Q1 to Q2 and stops, instead of being carried on to Q3 as a zero
+    expect(area.container.querySelectorAll('path[fill-opacity=".3"]').length).toBe(2);
   });
 });

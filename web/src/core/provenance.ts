@@ -29,7 +29,7 @@ export function provenanceOf(blocks: Block[], asOf?: string, live?: boolean): Bo
     source = blocks[at] as SourceBlock;
     list = blocks.filter((_, i) => i !== at);
   }
-  const said = new Set<string>(source ? [source.text] : []);
+  const said = new Set<string>(source && source.text ? [source.text] : []);
   const chartSources: string[] = [];
   for (const b of list) {  // charts say their own source; the line joins each once, in draw order
     if (b.type !== "chart") continue;
@@ -47,7 +47,7 @@ export function provenanceOf(blocks: Block[], asOf?: string, live?: boolean): Bo
  *  "" when the board said nothing: an export of an ordinary board carries no footer it did not have. */
 export function provenanceLine(p: BoardProvenance): string {
   const parts: string[] = [];
-  if (p.source) parts.push(p.source.text);
+  if (p.source && p.source.text) parts.push(p.source.text);
   parts.push(...p.chartSources);
   if (p.asOf) parts.push(`as of ${p.asOf}`);
   if (p.live !== undefined) parts.push(p.live ? "Live" : "Snapshot");

@@ -11,12 +11,12 @@ the result into one message.
 
 import re
 
-from ..blocks import TYPES
+from ..blocks import PAGE_TYPES, TYPES
 from ..blocks.calculator import arithmetic
 from ..blocks.layout import CONTAINERS, LAYOUT_TYPES
 from ..blocks.steps import text_steps
 from ..core.check import child_lists
-from ..core import store
+from ..core import drawn, store
 
 __all__ = ["CONTAINERS", "RENDERERS", "arithmetic", "blocks_as_text", "replace_tags", "text_only"]
 
@@ -25,7 +25,7 @@ MORE_NOTE = "… (more in Hermes Desktop)"
 MAX_DEPTH = 6
 
 # The renderers that turn one block on its own into text (every type but the layout ones, which hold other blocks).
-RENDERERS = {kind: render for kind, (_, render) in TYPES.items() if kind not in LAYOUT_TYPES}
+RENDERERS = {kind: render for kind, (_, render) in {**TYPES, **PAGE_TYPES}.items() if kind not in LAYOUT_TYPES}
 
 
 def _render(block: object, depth: int, labels: dict) -> list[str]:
@@ -131,11 +131,12 @@ def _board_text(block_id: str, load) -> str:
     if not re.fullmatch(store.ID_PATTERN, block_id):
         return NOT_SHOWN
     try:
-        board = load(block_id)
+        blocks = store.blocks_of(load(block_id))  # an updated board answers its envelope: the blocks inside;
+                                                  # placement is a drawing concern, and text is just blocks
     except Exception:  # an unreadable file must not stop the reply
         return NOT_SHOWN
     # placement, text alignment and provenance are drawing concerns; text is just blocks
-    return blocks_as_text(store.blocks_of(board)) or NOT_SHOWN
+    return blocks_as_text(blocks) or NOT_SHOWN
 
 
 def replace_tags(text: str, load=store.load) -> str:
@@ -151,12 +152,14 @@ def replace_tags(text: str, load=store.load) -> str:
 def text_only(response_text: str = "", platform: str = "", **kwargs) -> str | None:
     """The transform_llm_output hook: on platforms that can't draw blocks, the reply with its tags as text.
 
-    None (leave the reply as it is) on Hermes Desktop ("local", "desktop"), for a reply with no tag, or if anything
-    goes wrong; Hermes then sends the reply unchanged.
+    On Hermes Desktop ("local", "desktop") it only puts back a lost tag (see _with_lost_tag). None (leave the reply as
+    it is) for a reply with no tag, or if anything goes wrong; Hermes then sends the reply unchanged.
     """
-    del kwargs
-    if not isinstance(response_text, str) or str(platform or "").strip().lower() in DRAWS_BLOCKS:
+    session_drawn = drawn.take(str(kwargs.get("session_id") or ""))
+    if not isinstance(response_text, str):
         return None
+    if str(platform or "").strip().lower() in DRAWS_BLOCKS:
+        return _with_lost_tag(response_text, session_drawn)
     if not TAG.search(response_text):
         return None
     try:
@@ -164,3 +167,15 @@ def text_only(response_text: str = "", platform: str = "", **kwargs) -> str | No
     except Exception:  # the hook must never break a reply
         return None
     return replaced if replaced and replaced != response_text else None
+
+
+def _with_lost_tag(reply: str, drawn_ids: list[str]) -> str | None:
+    """The reply with the last board drawn this turn added, when none of this turn's tags reached it; else None.
+    Small models sometimes draw a board and then answer without its tag, and the user sees nothing.
+
+    ("Here is your plan.", ["7f3a09bc"]) → 'Here is your plan.\n\n::blocks{id="7f3a09bc"}'
+    ('Plan:\n::blocks{id="7f3a09bc"}', ["7f3a09bc"]) → None;  ("Hi", []) → None
+    """
+    if not drawn_ids or any(f'::blocks{{id="{block_id}"}}' in reply for block_id in drawn_ids):
+        return None
+    return reply.rstrip() + f'\n\n::blocks{{id="{drawn_ids[-1]}"}}'

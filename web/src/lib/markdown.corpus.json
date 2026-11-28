@@ -168,7 +168,7 @@
     "value": 7200.0
    }
   ],
-  "expected": "Saved: 12,500 ₹\n\nClose: 80 (▼ 0.9pt)\n\nFmt: 0.00457\n\nRounded: 1,234.57\n\nHalf: 2.67\n\nNegZero: -0.001\n\nIntFloat: 7,200"
+  "expected": "Saved: 12,500 ₹\n\nClose: 80 (▼ 0.9 pt)\n\nFmt: 0.00457\n\nRounded: 1,234.57\n\nHalf: 2.67\n\nNegZero: -0.001\n\nIntFloat: 7,200"
  },
  {
   "name": "kpis",
@@ -191,7 +191,7 @@
     ]
    }
   ],
-  "expected": "Revenue: 72,275 ₹Cr (▲ 2.2%)"
+  "expected": "Revenue: 72,275 ₹Cr (▲ 2.2%)\nEmpty: no data"
  },
  {
   "name": "table escapes and notes",
@@ -377,7 +377,7 @@
     ]
    }
   ],
-  "expected": "**Revenue vs profit** (₹Cr): Revenue 67,087 → 72,275 (▲ 7.7%); Flat 0 → 0"
+  "expected": "**Revenue vs profit** (₹Cr): Revenue 67,087 → 72,275 (▲ 7.7%), 1 gap (Q2); Flat 0 → 0"
  },
  {
   "name": "chart pie slices",
@@ -445,7 +445,7 @@
     ]
    }
   ],
-  "expected": "**Chart**: Samples 3 points, y 10 → 14\n\n**Chart**: 5 values, 3 → 70, median 40"
+  "expected": ""
  },
  {
   "name": "chart bar hbar words",

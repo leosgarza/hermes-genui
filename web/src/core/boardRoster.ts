@@ -1,4 +1,4 @@
-// The board roster (Living Boards v1, enhancement #9): at most ONE live renderer per address.
+// The board roster (Living Boards): at most ONE live renderer per address.
 //
 // A board's tag is its address; the same address can be quoted twice in one conversation (the model
 // updating the live board pastes the SAME tag again). Two mount points, one object: the FIRST BlockTag
@@ -6,13 +6,13 @@
 // never mounts a second renderer (a second <Blocks> would reset calculator/form/tab state and double
 // the DOM for one board, the exact defect this whole seam exists to prevent).
 //
-// The pointer "pokes" the owner; the owner refetches its id and updates the SAME subtree in place —
-// a layout/state change of the same elements, version bump included. If the owner unmounts (a virtualized
-// transcript scrolled it away), the roster hands the claim to the next living tag for the id, so the
-// board always has exactly one live home.
+// The pointer "pokes" the owner; the owner refetches its id and updates the SAME mounted subtree in
+// place — a layout/state change of the same elements, version bump included. If the owner unmounts (a
+// virtualized transcript scrolled it away), the roster hands the claim to the next living tag for the
+// id, so the board always has exactly one live home.
 //
 // Pure bookkeeping, no React: claim/release/poke/subscribe are called from effects, and subscribers
-// re-render off their own state. Module-level like core/overlays.ts — one page, one roster.
+// re-render off their own state. Module-level — one page, one roster.
 
 export type BoardMeta = { version?: number; updatedAt?: string };
 
@@ -53,7 +53,7 @@ export function claim(id: string, token: symbol): boolean {
 }
 
 /** Let go of an address (unmount). The claim passes to the oldest pointer, if one is alive. Returns true
- *  when the page has let the address go entirely (no owner, no pointer — the round-5 store may forget it). */
+ *  when the page has let the address go entirely (no owner, no pointer — nothing may keep answering it). */
 export function release(id: string, token: symbol): boolean {
   const e = entries.get(id);
   if (e !== undefined) {
@@ -105,7 +105,7 @@ export function getMeta(id: string): BoardMeta {
  *  goes to the poke channel ONLY: a meta change must never look like a new turn (the owner answering a poke
  *  sets its own meta — that word is for the pointers to repeat, not for the owner to chase). */
 export function poke(id: string): void {
-  const e = entries.get(id);
+  const e = entry(id);
   if (e && e.owner !== null) for (const cb of e.pokers) cb();
 }
 

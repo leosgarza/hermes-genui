@@ -17,7 +17,7 @@ def test_funnel_and_pareto_pass():
 
 def test_funnel_takes_one_series():
     blk = {"type": "chart", "kind": "funnel", "x": ["A", "B"], "series": [{"data": [1, 2]}, {"data": [1, 2]}]}
-    assert check_blocks([blk]) == ["0: a funnel chart takes 1-1 series"]
+    assert check_blocks([blk]) == ["0: a funnel chart takes 1 series"]
 
 
 def test_funnel_and_pareto_read_as_text():

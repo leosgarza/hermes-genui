@@ -1,26 +1,25 @@
-// Living Boards identity (enhancement #9) — who a block IS across an update, at any depth.
+// Living Boards identity: who a block IS across an update, at any depth.
 //
 // A living board's update hands over a REPLACEMENT tree, and React reconciles children by key. Three
 // rounds of review proved what the key may and may not depend on:
-//   · keyed by INDEX, an inserted heading remounts every block behind it (round 1) — so a block's key
-//     became the hash of its OWN words, canonicalized (keys sorted; the door's positional `path` stamp
-//     skipped; the #6 presentation words align/text_align excluded);
-//   · hashing a container INCLUDING its descendants re-keyed the whole subtree the moment any child
-//     moved (round 2) — so every value that holds blocks collapses to one constant and the children
-//     name themselves, wherever drawAll reaches them;
-//   · and content alone still cannot tell two same-worded containers apart (round 3): a calculator
-//     inside the LEFT section and a text inside the RIGHT swap places, and an occurrence ordinal — a
-//     positional key by another name — hands the surviving card's slot to the wrong twin.
+//   · keyed by INDEX, an inserted heading remounts every block behind it — so a block's key became the
+//     hash of its OWN words, canonicalized (keys sorted; the door's positional `path` stamp skipped);
+//   · hashing a container INCLUDING its descendants re-keys the whole subtree the moment any child
+//     moves — so every value that holds blocks collapses to one constant and the children name
+//     themselves, wherever drawAll reaches them;
+//   · and content alone still cannot tell two same-worded containers apart: a calculator inside the
+//     LEFT section and a text inside the RIGHT swap places, and an occurrence ordinal — a positional
+//     key by another name — hands the surviving card's slot to the wrong twin.
 //
-// The stable answer, and Sol's binding disposition: identity is CARRIED, not derived per render. When
-// an update lands, carryBlocks() matches the new tree against the tree that is mounted, and every
-// logically-retained block — same own words — inherits the key it was MOUNTED UNDER, independent of
-// content shape and of position alike. Twins that say the same title are distinguished by which one the
-// update kept (their carried keys, assigned once and never re-derived), matched by what they hold rather
-// than by the slot they sit in. A genuinely changed block (its own words moved) is honestly replaced:
-// no match, a fresh key, a fresh draw. A brand-new block gets a fresh key. Plain (never-updated,
-// never-addressed) boards carry nothing: drawAll falls back to the old content key with its occurrence
-// ordinal, byte for byte as an unsaid board has always drawn.
+// The stable answer, carried from the reviewed local build: identity is CARRIED, not derived per
+// render. When an update lands, carryBlocks() matches the new tree against the tree that is mounted,
+// and every logically-retained block — same own words — inherits the key it was MOUNTED UNDER,
+// independent of content shape and of position alike. Twins that say the same title are distinguished
+// by which one the update kept (their carried keys, assigned once and never re-derived), matched by
+// what they hold rather than by the slot they sit in. A genuinely changed block (its own words moved)
+// is honestly replaced: no match, a fresh key, a fresh draw. A brand-new block gets a fresh key. Plain
+// (never-updated, never-addressed) boards carry nothing: drawAll keeps its plain index keys, byte for
+// byte as an unsaid board has always drawn.
 //
 // The hash is FNV-1a over the canonical form: small, synchronous, dependency-free.
 import type { Block } from "../registry";
@@ -28,9 +27,6 @@ import type { Block } from "../registry";
 /** The door's positional stamp ("2.children.1"): the slot, exactly the thing an update is allowed to
  *  move. It stays on the block for the door to file saved ticks under; it stays out of the identity. */
 const POSITIONAL_PATH = /^\d+(?:\.[A-Za-z_]+(?:\.\d+)*)*$/;
-
-/** The wrapper words of enhancement #6: placement, not content. */
-const PRESENTATION_KEYS: ReadonlySet<string> = new Set(["align", "text_align"]);
 
 /** One constant for every value that holds descendant blocks, at any depth: a child list is not
  *  part of the parent's identity — the children are keyed themselves, wherever they are drawn. */
@@ -49,9 +45,7 @@ export function canonicalize(v: unknown, root: boolean): string {
   if (Array.isArray(v)) return `[${v.map((e) => canonicalize(e, false)).join(",")}]`;
   const o = v as Record<string, unknown>;
   const positional = typeof o.type === "string" && typeof o.path === "string" && POSITIONAL_PATH.test(o.path);
-  const keys = Object.keys(o)
-    .filter((k) => !((positional && k === "path") || (root && PRESENTATION_KEYS.has(k))))
-    .sort();
+  const keys = Object.keys(o).filter((k) => !(positional && k === "path")).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(o[k], false)}`).join(",")}}`;
 }
 
@@ -71,8 +65,8 @@ export function identityOf(block: unknown): string {
 // which is exactly the granularity the carry needs):
 //   mounted: what key did this object's drawing get the last time it was on screen (recorded by drawAll);
 //   carried: what key does this object INHERIT, decided once when its update landed.
-// A carried key is what drawAll uses; a fresh or never-updated board has none and keeps the content key
-// with its occurrence ordinal — the accepted, byte-identical drawing of an unsaid board.
+// A carried key is what drawAll uses; a fresh or never-updated board has none and keeps the plain index
+// key — the accepted, byte-identical drawing of an unsaid board.
 
 let freshSeq = 0;
 const mintOf = (b: unknown) => `${identityOf(b)}:~${(freshSeq += 1)}`;
@@ -90,7 +84,7 @@ export function carriedKey(block: object): string | undefined {
   return carried.get(block);
 }
 
-/** A key for a block that is being minted right now: unique by construction, never a legacy ordinal. */
+/** A key for a block that is being minted right now: unique by construction, never an index key. */
 export function mintKey(block: unknown): string {
   return mintOf(block);
 }
@@ -231,17 +225,17 @@ function isHolderWithBlocks(v: unknown): boolean {
 
 // --- the identity SLOT: where the board files a block's answer -----------------------------------------------------
 //
-// A React key is a per-mount detail (carried, minted, or legacy — the machinery above owns it). A living
-// board files a block's interactive STATE by its identity slot instead: the chain of identity blocks above
-// it (each block's own-words hash plus its occurrence among its same-worded siblings, joined by "/") and
-// its own flat identity. Every part of the chain speaks a block's OWN words — never a slot index, never a
-// descendant's content, never a wrapper word — so the same string falls out of the tree at the mount, at
-// an update's promote, and at a reopen drawn from the stored spec: an answer follows its block through an
-// insertion, a reorder, a move between containers, a wrapper flip and a reload. A block moving from one
-// section to another changes its chain, which is exactly why promoteOnUpdate carries the stored answer
-// from the old chain to the new one; two same-worded twins in different parents never share an answer,
-// and only literal twins in the SAME list can collide (their occurrence ordinal is the last distinction
-// content-free identity can offer — the accepted r4 limit).
+// A React key is a per-mount detail (carried, minted, or the plain index — the machinery above owns it).
+// A living board files a block's interactive STATE by its identity slot instead: the chain of identity
+// blocks above it (each block's own-words hash plus its occurrence among its same-worded siblings, joined
+// by "/") and its own flat identity. Every part of the chain speaks a block's OWN words — never a slot
+// index, never a descendant's content — so the same string falls out of the tree at the mount, at an
+// update's promote, and at a reopen drawn from the stored spec: an answer follows its block through an
+// insertion, a reorder, a move between containers and a reload. A block moving from one section to
+// another changes its chain, which is exactly why the promote carries the stored answer from the old
+// chain to the new one; two same-worded twins in different parents never share an answer, and only
+// literal twins in the SAME list can collide (their occurrence ordinal is the last distinction
+// content-free identity can offer — an accepted limit).
 export function kkey(slot: string): string {
   return `k:${slot}`;
 }

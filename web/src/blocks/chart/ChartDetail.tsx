@@ -27,7 +27,7 @@ export type Detail = {
 /** One word for one piece of each drawing, used as the detail's kicker. */
 export const KIND_WORDS: Record<ChartKind, string> = {
   line: "Point", bar: "Column", area: "Point", stacked: "Part", hbar: "Row", combo: "Point",
-  pie: "Slice", donut: "Slice", scatter: "Point", histogram: "Bin", gauge: "Value", bullet: "Row", funnel: "Stage", pareto: "Bar", waterfall: "Step", radar: "Axis", control: "Point", bubble: "Bubble", box: "Group", treemap: "Tile",
+  pie: "Slice", donut: "Slice", scatter: "Point", histogram: "Bin", range: "Band", gauge: "Value", bullet: "Row", funnel: "Stage", pareto: "Bar", waterfall: "Step", radar: "Axis", control: "Point", bubble: "Bubble", box: "Group", treemap: "Tile",
 };
 
 export function ChartDetail({ detail, onClose }: { detail: Detail; onClose: () => void }) {

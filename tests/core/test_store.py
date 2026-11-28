@@ -158,7 +158,53 @@ def test_a_new_board_never_takes_an_id_used_in_another_profile(tmp_path, monkeyp
     assert not (active / f"{taken}.json").exists()
 
 
-# --- board shapes: a plain list, or an envelope that carries the board's own alignment ----------------------------
+def test_follow_ups_of_reads_the_envelope_word(tmp_path):
+    plain = [{"type": "text", "text": "hi"}]
+    ups = [{"label": "Go", "run": "Tell me more"}]
+    assert store.follow_ups_of({"follow_ups": ups, "blocks": plain}) == ups
+    assert store.follow_ups_of(plain) is None
+    assert store.follow_ups_of({"blocks": plain}) is None
+    assert store.follow_ups_of({"follow_ups": "not a list", "blocks": plain}) is None
+    assert store.follow_ups_of({"follow_ups": [], "blocks": plain}) is None
+    assert store.follow_ups_of(None) is None
+
+
+def test_save_and_load_round_trip_a_follow_ups_envelope(tmp_path):
+    ups = [{"label": "Go", "run": "Tell me more"}]
+    board = {"links": [{"id": "7f3a09bc"}], "follow_ups": ups, "blocks": [{"type": "text", "text": "hi"}]}
+    block_id = store.save(board, root=tmp_path)
+    assert store.load(block_id, root=tmp_path) == board
+
+
+# --- the two shapes a stored board comes in -------------------------------------------------------------------------
+
+TEXT = {"type": "text", "text": "hi"}
+
+
+def test_blocks_of_takes_the_blocks_of_either_shape():
+    assert store.blocks_of([TEXT]) == [TEXT]
+    assert store.blocks_of({"align": "center", "blocks": [TEXT]}) == [TEXT]
+    assert store.blocks_of({"text_align": "right", "blocks": [TEXT]}) == [TEXT]
+    assert store.blocks_of(None) == []
+    assert store.blocks_of({"blocks": "not a list"}) == []
+    assert store.blocks_of([TEXT, {"blocks": [TEXT]}]) == [TEXT, {"blocks": [TEXT]}]
+
+
+def test_the_board_words_come_from_the_envelope_only():
+    assert store.align_of({"align": "center", "blocks": [TEXT]}) == "center"
+    assert store.align_of({"align": "whatever", "blocks": [TEXT]}) == "whatever"  # checked where it is drawn
+    assert store.align_of([TEXT]) is None
+    assert store.align_of(None) is None
+    assert store.text_align_of({"text_align": "right", "blocks": [TEXT]}) == "right"
+    assert store.text_align_of({"align": "right", "blocks": [TEXT]}) is None
+    assert store.text_align_of([TEXT]) is None
+
+
+def test_an_envelope_board_round_trips(tmp_path):
+    board = {"align": "center", "text_align": "center", "blocks": [TEXT]}
+    block_id = store.save(board, root=tmp_path)
+    assert store.load(block_id, root=tmp_path) == board
+
 
 def test_blocks_of_reads_both_board_shapes(tmp_path):
     plain = [{"type": "text", "text": "hi"}]
@@ -178,8 +224,6 @@ def test_blocks_of_gives_nothing_for_anything_else(tmp_path):
     assert store.align_of({"align": 5, "blocks": []}) is None
     assert store.align_of({"blocks": []}) is None
 
-
-# --- the envelope's adaptive-look words (enhancement #7): read as written, checked where drawn --------------------
 
 def test_look_words_read_from_the_envelope(tmp_path):
     plain = [{"type": "text", "text": "hi"}]
@@ -217,7 +261,6 @@ def test_save_and_load_round_trip_a_text_align_envelope(tmp_path):
     assert store.align_of(store.load(block_id, root=tmp_path)) == "center"
     assert store.blocks_of(store.load(block_id, root=tmp_path)) == board["blocks"]
 
-# --- the envelope's provenance words: as_of (a date line) and live (a real bool) --------------------------------
 
 def test_blocks_of_still_reads_a_provenance_envelope(tmp_path):
     plain = [{"type": "text", "text": "hi"}]
@@ -246,23 +289,5 @@ def test_live_of_keeps_false_and_refuses_a_non_bool(tmp_path):
 def test_save_and_load_round_trip_a_provenance_envelope(tmp_path):
     board = {"align": "center", "as_of": "Nov 18, 14:05 UTC", "live": False,
              "blocks": [{"type": "text", "text": "hi"}]}
-    block_id = store.save(board, root=tmp_path)
-    assert store.load(block_id, root=tmp_path) == board
-
-
-def test_follow_ups_of_reads_the_envelope_word(tmp_path):
-    plain = [{"type": "text", "text": "hi"}]
-    ups = [{"label": "Go", "run": "Tell me more"}]
-    assert store.follow_ups_of({"follow_ups": ups, "blocks": plain}) == ups
-    assert store.follow_ups_of(plain) is None
-    assert store.follow_ups_of({"blocks": plain}) is None
-    assert store.follow_ups_of({"follow_ups": "not a list", "blocks": plain}) is None
-    assert store.follow_ups_of({"follow_ups": [], "blocks": plain}) is None
-    assert store.follow_ups_of(None) is None
-
-
-def test_save_and_load_round_trip_a_follow_ups_envelope(tmp_path):
-    ups = [{"label": "Go", "run": "Tell me more"}]
-    board = {"align": "center", "follow_ups": ups, "blocks": [{"type": "text", "text": "hi"}]}
     block_id = store.save(board, root=tmp_path)
     assert store.load(block_id, root=tmp_path) == board

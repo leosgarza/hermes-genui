@@ -1,25 +1,25 @@
-# Real-browser layout regression for block placement (t_b6642ef1, review round 1).
+# Real-browser layout regression for block placement: the model's `align` per block and the board's `text_align`
+# word, drawn through the DOM the renderer grows (core/Blocks.tsx Placed()) and measured by headless Chrome.
 #
-# jsdom never lays anything out, so the width defect the Reviewer measured — cross-axis auto margins on a flex
-# column child shrinking a capped card from 720px to its content (720 → 58.875px, and a stretched block 1100 →
-# 30.203px) — slipped past the declaration-only tests. This test feeds Chrome (headless) the repo's own stylesheets
-# with the DOM the frozen renderer draws, and asserts the measured rects: placed cards keep their exact unplaced
-# width, full-width blocks stay at the container width, nested blocks fill their cells, row cells stretch, and a
-# narrow container places without shrinking. Skipif only when no Chrome binary exists on this machine.
-# Round 3 (t_4c0e43aa) adds the provenance footer: the absorbed source block sits on its own full-width row, and
-# that row must measure EXACTLY like the same asks drawn by a no-provenance board — a place squeezed into the
-# join line's flex row shrink-wraps instead (the Reviewer's [8,29.09] on an 800px board). The negative
-# control keeps that defect shape measurable, so the probe proves it is reading real geometry, not classes.
-# Round 4 (t_2ef3fa9e) removes the reader's chips (placement is the model's cascade alone: block, board, left —
-# the override fixture rows go with them) and adds the model's text voice: `text_align` must center or right-set
-# a text block's words WITHOUT moving or resizing its box (placement and voice are separate rules), a plain
-# placement must never imply a voice, and an attribute without its class must compute to the left default —
-# the probe reports getComputedStyle().textAlign, so both controls prove it reads the cascade, not the markup.
-# Round 5 (the review of t_2ef3fa9e) closes the hole that class left: a COMPUTED voice over a SHRINK-WRAPPED
-# flex body moves nothing (the callout's body beside its icon measured exactly its text width, words parked at
-# the left, while textAlign said "center"). Computed style is therefore no longer evidence: the probe now
-# measures the first line of every text-bearing kind with a real Range rect, and keeps the defect itself
-# measurable as the #neg-voice control — same shipped markup, hug restored by a scoped rule that is not CSS.
+# jsdom never lays anything out, so this test feeds Chrome the repo's own stylesheets and asserts real rects:
+# - a placed card keeps its exact unplaced width (cross-axis auto margins must not collapse a capped card or
+#   stop a flex-column child from stretching), and a centered card's margins come out SYMMETRIC;
+# - a chart centers too: `.hb-chart { margin: 0 }` resets the host figure margin, and at equal class
+#   specificity that reset vetoed the placement ask purely on load order — a centered capped chart sat flush
+#   left (measured: 0 on the left, 380 on the right, of an 1100px column) while a calculator centered fine.
+#   The placement rule compounds its two classes (.hb-place.hb-place-center) so the ask outranks every block
+#   root reset; the centered chart must measure equal left and right margins here;
+# - grid and row twins: a placed block inside a cell fills exactly like its unplaced twin (no shrink);
+# - a placed kpis row: the ask moves the CARDS, not the box — the grid's auto-fill tracks collapse (auto-fit)
+#   and the used ones gather symmetrically (center) or end at the edge (right), while the row keeps filling
+#   its column and an unplaced row parks its cards flush left exactly as shipped (maintainer note 2);
+# - text voice: `text_align` moves the WORDS (Range rects, not computed style) inside heading, text, stat and
+#   callout without moving or resizing any box; a plain placement never implies a voice, and a callout opens
+#   its shrink-wrapped body only under a voice;
+# - negative controls keep every fixed defect shape measurable forever: a centered chart with the placement
+#   margin cleared by an inline style (the cascade loss above), a callout body restored to its hug by a
+#   scoped rule that is NOT repo CSS, and an attribute without its class.
+# Skips only when no Chrome/Chromium binary exists on this machine.
 import html
 import os
 import re
@@ -104,6 +104,12 @@ def wide_chart(id_: str) -> str:
     return f'<figure class="hb-card hb-chart hb-chart-wide" id="{id_}">Long line</figure>'
 
 
+def capped_chart(id_: str, extra: str = "") -> str:
+    """A chart exactly as the frozen renderer draws the short-line case: a figure card capped at 720."""
+    style = f' style="{extra}"' if extra else ""
+    return f'<figure class="hb-card hb-chart" id="{id_}"{style}><div class="hb-chart-head">Sales</div></figure>'
+
+
 def grid(id_: str, cells: list[str]) -> str:
     inner = "".join(f'<div class="hb-grid-cell">{c}</div>' for c in cells)
     return f'<div class="hb-grid" id="{id_}">{inner}</div>'
@@ -126,21 +132,19 @@ def callout(base: str, words: str = "Short note") -> str:
             f'<div id="{base}-words" data-word>{words}</div></div></div>')
 
 
+def kpis_row(base: str, extra: str = "") -> str:
+    """A kpis row as the frozen renderer draws it: a grid of identical cards (auto-fill tracks, min 130 max 200).
+    The cards are the thing the ask must move — the grid box itself fills its column, placed or not."""
+    style = f' style="{extra}"' if extra else ""
+    cards = "".join(
+        f'<div class="hb-kpi" id="{base}-c{i}">'
+        f'<div class="hb-kpi-label">Revenue</div><div class="hb-kpi-value">12.4M</div></div>'
+        for i in (1, 2, 3))
+    return f'<div class="hb-kpis" id="{base}"{style}>{cards}</div>'
+
+
 CO_LONG = ("A note long enough to wrap: it must break across at least two lines inside the opened body, "
            "so every line shows a line box and not a hug of one tight word.")
-
-
-PROV_LINE = ('<div class="hb-provenance-line"><span class="hb-provenance-time">2026-11-18</span>'
-             '<span class="hb-provenance-dot" aria-hidden="true">·</span>'
-             '<span class="hb-provenance-badge" data-live="snapshot">Snapshot</span></div>')
-
-
-def footer(word: str, src_id: str) -> str:
-    """The DOM the frozen renderer draws for a declaring board whose absorbed source block lands at `word`
-    (a left ask sits bare, exactly like any block that sits left)."""
-    src = f'<div class="hb-source" id="{src_id}">BLS</div>'
-    row = src if word == "left" else place(word, src, f"{src_id}-place")
-    return f'<div class="hb-provenance">{row}{PROV_LINE}</div>'
 
 
 def measure_script() -> str:
@@ -154,7 +158,7 @@ def measure_script() -> str:
         return `${el.id} ${r.width.toFixed(3)} ${(r.left - rb.left).toFixed(3)} ${r.height.toFixed(3)} ` +
           `${getComputedStyle(el).textAlign}`;
       });
-      // Round 5: the words themselves. A Range over a text-bearing element answers with one rect per line
+      // : the words themselves. A Range over a text-bearing element answers with one rect per line
       // fragment; the first is where the words actually sit, in real layout, not in computed style.
       for (const el of root.querySelectorAll("[data-word]")) {
         const rng = document.createRange();
@@ -182,6 +186,10 @@ def fixture_html() -> str:
       {place("right", text("prose-right"))}
       {wide_chart("chart-left")}
       {place("center", wide_chart("chart-center"))}
+      {capped_chart("chart-plain")}
+      {place("center", capped_chart("chart-centered"))}
+      {place("right", capped_chart("chart-right"))}
+      {place("center", capped_chart("chart-neg", "margin-inline: 0"))}
       {table("table-left")}
       {place("center", table("table-center"))}
       {place("right", table("table-right"))}
@@ -189,6 +197,11 @@ def fixture_html() -> str:
       {ta("right", text("prose-ta-right"), "prose-ta-right-place")}
       {ta_both("right", "center", text("prose-pos-right-ta-center"), "prose-both-place")}
       {place("center", text("prose-plain-inside"), "prose-plain-inside-place")}
+      {kpis_row("kpis-plain")}
+      {place("center", kpis_row("kpis-center"))}
+      {place("right", kpis_row("kpis-right"))}
+      {place("center", kpis_row("kpis-neg", "grid-template-columns: repeat(auto-fill, minmax(130px, 200px)); "
+                                "justify-content: start"))}
     </div>
     """
     # Surviving containers: a grid places its children without touching its cells (paired grids compare placed
@@ -197,6 +210,8 @@ def fixture_html() -> str:
     nested = f"""
     {grid("grid-a", [calc("a1"), calc("a2")])}
     {grid("grid-b", [place("center", calc("b1")), place("center", calc("b2"))])}
+    {grid("grid-c", [capped_chart("gc1"), capped_chart("gc2")])}
+    {grid("grid-d", [place("center", capped_chart("gd1")), place("center", capped_chart("gd2"))])}
     <div class="hb-row" data-root id="row">
       <div class="hb-row-cell">{place("center", calc("row-placed"))}</div>
       <div class="hb-row-cell">{plain}</div>
@@ -213,41 +228,15 @@ def fixture_html() -> str:
       </div>
     </div>
     """
-    # The provenance footer (t_4c0e43aa round 3): the absorbed source lands through the same placement
-    # machinery as any block, on a row of its own — measured here against the identical asks drawn by a
-    # board with no provenance.
-    prov = f"""
-    <div class="hb-blocks" data-root id="prov" style="width:800px">
-      {footer("left", "f-left")}
-      {footer("center", "f-center")}
-      {footer("right", "f-right")}
-    </div>
-    """
-    ctrl = f"""
+    ctrl = """
     <div class="hb-blocks" data-root id="ctrl" style="width:800px">
-      <div class="hb-source" id="c-left">BLS</div>
-      {place("center", '<div class="hb-source" id="c-center">BLS</div>', "c-center-place")}
-      {place("right", '<div class="hb-source" id="c-right">BLS</div>', "c-right-place")}
       <div class="hb-place" data-text-align="center" id="ta-attr-only">
         <div class="hb-text" id="ta-attr-inside">Attribute without its class must read left.</div>
       </div>
     </div>
     """
-    # The negative control keeps the CURRENT defect measurable: the same placed source squeezed into a flex
-    # ROW footer — the shape the Reviewer measured in Chrome (place [8,29.09] on an 800px board). The rule
-    # below is NOT shipped CSS; it is scoped to #neg-ctrl on purpose, so the probe provably reads geometry
-    # and the fix is exactly what changes the numbers above it.
-    neg = f"""
-    <div class="hb-blocks" data-root id="neg-ctrl" style="width:800px">
-      <div class="hb-provenance">
-        {place("right", '<div class="hb-source" id="neg-src">BLS</div>', "neg-place")}
-        <span class="hb-provenance-dot" aria-hidden="true">·</span>
-        <span class="hb-provenance-time">2026-11-18</span>
-      </div>
-    </div>
-    """
-    neg_css = "\n#neg-ctrl .hb-provenance { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }\n"
-    # Round 5: the voice measured on the words, every text-bearing kind the renderer applies it to, at the
+    neg_css = ""
+    # the voice measured on the words, every text-bearing kind the renderer applies it to, at the
     # Reviewer's 800px board with SHORT words — a hug is only visible when the words are short. Left asks sit
     # bare (the frozen renderer grows no wrapper for left), center/right through the one voice wrapper.
     voice = f"""
@@ -269,7 +258,7 @@ def fixture_html() -> str:
     """
     # The negative control keeps THIS round's defect measurable forever: the shipped callout markup under a
     # scoped rule that is NOT shipped CSS — the body's pre-fix hug restored. The class computes "center" and
-    # the words stay parked beside the icon: exactly what the Reviewer measured (body == text width at 800px).
+    # the words stay parked beside the icon: exactly what a review measured (body == text width at 800px).
     neg_voice = f"""
     <div class="hb-blocks" data-root id="neg-voice" style="width:800px">
       {callout("neg-co-l")}
@@ -277,7 +266,7 @@ def fixture_html() -> str:
     </div>
     """
     neg_css += "\n#neg-voice .hb-callout-body { flex: 0 1 auto; }\n"
-    body = board + nested_board + narrow + prov + ctrl + neg + voice + neg_voice
+    body = board + nested_board + narrow + ctrl + voice + neg_voice
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<style>{css}\n{neg_css}</style></head>"
@@ -375,6 +364,43 @@ class TestPlacementSizing:
         assert near(wp, wu), (wp, wu)   # same cell width both cells share
         assert near(hp, hu), (hp, hu)   # flex:1 reached through the place: heights end together
 
+    def test_kpis_row_moves_its_cards_when_placed(self, rects):
+        # Sagar's note 2: align:center on a kpis row had no visible effect — the row is a grid that fills its
+        # column, and auto-fill tracks park the cards left; no auto margin can move a box that wide. Placed,
+        # the empty tracks collapse and the used ones gather symmetrically off the edge; unplaced, the row
+        # sits exactly where it has always sat.
+        col = rects["wide"][0]
+
+        def span(base: str) -> tuple[float, float]:
+            return rects[f"{base}-c1"][1], rects[f"{base}-c3"][1] + rects[f"{base}-c3"][0]
+
+        # default: first card hugs the column's left (the shipped output, untouched by the fix)
+        x0, r0 = span("kpis-plain")
+        assert near(x0, 0.0), x0
+        assert r0 < col - 20, (r0, col)  # the row left space on its right — cards genuinely park left
+        # center: the same span width (the cards never resized), gathered symmetrically off the edges
+        x1, r1 = span("kpis-center")
+        assert near(r1 - x1, r0 - x0), (r1 - x1, r0 - x0)
+        assert x1 > 20, x1
+        assert near(x1, col - r1, 2.0), (x1, col - r1)
+        # right: the cards end at the column's right edge
+        x2, r2 = span("kpis-right")
+        assert near(r2, col, 1.0), (r2, col)
+        assert x2 > 20, x2
+        # the grid box keeps filling the column placed or not — the wrapper fills width, the CARDS moved
+        for base in ("kpis-plain", "kpis-center", "kpis-right"):
+            assert near(rects[base][0], col), (base, rects[base][0])
+
+    def test_negative_control_auto_fill_tracks_park_the_cards_despite_the_ask(self, rects):
+        # The defect shape stays measurable forever: with the fix's whole mechanism cleared inline (auto-fill
+        # tracks restored and the used ones pinned to the start — not shipped CSS), the centered ask does
+        # nothing again — cards park flush left under the place class, exactly as the maintainer measured.
+        x = rects["kpis-neg-c1"][1]
+        r = rects["kpis-neg-c3"][1] + rects["kpis-neg-c3"][0]
+        col = rects["wide"][0]
+        assert near(x, 0.0), x
+        assert r < col - 20, (r, col)
+
     def test_narrow_container_places_without_shrinking(self, rects):
         w0, x0, _ = rects["narrow-left"]
         assert near(w0, 360.0), w0      # cap above board width: the block fills 360
@@ -384,46 +410,52 @@ class TestPlacementSizing:
             assert near(x, x0), (id_, x)  # no free space to share: nothing moves, nothing shrinks
 
 
-class TestProvenancePlacement:
-    """The footer's absorbed source block is placed by the very machinery the board uses — proven with real
-    Chrome geometry at the Reviewer's 800px width, not with class names jsdom cannot lay out."""
+class TestChartPlacement:
+    """Round 6: a card's own margin reset must not silently veto placement. `.hb-chart` resets
+    its root margin (the host's prose styles give a figure one), and at equal class specificity that reset
+    won the cascade purely by load order — so a chart asked to sit centered rendered flush LEFT while a
+    calculator centered fine. These assertions measure the ask in real Chrome rects, and the inline-style
+    control keeps the exact defect shape (cap kept, margin gone) measurable forever."""
 
-    def test_the_place_boxes_span_the_footer_row_at_the_off_left_words(self, rects):
-        # 800px board: each placed row fills it — left edge at 0, right edge at 800 — never the shrink-
-        # wrapped ~29px the Reviewer measured when the place sat as a child of the flex-row footer.
-        for word in ("f-center", "f-right"):
-            w, x, _ = rects[f"{word}-place"]
-            assert near(w, 800.0), (word, w)
-            assert near(x, 0.0), (word, x)
+    def test_left_chart_sits_where_left_is_drawn(self, rects):
+        w, x, _ = rects["chart-plain"]
+        assert near(w, 720.0), w          # the cap stands at left, as it always did
+        assert near(x, 0.0), x
 
-    def test_the_footer_source_measures_exactly_like_the_plain_board(self, rects):
-        # Width and left edge, word by word, against identical asks drawn without provenance. A filling
-        # element keeps the full row at every word (the accepted prose semantics the first class pins);
-        # what placement must never lose is the box a board gives the block in the first place.
-        for word in ("left", "center", "right"):
-            assert rects[f"f-{word}"][:2] == pytest.approx(rects[f"c-{word}"][:2], abs=0.01), word
+    def test_capped_chart_centers_with_symmetric_margins(self, rects):
+        w, x, _ = rects["chart-centered"]
+        assert near(w, 720.0), w                      # centering must never shrink the card off its cap
+        left = x - rects["chart-plain"][1]
+        right = 1100.0 - (x + w)
+        assert near(left, right, 1.0), (left, right)  # symmetric by the rects Chrome measured
+        assert left > 100.0, left                     # the card really travelled, not merely computed
 
-    def test_no_reader_override_mechanism_reaches_the_footer(self, rects):
-        # The chips are gone (t_2ef3fa9e): the only right-word row the footer draws is the model's own ask,
-        # and it measures like the plain right ask. There is no override fixture any more — placement has
-        # exactly one author.
-        assert rects["f-right"][:2] == pytest.approx(rects["c-right"][:2], abs=0.01)
+    def test_right_placed_chart_hugs_the_right_edge(self, rects):
+        w, x, _ = rects["chart-right"]
+        assert near(w, 720.0), w
+        assert near(x + w, 1100.0), (w, x)
 
-    def test_negative_control_shrinkwraps_the_way_the_defect_did(self, rects):
-        # The same right ask squeezed into a flex-row footer — the old shape, kept measurable on purpose:
-        # the place hugs its content and the source stays pinned at the left edge of an 800px board. If
-        # these numbers ever match the fixed rows, this probe has stopped reading real geometry.
-        pw, px, _ = rects["neg-place"]
-        sw, sx, _ = rects["neg-src"]
-        assert pw < 100.0, pw             # ~29px of content where the footer row gives 800
-        assert near(px, 0.0), px
-        assert near(sx, 0.0), sx          # the right-aligned source stuck at the left edge
-        assert sw < 100.0, sw
-        assert rects["f-right"][:2] != pytest.approx(rects["neg-src"][:2], abs=1.0)
+    def test_negative_control_a_cleared_margin_parks_the_chart_left(self, rects):
+        # Same wrapper, same shipped markup, one inline style that is NOT repo CSS: the placement margin
+        # removed. The card keeps its cap and sits flush left — exactly the pre-fix shape. If a centered
+        # chart ever measures the same way again, the auto margin died in the cascade and this probe is
+        # the witness.
+        w, x, _ = rects["chart-neg"]
+        assert near(w, 720.0) and near(x, 0.0), (w, x)
+        assert rects["chart-centered"][:2] != pytest.approx((720.0, 0.0), abs=1.0)
+
+    def test_charts_in_cells_fill_exactly_like_their_unplaced_twins(self, rects):
+        # Grid cells are flex columns: a center ask inside a cell has no leftover space to share out, so
+        # it must never collapse the card to its content (the reviewer's original shrink defect class).
+        for bare, placed in (("gc1", "gd1"), ("gc2", "gd2")):
+            wb, xb, _ = rects[bare]
+            wp, xp, _ = rects[placed]
+            assert near(wp, wb), (placed, wp, wb)
+            assert near(xp, xb), (placed, xp, xb)
 
 
 class TestTextVoice:
-    """`text_align` moves the words inside a text block and nothing else (t_2ef3fa9e): the voice is computed
+    """`text_align` moves the words inside a text block and nothing else: the voice is computed
     from the repo's own cascade, measured by Chrome — and the box around it keeps exactly the width and place
     placement gave it, so the two rules cannot trade damage."""
 
@@ -457,7 +489,7 @@ class TestTextVoice:
 
 
 class TestVoiceWords:
-    """Round 5: the voice is measured on the WORDS, not on computed style. A text-align over a shrink-wrapped
+    """: the voice is measured on the WORDS, not on computed style. A text-align over a shrink-wrapped
     flex body computes "center" while every word stands still beside the icon — the defect this round fixes.
     Every text-bearing kind (heading, text, stat, callout) gets short words at left/center/right on an 800px
     board, and each assertion reads the Range rect of the first line Chrome actually laid out."""

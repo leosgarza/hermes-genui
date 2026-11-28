@@ -2,35 +2,67 @@
 // Shared by the chart reader (read.ts) and the drawings (Chart.tsx, PieChart.tsx, HBarChart.tsx).
 import { formatAmount, formatCompact, formatIndian, formatNumber, formatPercent } from "../../lib/format";
 import { usesLakhCrore } from "../../lib/locale";
-import { niceTicks } from "./geometry";
 
 /** Every kind the chart block draws. */
-export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram", "gauge", "bullet", "funnel", "pareto", "waterfall", "radar", "control", "bubble", "box", "treemap"] as const;
+export const CHART_KINDS = ["line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut",
+  "scatter", "waterfall", "histogram", "range", "gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble",
+  "box", "treemap"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
 
-/** One series: its values (null for a gap), and for a combo's line its own unit and whether it has the right scale. */
-export type ChartSeries = { name?: string; data: (number | null)[]; unit?: string; right?: boolean };
+/** One point of a scatter, or one bar of a waterfall: a scatter reads x and y, a waterfall reads value and total. */
+export type ChartPoint = {
+  /** scatter: the number along the bottom scale. */
+  x?: number;
+  /** scatter: the number up the side; null is unknown, so the point isn't drawn. */
+  y?: number | null;
+  /** waterfall: the signed step from the bar before it. */
+  value?: number | null;
+  /** the point's name: the hover card's title, the text line's word for it, a waterfall bar's label. */
+  label?: string;
+  /** waterfall: a bar pinned from zero to the running balance, not a step. Only true counts. */
+  total?: boolean;
+};
+
+/** A range chart's window at one x: its bottom, its top, and the optional dot; each may be unknown (null). */
+export type ChartSpan = { low: number | null; high: number | null; now: number | null };
+
+/** One series: its values (null for a gap), and for a combo's line its own unit and whether it has the right scale.
+ *  Scatter and waterfall series carry points instead (their data is empty); a range series carries its windows in
+ *  `span`, its `data` holding each window's middle, or the dot when the window is unknown, so the scale, the layout
+ *  and the pick read it like any other column. */
+export type ChartSeries = { name?: string; data: (number | null)[]; unit?: string; right?: boolean;
+  points?: ChartPoint[]; span?: ChartSpan[] };
 
 /** A chart ready to draw (readChart in chart.ts makes one). */
 export type ChartSpec = {
   type: ChartKind; title?: string; x: (string | number)[];
   series: ChartSeries[]; unit?: string; source?: string;
+  /** A limit of the data, set apart from the title and the source; never repeated in the axis labels. */
+  caveat?: string;
+  /** Optional axis captions. On hbar the single horizontal caption names the value axis. */
+  xLabel?: string; yLabel?: string;
   /** false: no headline number or change chip (a what-if chart, where the last point isn't news); values show on hover. */
   figure?: boolean;
   /** "change": a one-series line is green above its first value and orange below it, with the start marked. */
   tone?: "change";
-  /** gauge: the scale and goal; bullet: spec.bands are the qualitative band maxima (absolute). */
-  min?: number; max?: number; target?: number; bands?: number[];
+  /** stepped: line and combo lines hold each value until the next x label, then jump (no diagonal). */
+  stepped?: boolean;
+  /** height in px, 120-480, for the drawing area. */
+  height?: number;
+  /** gauge: the ends of its scale (default 0-100), and the target line to read the value against. */
+  min?: number; max?: number; target?: number;
+  /** gauge and bullet: the range ends behind the track, worst to best; drawn as quiet bands. */
+  bands?: number[];
 };
 
 // Other names models use for the same kinds, written without spaces, dashes or underscores.
-const KIND_ALIASES: Record<string, ChartKind> = {
-  doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar", hist: "histogram",
-  dial: "gauge", speedometer: "gauge", bulletgraph: "bullet",
-};
+const KIND_ALIASES: Record<string, ChartKind> = { doughnut: "donut", stackedbar: "stacked", horizontalbar: "hbar", barh: "hbar",
+  hist: "histogram", rangebar: "range", floatingbar: "range", dial: "gauge", speedometer: "gauge",
+  bulletgraph: "bullet" };
 
 /** The kind to draw for the name the model wrote: a known name (any case) or an alias is that kind, anything else is a
- *  line. "pie" -> pie; "Donut" -> donut; "stacked_bar" -> stacked; "scatter" -> scatter; undefined -> line. */
+ *  line. "pie" -> pie; "Donut" -> donut; "stacked_bar" -> stacked; "hist" -> histogram; "scatter" -> scatter;
+ *  undefined -> line. */
 export function chartKind(name: unknown): ChartKind {
   if (typeof name !== "string") return "line";
   const plain = name.toLowerCase().replace(/[\s_-]/g, "");
@@ -39,13 +71,14 @@ export function chartKind(name: unknown): ChartKind {
   return KIND_ALIASES[plain] ?? "line";
 }
 
-/** How many series a kind draws: stacked bars and areas show up to 6 parts (a budget's categories), a histogram
- *  bins the values of its one series, the rest 3. */
+/** How many series a kind draws: stacked bars and areas show up to 6 parts (a budget's categories), a scatter keeps
+ *  two groups of points, a waterfall is one set of bars, a histogram and a range hold one series (counts, or one
+ *  window per x), the rest 3. */
 export function maxSeries(kind: ChartKind): number {
   if (kind === "stacked" || kind === "area") return 6;
-  if (kind === "histogram" || kind === "gauge" || kind === "funnel" || kind === "pareto" || kind === "waterfall" || kind === "control" || kind === "treemap") return 1;
-  if (kind === "bullet" || kind === "bubble") return 2;
-  if (kind === "box") return 8;
+  if (kind === "scatter" || kind === "bullet" || kind === "bubble") return 2;
+  if (kind === "waterfall" || kind === "histogram" || kind === "range" || kind === "funnel" || kind === "pareto"
+    || kind === "control" || kind === "treemap") return 1;
   return 3;
 }
 
@@ -100,6 +133,29 @@ export function kindToDraw(spec: ChartSpec): ChartKind {
   return lieDown ? "hbar" : "bar";
 }
 
+/** The accessible name of a chart, built from what the drawing shows: title, kind, axes when named, the first and last
+ *  values of the first series, the labels nothing was measured for, and the caveat. The <text> nodes inside the svg are
+ *  part of the image and unread on their own, so the axis captions, the gaps and the limit of the data are carried here
+ *  instead — a gap is read out, never mistaken for a zero. */
+export function chartLabel(spec: ChartSpec): string {
+  const drawn = kindToDraw(spec);
+  const parts = [spec.title?.trim() || spec.series[0].name || "Chart", `${drawn} chart`];
+  const axis = drawn !== "pie" && drawn !== "donut" && drawn !== "hbar";
+  if (spec.xLabel && (axis || drawn === "hbar")) parts.push(`${spec.xLabel}${axis ? " along the bottom" : " along the bars"}`);
+  if (spec.yLabel && axis) parts.push(`${spec.yLabel} up the side`);
+  const unit = spec.series[0].unit ?? spec.unit;
+  const values = spec.series[0].data.filter((v): v is number => v !== null);
+  if (values.length && drawn !== "pie" && drawn !== "donut") {
+    const pct = changePct(spec.series[0].data);
+    const direction = pct === null ? "" : `, ${pct >= 0 ? "up" : "down"} ${Math.abs(pct).toFixed(1)}%`;
+    parts.push(`${fmt(values[0], unit)} to ${fmt(values[values.length - 1], unit)}${direction}`);
+  }
+  const gaps = missingLabels(spec);
+  if (gaps.length) parts.push(gaps.length <= 4 ? `${gaps.join(", ")} no data` : `${gaps.length} of ${spec.x.length} labels with no data`);
+  if (spec.caveat) parts.push(spec.caveat);
+  return parts.join(". ");
+}
+
 /** First to last value as a percentage (gaps skipped); null when there's nothing to compare. [100, null, 110] → 10 */
 export function changePct(data: (number | null)[]): number | null {
   const v = data.filter((x): x is number => x !== null);
@@ -127,23 +183,6 @@ export function pieSlices(x: string[], data: (number | null)[]): { x: string[]; 
   let other = 0;
   for (const s of slices) if (!kept.has(s)) other += s.value;
   return { x: [...shown.map((s) => s.label), "Other"], data: [...shown.map((s) => s.value), other] };
-}
-
-/** A histogram's bins from the values of its one series: about six columns at round edges (niceTicks) covering
- *  the spread; every value counts in exactly one bin, from the left edge up to the right one, the top value
- *  included in the last. Labels read as ranges ("10–20", numbers through fmt); the counts are plain numbers.
- *  [0..9] -> labels 0–2 … 8–10, counts [2,2,2,2,2];  [5,5] -> four bins around 5, the value in one;  [] -> nothing. */
-export function histogramBins(values: number[]): { labels: string[]; counts: number[] } {
-  if (!values.length) return { labels: [], counts: [] };
-  const edges = niceTicks(Math.min(...values), Math.max(...values), 5);
-  const step = edges.length > 1 ? edges[1] - edges[0] : 1;
-  const counts: number[] = new Array(Math.max(edges.length - 1, 1)).fill(0);
-  for (const v of values) {
-    const k = Math.min(counts.length - 1, Math.max(0, Math.floor((v - edges[0]) / step + 1e-9)));
-    counts[k]++;
-  }
-  const labels = counts.map((_, k) => `${fmt(edges[k])}–${fmt(edges[k + 1])}`);
-  return { labels, counts };
 }
 
 /** One part's band in a stack: from where it starts to where it ends. */
@@ -182,6 +221,78 @@ export function totalAt(series: { data: (number | null)[] }[], i: number): numbe
     if (v !== null) total = (total ?? 0) + v;
   }
   return total;
+}
+
+/** A scatter point that has a place on the drawing: its series, its point and its two numbers. */
+export type DrawnPoint = { series: number; point: ChartPoint; x: number; y: number };
+
+/** The points a scatter draws, in reading order: left to right along x, then top to bottom along y. A point whose x
+ *  or y isn't a number has no place on the drawing, so it isn't one of these.
+ *  [{series 0: {x: 62, y: 1.2}, {x: 9, y: 24.6}, {x: 30, y: null}}] -> [9, 24.6] then [62, 1.2] */
+export function scatterPoints(series: ChartSeries[]): DrawnPoint[] {
+  const drawn: DrawnPoint[] = [];
+  series.forEach((s, k) => {
+    for (const point of s.points ?? []) {
+      if (numOrNull(point.x) === null || numOrNull(point.y) === null) continue;
+      drawn.push({ series: k, point, x: point.x as number, y: point.y as number });
+    }
+  });
+  return drawn.sort((a, b) => a.x - b.x || a.y - b.y || a.series - b.series);
+}
+
+const numOrNull = (v: unknown) => (typeof v === "number" && isFinite(v) ? v : null);
+
+/** One bar of a bridge: the band it covers, its label, whether it is a total, and the balance after it (its `to`). */
+export type WaterfallBar = { label?: string; from: number; to: number; total: boolean };
+
+/** A waterfall's bars, in the points' order. A step moves the balance by its value; a total pins its bar from zero to
+ *  the balance, and an opening total (with a value, before any step) sets that balance. A step with no number is
+ *  unknown: it draws nothing and stops the run, so the bars after it draw nothing either (null) and a closing total
+ *  has no figure to show. A total's value after the first step is ignored: the bars say what the steps came to.
+ *  [{value: 120, total}, {value: -8}, {value: 47, total}] -> 0-120, 112-120, 0-112;
+ *  [{value: 120, total}, {label: "Card", value: null}, {total}] -> 0-120, null, null.
+ *  Steps only, from the running balance: [{value: 5}, {value: -2}] -> 0-5, 3-5. */
+export function waterfallBars(points: ChartPoint[]): (WaterfallBar | null)[] {
+  let balance = 0;
+  let broken = false;
+  let moved = false;   // whether a step has moved the balance yet
+  return points.map((point) => {
+    if (broken) return null;
+    if (point.total === true) {
+      const opening = numOrNull(point.value);
+      if (!moved && opening !== null) balance = opening;
+      return { label: point.label, from: 0, to: balance, total: true };
+    }
+    const value = numOrNull(point.value);
+    if (value === null) {
+      broken = true;
+      return null;
+    }
+    const bar = { label: point.label, from: balance, to: balance + value, total: false };
+    balance += value;
+    moved = true;
+    return bar;
+  });
+}
+
+// A title that puts one measure against another names a scatter's two axes: everything before "against", "by" or
+// "vs" is the measure up the side, everything after it the one along the bottom.
+const AGAINST = /^(.+?)\s+(?:against|by|vs\.?)\s+(.+)$/i;
+
+/** The names of a scatter's axes, read from a title like "Price against mileage": y is "price" and x "mileage".
+ *  Without "against", "by" or "vs" both are unnamed (axisNames(undefined) -> {}).
+ *  "Range by price" -> {x: "price", y: "range"};  "Revenue" -> {} */
+export function axisNames(title: string | undefined): { x?: string; y?: string } {
+  const match = typeof title === "string" ? AGAINST.exec(title.trim()) : null;
+  if (!match) return {};
+  const y = axisWord(match[1]), x = axisWord(match[2]);
+  return x && y ? { x, y } : {};
+}
+
+/** "Price " -> "price"; "Mileage (km/l)" -> "mileage (km/l)". */
+function axisWord(text: string): string | undefined {
+  const word = text.trim().toLowerCase().replace(/[\s:,.?!]+$/, "");
+  return word || undefined;
 }
 
 /** The range a scale shows for these values, padded 8% so nothing touches the edge. fromZero keeps zero in view and
@@ -226,23 +337,53 @@ export function seriesName(series: { name?: string }[], k: number): string {
   return series[k].name ?? (series.length === 1 ? "Value" : `Series ${k + 1}`);
 }
 
+/** The x labels no series has a number for, in order: an unknown reading is named, not left to be guessed.
+ *  x ["Mon", "Tue"], data [3, null] → ["Tue"];  data [3, 4] → [] */
+export function missingLabels(spec: ChartSpec): string[] {
+  return spec.x.filter((_, i) => spec.series.every((s) => s.data[i] === null || s.data[i] === undefined)).map(String);
+}
+
 type Scale = { min: number; max: number };
 
 /** The scales an up-and-down chart (not a pie or hbar) is drawn against. Stacked bars and areas: one, from zero to the
- *  tallest pile. Otherwise the left one fits every series without the right scale (from zero for bars and a combo's
- *  bars) and the right one, only in a combo, fits the series that have it.
+ *  tallest pile. A scatter: the values up the side and, on `x`, the numbers along the bottom. A range: one, from its
+ *  lowest window bottom to its highest top (or dot). Otherwise the left one fits every series without the right scale
+ *  (from zero for bars, a combo's bars and a histogram's counts) and the right one, only in a combo, fits the series
+ *  that have it.
  *  Combo of revenue (₹Cr, 65799-72275) and margin (%, 18.2-19.6) -> left 0 to ~78000, right ~18.1 to ~19.7;
- *  a line chart -> left fits the values, right null. */
-export function chartScales(spec: ChartSpec, bands: (Band | null)[][] | null): { left: Scale; right: Scale | null } {
+ *  a line chart -> left fits the values, right null;
+ *  a scatter of mileage 9-62 against price 1.2-24.6 -> x ~6 to ~66, left ~0.5 to ~28. */
+export function chartScales(spec: ChartSpec, bands: (Band | null)[][] | null): { left: Scale; right: Scale | null; x?: Scale } {
+  if (spec.type === "scatter") {
+    const drawn = scatterPoints(spec.series);
+    return { left: scaleFor(drawn.map((p) => p.y), false), right: null,
+      x: scaleFor(drawn.map((p) => p.x), false) };
+  }
   if (bands) {
     const ends = bands.flat().flatMap((b) => (b === null ? [] : [b.from, b.to]));
     return { left: scaleFor(ends, true), right: null };
+  }
+  if (spec.type === "range") {
+    const edges = spec.series.flatMap((s) => (s.span ?? []).flatMap((b) => (b ? numbersOf([b.low, b.high, b.now]) : [])));
+    return { left: scaleFor(edges.length ? edges : numbersOf(spec.series[0].data), false), right: null };
   }
   const leftValues = spec.series.filter((s) => !s.right).flatMap((s) => numbersOf(s.data));
   const rightValues = spec.series.filter((s) => s.right).flatMap((s) => numbersOf(s.data));
   const fromZero = spec.type === "bar" || spec.type === "combo" || spec.type === "histogram";
   const right = rightValues.length ? scaleFor(rightValues, false) : null;
   return { left: scaleFor(leftValues, fromZero), right };
+}
+
+/** How many values a histogram counted, and which bin holds the most (the first of a tie; -1 for none counted).
+ *  [4, 12, 9, null, 0] → { total: 25, tallest: 1 } */
+export function binTotals(data: (number | null)[]): { total: number; tallest: number } {
+  let total = 0, tallest = -1, most = -1;
+  data.forEach((v, i) => {
+    if (v === null) return;
+    total += v;
+    if (v > most) { most = v; tallest = i; }
+  });
+  return { total, tallest };
 }
 
 function numbersOf(data: (number | null)[]): number[] {
@@ -276,4 +417,14 @@ export function fmt(v: number, unit?: string, { full = false }: { full?: boolean
     : rupees ? formatIndian(abs, digits) : formatNumber(abs, { digits });
   const signed = `${v < 0 ? "-" : ""}${sign}${s}`;
   return sign || !unit || unit === "pts" || unit.length > MAX_UNIT ? signed : `${signed} ${unit}`;
+}
+
+/** A range's window as text: both ends with the unit on each, the one end that is known, or a dash when neither is.
+ *  (18, 34, "min") → "18 min–34 min";  (18, 34, "%") → "18%–34%";  (null, 34, "min") → "34 min";  (null, null) → "–" */
+export function fmtSpan(low: number | null, high: number | null, unit?: string, { full = false }: { full?: boolean } = {}) {
+  if (low === null || high === null) {
+    const one = low ?? high;
+    return one === null ? "–" : fmt(one, unit, { full });
+  }
+  return `${fmt(low, unit, { full })}–${fmt(high, unit, { full })}`;
 }

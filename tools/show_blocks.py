@@ -3,6 +3,7 @@
 import json
 import math
 
+from ..blocks.chart import CHART_KINDS
 from ..blocks.common import (
     DENSITY,
     MOTION,
@@ -17,9 +18,11 @@ from ..blocks.common import (
     link_words,
     live_flag,
 )
-from ..core import store, surface
-from ..core.catalog_text import describe
-from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, too_deep
+from ..core import drawn, store, surface
+from ..core.catalog_text import describe, icons_line, spec
+from ..core.catalog_text import menu as core_menu
+from ..core.guide import GUIDE
+from ..core.check import IMAGE_URL_FIELDS, MAX_NESTING, check_blocks, child_lists, guess_kinds, too_deep
 
 __all__ = ["SHOW_BLOCKS_SCHEMA", "child_lists", "paste_instruction", "resolve_includes", "show_blocks",
            "tag_for", "unknown_photos"]
@@ -37,15 +40,54 @@ def tag_for(block_id: str) -> str:
 def paste_instruction(block_id: str, includable: bool = False) -> str:
     """The line telling the model to paste the tag. A tool-made board also says how to place it inside a bigger
     layout (a dashboard), via an include block."""
-    paste = f"Put this on its own line in your reply, exactly as it is:\n{tag_for(block_id)}"
+    # "Drawn" and "don't draw it again": some models kept redrawing a board that had already been drawn.
+    paste = ("Drawn. Now write your reply, with this line on its own, exactly as it is (don't draw it again):\n"
+             + tag_for(block_id))
     if not includable:
         return paste
     include = f'{{"type": "include", "id": "{block_id}"}}'
     return f"(To place this board inside a bigger layout instead, use {include} in show_blocks.)\n{paste}"
 
 
-def _not_drawn(problems: list[str]) -> str:
-    return "Not drawn. Fix these and call show_blocks again:\n" + "\n".join(f"- {p}" for p in problems)
+# A refused board comes back with how to write the blocks it got wrong, for at most this many types.
+MAX_GUIDES = 3
+
+
+def _not_drawn(problems: list[str], blocks: list | None = None) -> str:
+    text = "Not drawn. Fix these and call show_blocks again:\n" + "\n".join(f"- {p}" for p in problems)
+    guides = [g for kind in _refused_kinds(problems, blocks or []) if (g := spec(kind))][:MAX_GUIDES]
+    if guides:
+        text += f"\n\nHow to write {'it' if len(guides) == 1 else 'them'}:\n" + "\n".join(guides)
+    if any("catalog icons" in p for p in problems):  # a made-up icon: say which ones there are
+        text += "\n" + icons_line()
+    return text
+
+
+def _refused_kinds(problems: list[str], blocks: list) -> list[str]:
+    """The block types the problems are about, in order, each once: the innermost block with a type on each problem's
+    path, or for a block with no type, the type its fields point to.
+
+    (["1.children.0.rows: ..."], [text, {"type": "row", "children": [{"type": "table", ...}]}]) → ["table"]
+    """
+    kinds: list[str] = []
+    for problem in problems:
+        node: object = blocks
+        kind = None
+        for step in problem.split(":", 1)[0].split("."):
+            if isinstance(node, list) and step.isdigit() and int(step) < len(node):
+                node = node[int(step)]
+            elif isinstance(node, dict) and step in node:
+                node = node[step]
+            else:
+                break
+            if isinstance(node, dict) and isinstance(node.get("type"), str):
+                kind = node["type"]
+        if 'no "type"' in problem and isinstance(node, dict):
+            kind = next(iter(guess_kinds(node)), None)
+        kind = "chart" if kind in CHART_KINDS and spec(kind) is None else kind
+        if kind and kind not in kinds:
+            kinds.append(kind)
+    return kinds
 
 
 def _as_list(raw: object) -> list | None:
@@ -111,8 +153,9 @@ def unknown_photos(blocks: list, known: set[str], path: str = "") -> list[str]:
     """Photos whose URL no tool returned, as problems. Walks into containers and tabs.
 
     [{"type": "images", "images": [{"url": "https://made.up/x.jpg"}]}] with nothing known
-    → ["0.images.0: use only photo URLs that find_photos returned"]
-    [{"type": "image", "url": "https://made.up/y.jpg"}] → ["0.url: use only photo URLs that find_photos returned"]
+    → ["0.images.0: use only image URLs that find_photos or image_generate returned"]
+    [{"type": "image", "url": "https://made.up/y.jpg"}]
+    → ["0.url: use only image URLs that find_photos or image_generate returned"]
     """
     problems = []
     for i, block in enumerate(blocks):
@@ -121,7 +164,7 @@ def unknown_photos(blocks: list, known: set[str], path: str = "") -> list[str]:
             continue
         for where, url in photos_in(block):
             if url not in known:
-                problems.append(f"{here}.{where}: use only photo URLs that find_photos returned")
+                problems.append(f"{here}.{where}: use only image URLs that find_photos or image_generate returned")
         for where, children in child_lists(block):
             problems += unknown_photos(children, known, f"{here}.{where}.")
     return problems
@@ -154,8 +197,9 @@ def resolve_includes(blocks: list, problems: list[str], path: str = "", level: i
 
 
 def _included(block_id: str, here: str, problems: list[str]) -> list:
-    """The board an include at `here` names, or [] with a problem added: unknown, or over INCLUDE_LIMIT (its file's
-    size is read before the board is, so a huge file is never loaded).
+    """The blocks of the board an include at `here` names, or [] with a problem added: unknown, or over
+    INCLUDE_LIMIT (its file's size is read before the board is, so a huge file is never loaded). A board that
+    has taken updates answers its CURRENT version's blocks — an include names an address, not a snapshot.
 
     "7f3a09bc" (a 2 KB board of [chart, source]) → [chart, source];  "0badc0de" (nothing stored) → [], a problem
     """
@@ -165,12 +209,13 @@ def _included(block_id: str, here: str, problems: list[str]) -> list:
         problems.append(f"{here}: board {block_id} is too big to include (max {INCLUDE_LIMIT // 1024} KB)")
     elif board is None:
         problems.append(f"{here}: no stored board with id {block_id}")
-    # the board's own words (align, provenance, follow-ups) stay with it: an include takes just the blocks.
+    # the board's own words (living, placement) stay with the board; includes take just the blocks
     return store.blocks_of(board)
 
 
 def too_big(blocks: list | dict) -> str | None:
-    """The refusal for a board over store.BOARD_LIMIT as JSON, or None when it fits.
+    """The refusal for a board over store.BOARD_LIMIT as JSON, or None when it fits. The board either shape:
+    the plain list of blocks or the envelope an update leaves at an address.
 
     a 300 KB board → "Not drawn: board too big (300 KB, max 256 KB). Draw less or split it.";  a 2 KB board → None
     """
@@ -192,7 +237,8 @@ def _target_address(raw: object, problems: list[str]) -> str | None:
         problems.append('target: not a board address — the 8 characters of an earlier tag id, as "7f3a09bc". '
                         "Leave target out to draw a new board.")
         return None
-    if store.find_root(addr) is None:
+    if store.load(addr, root=store.default_root()) is None:
+        # A write target must be a board of THIS profile (an update never reaches across; reads still do).
         problems.append(f"target: no stored board with address {addr} — draw a new board (leave target out) "
                         "instead of naming an address that answers nothing.")
         return None
@@ -222,6 +268,17 @@ def _link_addresses(raw: object, target: str | None, problems: list[str]) -> lis
     return link_words(raw)
 
 
+# The words the live-board answer says before the paste line: what the tool did, in one breath.
+UPDATED = ("Updated the same live board {addr} to v{version} — the tag below is that same address: paste it "
+           "where the update belongs and the board updates in place; the versions before this one stay "
+           "retrievable within the store's bounded history (the newest archived, oldest dropped past the cap).\n")
+
+# The same sentence in the short-menu schema (#42): the menu names the blocks, the living words ride in the
+# parameters — target and links — where the schema can carry them in full.
+LIVING_MENU = ("\n\nBoards live: the id in a board's tag is its address, so a board you drew earlier can be updated "
+               "in place (target) or connected to (links) instead of redrawn. See target and links.")
+
+
 def show_blocks(params: dict, **kwargs) -> str:
     if not surface.can_draw(session_id=str(kwargs.get("session_id") or "")):
         return surface.CANT_DRAW
@@ -231,36 +288,40 @@ def show_blocks(params: dict, **kwargs) -> str:
     if not blocks:
         return _not_drawn(["blocks: give at least one block"])
     problems = check_blocks(blocks) + follow_up_problems(params.get("follow_ups"))
+    if problems:  # the check's problems come with how to write the blocks they're about
+        return _not_drawn(problems, blocks)
     target = _target_address(params.get("target"), problems)
     links = _link_addresses(params.get("links"), target, problems) if params.get("links") is not None else None
-    if not problems:
-        blocks = resolve_includes(blocks, problems)
+    if problems:
+        return _not_drawn(problems)
+    blocks = resolve_includes(blocks, problems)
     if not problems:  # an included board can take the whole one past the nesting limit
         problems = [deep] if (deep := too_deep(blocks)) else []
     if problems:
         return _not_drawn(problems)
-    board = blocks
+    # The board's own placement words ride beside its blocks; said or not, a block can override either one.
+    word, text_word = align_word(params.get("align")), align_word(params.get("text_align"))
     envelope: dict = {}
-    if (word := align_word(params.get("align"))) is not None:
+    if word is not None:
         envelope["align"] = word
-    if (word := align_word(params.get("text_align"))) is not None:  # the same three words, for how the text reads
-        envelope["text_align"] = word
+    if text_word is not None:
+        envelope["text_align"] = text_word
     if (word := choice_word(params.get("density"), DENSITY)) is not None:  # how the board packs its space
         envelope["density"] = word
     if (word := choice_word(params.get("palette"), PALETTE)) is not None:  # which chart colours it draws from
         envelope["palette"] = word
     if (word := choice_word(params.get("motion"), MOTION)) is not None:  # how much it moves when it can
         envelope["motion"] = word
-    if (as_of := as_of_line(params.get("as_of"))) is not None:
+    if (as_of := as_of_line(params.get("as_of"))) is not None:  # when its data is from, one quiet footer line
         envelope["as_of"] = as_of
-    if (live := live_flag(params.get("live"))) is not None:
+    if (live := live_flag(params.get("live"))) is not None:  # its figures update: Live, or a Snapshot
         envelope["live"] = live
-    if (ups := follow_up_words(params.get("follow_ups"))) is not None:  # checked by follow_up_problems above
-        envelope["follow_ups"] = ups
-    if links:  # checked by _link_addresses above: every one names a stored board
+    if links:
         envelope["links"] = links
-    if envelope:  # the board's own words ride beside its blocks, in one envelope
-        board = {**envelope, "blocks": blocks}
+    ups = follow_up_words(params.get("follow_ups"))  # its shape was answered by follow_up_problems above
+    if ups:
+        envelope["follow_ups"] = ups
+    board: list | dict = {**envelope, "blocks": blocks} if envelope else blocks
     refusal = too_big(board)
     if refusal:
         return refusal
@@ -270,114 +331,121 @@ def show_blocks(params: dict, **kwargs) -> str:
     if target is not None:  # update-in-place: a new version at the SAME address, the old ones archived
         block_id = store.update(target, board)
         version = store.version_of(store.load(block_id, store.find_root(block_id)))
-        return (f"Updated the same live board {block_id} to v{version} — the tag below is that same address: "
-                f"paste it where the update belongs and the board updates in place, keeping the versions "
-                f"before this one retrievable.\n" + paste_instruction(block_id))
-    return paste_instruction(store.save(board))
+        drawn.note(str(kwargs.get("session_id") or ""), block_id)
+        return UPDATED.format(addr=block_id, version=version) + paste_instruction(block_id)
+    block_id = store.save(board)
+    drawn.note(str(kwargs.get("session_id") or ""), block_id)  # so a reply that loses the tag gets it back
+    return paste_instruction(block_id)
 
 
-SHOW_BLOCKS_SCHEMA = {
-    "name": "show_blocks",
-    "description": (
-        "Draw visual blocks in the reply (Hermes Desktop): itineraries, trends, comparisons, headline numbers, "
-        "photos. Use it when the answer reads better drawn than written. "
-        "Paste the returned tag on its own line exactly as returned. "
-        "Use only numbers and image URLs a tool returned. "
-        "Boards live: the id in a board's tag is its address, so a board you drew earlier can be updated in "
-        "place (target) or connected to (links) instead of redrawn. See target and links.\n\n" + describe()
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "blocks": {
-                "type": "array",
-                "items": {"type": "object"},
-                "description": "The blocks to draw, in order. Each has a `type`, may ask for its place with "
-                "`align`: left | center | right, and may say how its words read with `text_align`: left | center | "
-                "right. A table may also carry `interactive`: true, which lets the reader search its rows, tick "
-                "the rows that matter and send the picked ones back to the chat; without it a table draws static. "
-                'A chart may also carry `kind`: "scatter" (a dot at each x/y pair; x labels that are all numbers '
-                'place the dots by value) or "histogram" (one series of the raw values themselves — no x needed: '
-                'it counts them into about six round bins).',
+def schema(guide: str = "full") -> dict:
+    """show_blocks's schema. "full" carries every block's fields and example; "menu" (#42) carries the short menu,
+    and the model gets fields from block_guide."""
+    if guide == "menu":
+        description = core_menu() + LIVING_MENU
+    else:
+        description = (
+            "Draw visual blocks in the reply (Hermes Desktop): itineraries, trends, comparisons, headline numbers, "
+            "photos. Use it when the answer reads better drawn than written. "
+            "Paste the returned tag on its own line exactly as returned. "
+            "Use only numbers and image URLs a tool returned. "
+            "Boards live: the id in a board's tag is its address, so a board you drew earlier can be updated in "
+            "place (target) or connected to (links) instead of redrawn. See target and links.\n\n" + describe()
+        )
+    return {
+        "name": "show_blocks",
+        "description": description,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "blocks": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "The blocks to draw, in order. Each has a `type`, and may ask for its place "
+                    "with `align`: left | center | right (its words with `text_align`).",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Optional. The address of a board you drew earlier in this conversation — the 8-"
+                    "character id inside its ::blocks tag (e.g. \"7f3a09bc\"). Set it when the user asks to change, "
+                    "extend or tighten THAT board (\"add NVDA\", \"make it compact\", \"update the numbers\"): the "
+                    "board updates in place at the same address, keeps a bounded version history (recent archived "
+                    "versions stay retrievable; past the store's cap the oldest drop), and the reply pastes its "
+                    "same tag — not a new board. Leave it out for anything "
+                    "new; a wrong address is refused, never silently redrawn fresh. Most turns need no target.",
+                },
+                "links": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Optional. 1-3 boards this one connects to, each an address (\"7f3a09bc\") or "
+                    "{\"id\": \"7f3a09bc\", \"note\": \"last quarter\"}. Use it when reaching back genuinely helps — "
+                    "a comparison the user asked for (\"how does this quarter compare to last?\"), or a prior board "
+                    "this one updates — and name the stored board the user's earlier tag carried: the reader can "
+                    "open the linked board from this one without it being redrawn. Every address must be a board "
+                    "that exists; a board never links to itself. The note is the connection as you suggest it, one "
+                    "short line. Most turns need no links.",
+                },
+                "align": {
+                    "type": "string",
+                    "description": "Optional. Where the blocks of this whole board sit across the reply when a "
+                    "block doesn't ask for itself: left (the default) | center | right. A board word: it moves the "
+                    "whole board — to place one block (a verdict, a chart), give that block its own align instead.",
+                },
+                "text_align": {
+                    "type": "string",
+                    "description": "Optional. How the words inside the board's text blocks read when a block "
+                    "doesn't ask for itself: left (the default) | center | right. A board word: it moves the whole "
+                    "board — to re-read one block, give that block its own text_align. It changes how words read, "
+                    "never where cards sit.",
+                },
+                "density": {
+                    "type": "string",
+                    "description": "Optional. How much air this whole board keeps: comfortable (the default) | "
+                    "compact (tighter spacing between and inside cards, for fitting a lot of figures on one screen). "
+                    "Yours to decide from the content and who reads it — a data-dense dashboard or tracker usually "
+                    "reads better compact; a story, plan or first-glance answer better comfortable. The reader has no "
+                    "control.",
+                },
+                "palette": {
+                    "type": "string",
+                    "description": "Optional. Which colours this board's charts draw from: default (the house set) | "
+                    "cool (blues, teals, violets) | warm (reds, ambers, pinks). Yours to decide from the subject — "
+                    "cool suits money and operations, warm suits alerts and energy; keep default when a colour must "
+                    "carry meaning on its own or nothing special fits. Only chart series recolour: themes and the "
+                    "app's accent stay as they are. The reader has no control.",
+                },
+                "motion": {
+                    "type": "string",
+                    "description": "Optional. How much this board moves: full (the default) | reduced (animations "
+                    "settle at once). Yours to decide — reduced suits a quiet dashboard or a board meant for reading; "
+                    "full suits an explainer that animates to make a point. It never overrides the reader's system: "
+                    "a device that asks for less motion always gets less, whatever you say.",
+                },
+                "as_of": {
+                    "type": "string",
+                    "description": "Optional. When the board's data is from, as one line people read rather than a "
+                    "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The board's footer shows "
+                    "it beside its source line.",
+                },
+                "live": {
+                    "type": "boolean",
+                    "description": "Optional. true: the figures update live; false: this is a snapshot taken at as_of. "
+                    "The board's footer shows the word Live or Snapshot. Only give it when you really know.",
+                },
+                "follow_ups": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Optional. One line of quiet tappable prompts (1-4) drawn under the board, each "
+                    "{\"label\": \"Plan day 2\", \"run\": \"Plan the second day of my Kyoto itinerary\"}. A tap sends "
+                    "the run message to the chat as the reader's own — you choose the prompts; the reader gets no "
+                    "controls. Offer them when one more exchange would genuinely help (a next step, a deeper cut, a "
+                    "fix to a flaw the board itself shows); skip them when the answer is finished. A message Hermes "
+                    "acts on before the model (starting / @ or !, or carrying an @-reference) is refused.",
+                },
             },
-            "align": {
-                "type": "string",
-                "description": "Optional. Where the blocks of this whole board sit across the reply when a block "
-                "doesn't ask for itself: left (the default) | center | right. Yours to decide; the reader has no "
-                "control.",
-            },
-            "text_align": {
-                "type": "string",
-                "description": "Optional. How the words inside this board's text blocks (heading, text, stat, "
-                "callout) read when a block doesn't ask for itself: left (the default) | center | right. Set it "
-                "adaptively — a centered headline or stat for emphasis, left for prose. Charts, tables, images "
-                "and layouts keep their own layout and ignore it.",
-            },
-            "density": {
-                "type": "string",
-                "description": "Optional. How much air this whole board keeps: comfortable (the default) | "
-                "compact (tighter spacing between and inside cards, for fitting a lot of figures on one screen). "
-                "Yours to decide from the content and who reads it — a data-dense dashboard or tracker usually "
-                "reads better compact; a story, plan or first-glance answer better comfortable. The reader has no "
-                "control.",
-            },
-            "palette": {
-                "type": "string",
-                "description": "Optional. Which colours this board's charts draw from: default (the house set) | "
-                "cool (blues, teals, violets) | warm (reds, ambers, pinks). Yours to decide from the subject — "
-                "cool suits money and operations, warm suits alerts and energy; keep default when a colour must "
-                "carry meaning on its own or nothing special fits. Only chart series recolour: themes and the "
-                "app's accent stay as they are. The reader has no control.",
-            },
-            "motion": {
-                "type": "string",
-                "description": "Optional. How much this board moves: full (the default) | reduced (animations "
-                "settle at once). Yours to decide — reduced suits a quiet dashboard or a board meant for reading; "
-                "full suits an explainer that animates to make a point. It never overrides the reader's system: "
-                "a device that asks for less motion always gets less, whatever you say.",
-            },
-            "as_of": {
-                "type": "string",
-                "description": "Optional. When the board's data is from, as one line people read rather than a "
-                "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The board's footer shows "
-                "it beside its source line.",
-            },
-            "live": {
-                "type": "boolean",
-                "description": "Optional. true: the figures update live; false: this is a snapshot taken at as_of. "
-                "The board's footer shows the word Live or Snapshot. Only give it when you really know.",
-            },
-            "follow_ups": {
-                "type": "array",
-                "items": {"type": "object"},
-                "description": "Optional. One line of quiet tappable prompts (1-4) drawn under the board, each "
-                "{\"label\": \"Plan day 2\", \"run\": \"Plan the second day of my Kyoto itinerary\"}. A tap sends "
-                "the run message to the chat as the reader's own — you choose the prompts; the reader gets no "
-                "controls. Offer them when one more exchange would genuinely help (a next step, a deeper cut, a "
-                "fix to a flaw the board itself shows); skip them when the answer is finished. A message Hermes "
-                "acts on before the model (starting / @ or !, or carrying an @-reference) is refused.",
-            },
-            "target": {
-                "type": "string",
-                "description": "Optional. The address of a board you drew earlier in this conversation — the 8-"
-                "character id inside its ::blocks tag (e.g. \"7f3a09bc\"). Set it when the user asks to change, "
-                "extend or tighten THAT board (\"add NVDA\", \"make it compact\", \"update the numbers\"): the "
-                "board updates in place at the same address, keeps a version history (the older version stays "
-                "retrievable), and the reply pastes its same tag — not a new board. Leave it out for anything "
-                "new; a wrong address is refused, never silently redrawn fresh. Most turns need no target.",
-            },
-            "links": {
-                "type": "array",
-                "items": {"type": "object"},
-                "description": "Optional. 1-3 boards this one connects to, each an address (\"7f3a09bc\") or "
-                "{\"id\": \"7f3a09bc\", \"note\": \"last quarter\"}. Use it when reaching back genuinely helps — "
-                "a comparison the user asked for (\"how does this quarter compare to last?\"), or a prior board "
-                "this one updates — and name the stored board the user's earlier tag carried: the reader can "
-                "open the linked board from this one without it being redrawn. Every address must be a board "
-                "that exists; a board never links to itself. The note is the connection as you suggest it, one "
-                "short line. Most turns need no links.",
-            },
+            "required": ["blocks"],
         },
-        "required": ["blocks"],
-    },
-}
+    }
+
+
+SHOW_BLOCKS_SCHEMA = schema(GUIDE)

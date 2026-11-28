@@ -2,6 +2,8 @@
 docs/
 HANDOVER.md
 .superpowers/
+# Names the tests keep out of published files (tests/tools/test_assistant_tools.py reads it)
+tests/private-names.txt
 
 # Dependencies, caches and build leftovers
 web/node_modules/
@@ -15,3 +17,6 @@ __pycache__/
 # Local agent worktrees and settings
 .claude/
 .playwright-mcp/
+
+# Model runs from evals/run.py
+evals/results/

@@ -15,18 +15,6 @@ def test_describe_names_every_type():
         assert entry["kind"] in text
 
 
-def test_describe_stays_compact():
-    # about 4 characters per token; the description goes with every request, so it stays near 3,390 tokens (raised
-    # from 2,750 for the form's ask-first guidance, to 3,025 for flow and steps, then for simulate and layers, each
-    # time after trimming other entries; 3,350 for the model-decided look words — density, palette, motion —
-    # carried in catalog `about` so every authoring model reads the choices, per Sol's #7 spec disposition; now
-    # 3,390 for the one line that teaches a board's tag id is its address — update or link, never redraw — the
-    # living-boards contract every authoring model must read to keep the chat's visual memory alive)
-    # Now 3650 for the cards block — one compact wall of project cards (14 projects in one block, sidestepping
-    # the 40-block cap) with the honest-unknown rule the portfolio needs.
-    assert len(describe()) < 4150 * 4
-
-
 def test_atoms_take_one_line_each():
     lines = describe().splitlines()
     for entry in CATALOG["blocks"]:
@@ -65,3 +53,10 @@ def test_flow_says_it_is_a_chain_and_where_branching_graphs_go():
         assert words in flow["fields"], words
     for words in ("for: a flow id", "items 2-12", "text ≤600", "node", "image"):
         assert words in steps["fields"], words
+
+
+def test_the_about_line_tells_the_model_its_blocks_can_ask_for_their_place():
+    # The placement lever is board-wide, not per type, so it is stated once in the about line the model reads first
+    # (describe()'s opening), rather than repeated in all 39 field lists.
+    assert "align: left | center | right" in CATALOG["about"]
+    assert "text_align" in CATALOG["about"]

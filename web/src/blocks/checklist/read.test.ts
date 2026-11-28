@@ -33,3 +33,93 @@ describe("checklist", () => {
     expect(one({ type: "checklist", items: [] }).dropped).toEqual([{ path: "0", why: "checklist has no item with text" }]);
   });
 });
+
+describe("checklist item ids", () => {
+  it("keeps an item's id, so a tick can follow the item", () => {
+    const read = one({ type: "checklist", items: [{ text: "Pay Xfinity", id: "a1b2" }, "Reply to Emma"] }).blocks[0];
+    expect((read as { items: unknown[] }).items).toEqual([{ text: "Pay Xfinity", id: "a1b2" }, { text: "Reply to Emma" }]);
+  });
+});
+
+describe("checklist item state, owner and note", () => {
+  it("keeps the state, owner and note an item carries", () => {
+    const r = one({ type: "checklist", title: "Archive move", items: [
+      { text: "Copy the 2019 shard", state: "active", owner: "Priya" },
+      { text: "Verify checksums", state: "blocked", note: "Waiting on the storage team" },
+      { text: "Backfill the 2020 shard", state: "skipped" },
+      { text: "Announce the cutover", state: "pending" },
+      "Freeze writes",
+    ] });
+    expect(r.dropped).toEqual([]);
+    expect(r.blocks[0]).toEqual({ type: "checklist", title: "Archive move", numbered: false, ticked: [], path: "0", items: [
+      { text: "Copy the 2019 shard", state: "active", owner: "Priya" },
+      { text: "Verify checksums", state: "blocked", note: "Waiting on the storage team" },
+      { text: "Backfill the 2020 shard", state: "skipped" },
+      { text: "Announce the cutover", state: "pending" },
+      { text: "Freeze writes" },
+    ] });
+  });
+  it("reads state done as a starting tick, like done: true, and keeps no state on it", () => {
+    const r = one({ type: "checklist", items: [{ text: "Bump the manifest", state: "done" }, { text: "Publish", done: true }, "Post"] });
+    expect(r.dropped).toEqual([]);
+    expect(r.blocks[0]).toEqual({ type: "checklist", numbered: false, ticked: [0, 1], path: "0",
+      items: [{ text: "Bump the manifest" }, { text: "Publish" }, { text: "Post" }] });
+  });
+  it("leaves an unknown state out with a note at the item's path, and keeps the item", () => {
+    const r = one({ type: "checklist", groups: [{ label: "Move", items: [{ text: "Ship", state: "waiting" }, { text: "Tell Priya", state: "later" }] }] });
+    expect(r.blocks[0]).toMatchObject({ items: [{ text: "Ship", group: "Move" }, { text: "Tell Priya", group: "Move" }] });
+    expect(r.dropped).toEqual([
+      { path: "0.groups.0.items.0", why: "item state is pending, active, done, blocked or skipped" },
+      { path: "0.groups.0.items.1", why: "item state is pending, active, done, blocked or skipped" }]);
+  });
+  it("folds case, space and the common words for a state", () => {
+    const r = one({ type: "checklist", items: [
+      { text: "Bump the manifest", state: " Done " },
+      { text: "Publish", state: "IN PROGRESS" },
+      { text: "Announce", state: "todo" },
+    ] });
+    expect(r.dropped).toEqual([]);
+    expect(r.blocks[0]).toEqual({ type: "checklist", numbered: false, ticked: [0], path: "0",
+      items: [{ text: "Bump the manifest" }, { text: "Publish", state: "active" }, { text: "Announce", state: "pending" }] });
+  });
+  it("trims an owner at 40 characters and a note at 120, and drops an empty one", () => {
+    const r = one({ type: "checklist", items: [
+      { text: "One", owner: `  ${"o".repeat(60)}  `, note: "n".repeat(200) },
+      { text: "Two", owner: "   ", note: "" },
+    ] });
+    const items = (r.blocks[0] as { items: { owner?: string; note?: string }[] }).items;
+    expect(items[0].owner).toBe("o".repeat(40));
+    expect(items[0].note).toBe("n".repeat(120));
+    expect(items[1]).toEqual({ text: "Two" });
+  });
+});
+
+describe("checklist phase tracker", () => {
+  it("reads compact density and source ids", () => {
+    const r = one({ type: "checklist", title: "Release", density: "compact", items: [
+      { text: "Copy", state: "active", sourceIds: ["src-1", "src-2"] },
+      { text: "Verify", state: "blocked", sources: ["src-3"] },
+    ] });
+    expect(r.dropped).toEqual([]);
+    expect(r.blocks[0]).toMatchObject({ type: "checklist", title: "Release", density: "compact",
+      items: [
+        { text: "Copy", state: "active", sourceIds: ["src-1", "src-2"] },
+        { text: "Verify", state: "blocked", sourceIds: ["src-3"] },
+      ] });
+  });
+  it("folds a written compact density and keeps the first four source labels", () => {
+    const r = one({ type: "checklist", density: " Compact ", items: [
+      { text: "Copy", sourceIds: ["a", 2, "b", "c", "d", "e"] },
+      { text: "Verify", sourceIds: "src-1" },
+    ] });
+    expect(r.dropped).toEqual([{ path: "0.items.0", why: "item keeps 4 source ids" }]);
+    expect((r.blocks[0] as any).density).toBe("compact");
+    expect((r.blocks[0] as any).items[0].sourceIds).toEqual(["a", "b", "c", "d"]);
+    expect((r.blocks[0] as any).items[1].sourceIds).toBeUndefined();
+  });
+
+  it("ignores an unknown density and a null one", () => {
+    expect(((one({ type: "checklist", density: "tiny", items: ["Copy"] }).blocks[0]) as any).density).toBeUndefined();
+    expect(((one({ type: "checklist", density: null, items: ["Copy"] }).blocks[0]) as any).density).toBeUndefined();
+  });
+});

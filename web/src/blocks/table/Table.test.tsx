@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { pinLocale } from "../../lib/locale.testing";
 import { readBlocks } from "../../core/readBlocks";
 import { Blocks } from "../../core/Blocks";
+import { withStyles } from "../../core/testing";
+import tableCss from "./table.css?raw";
 
 afterEach(() => {
   cleanup();
@@ -71,5 +73,66 @@ describe("Table", () => {
   it("says so when no row could be read", () => {
     render(<Blocks blocks={readBlocks([{ type: "table", columns: ["A", "B"], rows: [5] }])} />);
     expect(screen.getByText("No rows to show.")).toBeTruthy();
+  });
+  it("lets the wheel chain past a short table to the session", () => {
+    const unstyle = withStyles(tableCss);
+    try {
+      const { container } = render(<Blocks blocks={stocks()} />);
+      const scroller = container.querySelector(".hb-table-scroll") as HTMLElement;
+      const style = getComputedStyle(scroller);
+      expect(style.overflow).toBe("auto");
+      // jsdom reports an undeclared property as "", so the guard is that containment is gone.
+      expect(style.overscrollBehavior).not.toBe("contain");
+    } finally {
+      unstyle();
+    }
+  });
+  it("draws a null cell as a dash, so it doesn't read as a zero", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "table", columns: ["Shop", "Units", "Change"],
+      rows: [["Shop A", 12, null], ["Shop B", 0, "-1%"]] }])} />);
+    const cells = [...container.querySelectorAll("tbody td:nth-child(3)")].map((td) => td.textContent);
+    expect(cells).toEqual(["–", "-1%"]);
+    expect(container.querySelector("tbody td:nth-child(2)")!.textContent).toBe("12");
+  });
+});
+
+describe("structured table", () => {
+  const spend = () => readBlocks([{ type: "table", caption: "Spend", filterable: true, columns: [
+    { id: "shop", label: "Shop" },
+    { id: "spend", label: "Spend", kind: "currency", unit: "$" },
+    { id: "share", label: "Share", kind: "percent" },
+    { id: "from", label: "From", kind: "sources" },
+    { id: "rank", label: "Rank", kind: "bar", max: 10 },
+  ], rows: [
+    { shop: "A", spend: 1200, share: 40, sources: [{ label: "POS", url: "https://example.org/a" }], rank: 8 },
+    { shop: "B", spend: 1800, share: 60, from: "Manual", rank: 10 },
+  ], aggregates: [{ column: "spend", op: "sum" }] }]);
+
+  it("formats typed cells, sources and the aggregate footer", () => {
+    pinLocale("en-US");
+    const { container } = render(<Blocks blocks={spend()} />);
+    expect(screen.getAllByText("Spend").length).toBeGreaterThan(0);
+    expect(screen.getByText("$1,200")).toBeTruthy();
+    expect(screen.getByText("40%")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "POS" }).getAttribute("href")).toBe("https://example.org/a");
+    expect(container.querySelector("tfoot")!.textContent).toContain("3,000");
+    expect(container.querySelector(".hb-table-bar-fill")!.getAttribute("style")).toContain("80%");
+  });
+
+  it("filters rows", () => {
+    pinLocale("en-US");
+    render(<Blocks blocks={spend()} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Filter rows" }), { target: { value: "Manual" } });
+    expect(screen.queryByText("$1,200")).toBeNull();
+    expect(screen.getByText("$1,800")).toBeTruthy();
+  });
+
+  it("pages after ten rows", () => {
+    pinLocale("en-US");
+    const rows = Array.from({ length: 12 }, (_, i) => ({ shop: `S${i}`, spend: i + 1 }));
+    render(<Blocks blocks={readBlocks([{ type: "table", columns: [{ id: "shop", label: "Shop" }, { id: "spend", label: "Spend", kind: "number" }], rows }])} />);
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(screen.getByText("S10")).toBeTruthy();
   });
 });

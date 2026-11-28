@@ -1,4 +1,4 @@
-// Living Boards v1 — a block's interactive answer belongs to the BOARD, keyed by the block's carried
+// Living Boards — a block's interactive answer belongs to the BOARD, keyed by the block's carried
 // identity — not to the element. React cannot carry a DOM node across parents, and a reopen draws a
 // fresh tree from the stored spec anyway; so every answer (a dragged slider, a typed form draft, a
 // picked tab, a checklist's ticks) is filed in the board's state store
@@ -9,33 +9,32 @@
 // The key is the block's identity chain (core/living-identity.ts): its own words plus its occurrence
 // among same-worded siblings, hung on the chain of identity blocks above it — the same string at the
 // mount, at an update's promote and at a reopen drawn from the stored spec, in any parent, at any
-// depth. Round 7 (Sol's binding disposition on reviewer comment 944) completed the unification:
-// EVERY answer reaches the board AT EDIT TIME while mounted. Transient answers (kind "identity")
+// depth. EVERY answer reaches the board AT EDIT TIME while mounted. Transient answers (kind "identity")
 // file under the block's identity key from the very first move — whether or not an update has ever
-// landed — so the first addressed update, mounted OR headless, migrates them by identity and a
-// reopen restores them; no page-only ephemeral interactive state remains. The accepted #8 rule
-// survives exactly where Sol bound it: PERSISTED answers (kind "always" — a checklist's ticks, a
-// sent form record) keep their POSITIONAL filing on a never-updated board — the door key IS the
-// path — and switch to identity when the first update makes the board living.
+// landed — so the first addressed update, mounted OR headless, migrates them by identity and a reopen
+// restores them; no page-only ephemeral interactive state remains for the kinds this board state owns.
+// PERSISTED answers (kind "always" — a checklist's ticks, a sent form record) keep their POSITIONAL
+// filing on a never-updated board — the door key IS the path — and switch to identity when the first
+// update makes the board living.
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { BlockActions } from "../host/actions";
 import { kkey } from "./living-identity";
 import { loadBoardState, peekStored, recordValue, seedValue, isLiving } from "../blocks/checklist/savedState";
 
-/** The identity chain of the block being drawn, composed by Placed (core/Blocks.tsx) from the flat
+/** The identity chain of the block being drawn, composed by drawAll (core/Blocks.tsx) from the flat
  *  identity of this block and every identity block above it. Outside a drawn board — a bare component
  *  in a unit test, a preview — there is no chain and nothing here changes what draws. */
 export const BlockSlot = createContext<string | null>(null);
 
 export type Stored<T> = {
-  /** The block's positional path (#8's key) — only checklist and form carry one; it stays the door
-   *  filing key for "always" answers until the board is living, and never keys an "identity" one. */
+  /** The block's positional path ("0", "1.children.2") — only checklist and form carry one; it stays the
+   *  door filing key for "always" answers until the board is living, and never keys an "identity" one. */
   path?: string;
-  /** "always" — a PERSISTED answer: the door saves every change at once, the accepted #8 semantics
-   *  (position until living, identity after).
-   *  "identity" — a TRANSIENT answer (slider, tab, unsent draft): since round 7 the door files it
-   *  under the block's identity key AT EDIT TIME, living or not. The door:"never" page-only path
-   *  this kind had before is retired (Sol's supersession of #8's transient behavior). */
+  /** "always" — a PERSISTED answer: the door saves every change at once, the accepted board-state
+   *  semantics (position until living, identity after).
+   *  "identity" — a TRANSIENT answer (slider, tab, unsent draft): the door files it under the block's
+   *  identity key AT EDIT TIME, living or not. There is no page-only path for these kinds: an answer
+   *  released with a view is the board's own, never an element's. */
   door: "always" | "identity";
   /** A sub-key where one block keeps more than one answer (a form's draft beside its sent record). */
   field?: string;
@@ -61,8 +60,8 @@ export function useStoredValue<T>(spec: Stored<T>): [T, (next: T, touched?: bool
   const chain = useContext(BlockSlot);
   const living = blockId !== undefined && chain !== null && isLiving(blockId);
   const idKey = chain === null ? null : `${chain}${spec.field ?? ""}`;       // the page store: identity only
-  const legacy = `${spec.path ?? ""}${spec.field ?? ""}`;                    // the #8 positional key
-  // Round 7: a transient answer's door key is its identity, always (there is no positional filing
+  const legacy = `${spec.path ?? ""}${spec.field ?? ""}`;                    // the positional key
+  // A transient answer's door key is its identity, always (there is no positional filing
   // for sliders, drafts or tabs — the legacy key for them is the empty string, which must never
   // reach the door). A persisted answer keeps the accepted age rule: position until living.
   const transient = spec.door === "identity";
@@ -72,9 +71,9 @@ export function useStoredValue<T>(spec: Stored<T>): [T, (next: T, touched?: bool
 
   const [value, setValue] = useState<T>(() => {
     // The page's store is the board's memory. A persisted answer on a board that was never updated
-    // mounts from the spec and reads the door's POSITIONAL bytes below — the accepted #8 truth. A
-    // transient answer mounts from the page mirror even before the door speaks (round 7: an answer
-    // released with a view is the board's own, never an element's).
+    // mounts from the spec and reads the door's POSITIONAL bytes below — the accepted truth. A
+    // transient answer mounts from the page mirror even before the door speaks (an answer released
+    // with a view is the board's own, never an element's).
     if (blockId === undefined || idKey === null) return spec.initial();
     if (!byIdentity) return spec.initial();
     const held = peekStored(blockId, idKey);
@@ -84,9 +83,8 @@ export function useStoredValue<T>(spec: Stored<T>): [T, (next: T, touched?: bool
 
   useEffect(() => {
     if (!rest || blockId === undefined) return;
-    // Round 7: the page-only skip for a not-yet-living board's transient answer is retired — the
-    // door holds those answers from the edit onward, and every mount asks it. (With no chain there
-    // is no identity to ask under: a bare component preview stays exactly as plain as it draws.)
+    // The door holds transient answers from the edit onward, so every mount asks it. (With no chain
+    // there is no identity to ask under: a bare component preview stays exactly as plain as it draws.)
     if (transient && idKey === null) return;
     let live = true;
     void loadBoardState(rest, blockId).then((state) => {

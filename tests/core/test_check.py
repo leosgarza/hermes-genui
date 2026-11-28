@@ -19,7 +19,7 @@ def test_every_catalog_example_is_valid(entry):
 
 
 def test_unknown_type():
-    assert check_blocks([{"type": "weather"}]) == ['0: unknown type "weather"']
+    assert check_blocks([{"type": "sundial"}]) == ['0: unknown type "sundial"']
 
 
 def test_not_an_object():
@@ -45,15 +45,6 @@ def test_images_need_an_https_url():
     problems = check_blocks([images])
     assert len(problems) == 1
     assert problems[0].startswith("0:")
-
-
-def test_images_take_a_generated_local_path_too():
-    # check_images is shape-only; show_blocks' provenance gate is what proves the tool returned the path.
-    for ok in ("/Users/me/.hermes/cache/generated/images/a.png", "C:\\Users\\me\\a.png", "\\\\server\\share\\a.png"):
-        assert check_blocks([{"type": "images", "images": [{"url": ok}]}]) == []
-    # A relative name, a file:// spelling or a data: URI is not a drawable local path.
-    for bad in ("a.png", "~/a.png", "file:///Users/me/a.png", "data:image/png;base64,AAAA", ""):
-        assert check_blocks([{"type": "images", "images": [{"url": bad}]}]) != []
 
 
 def test_section_inside_section():
@@ -92,6 +83,54 @@ def test_pie_needs_a_positive_value():
     assert check_blocks([chart_with([{"data": [0, -3]}], kind="pie")]) == ["0: a pie needs at least one positive value"]
 
 
+def test_histogram_takes_one_count_series_above_zero():
+    counts = [{"name": "Calls", "data": [4, 12]}]
+    assert check_blocks([chart_with(counts, kind="histogram")]) == []
+    assert check_blocks([chart_with(counts + [{"data": [1, 2]}], kind="histogram")]) == [
+        "0: a histogram chart takes 1 series"]
+    assert check_blocks([chart_with([{"data": [0, 0]}], kind="histogram")]) == [
+        "0: a histogram needs a count above zero"]
+    assert check_blocks([chart_with([{"data": [4, -1]}], kind="histogram")]) == [
+        "0: a histogram counts, so no negative values"]
+    assert check_blocks([chart_with([{"data": [4, "12"]}], kind="histogram")]) == [
+        "0.series.0: data must be numbers (null for a gap)"]
+
+
+def test_range_needs_low_and_high_for_each_x():
+    def window(low: list, high: list, now: list | None = None) -> dict:
+        series: dict = {"name": "Delivery", "low": low, "high": high}
+        if now is not None:
+            series["now"] = now
+        return {"type": "chart", "kind": "range", "x": ["Mon", "Tue"], "series": [series]}
+
+    assert check_blocks([window([18, 19], [34, 36], [26, 31])]) == []
+    assert check_blocks([window([18, 19], [34, 36])]) == []
+    assert check_blocks([window([18], [34, 36])]) == ["0.series.0.low: low has 1 values but x has 2 labels"]
+    assert check_blocks([{"type": "chart", "kind": "range", "x": ["Mon"], "series": [{"now": [26]}]}]) == [
+        "0.series.0: a range needs low for each x"]
+    assert check_blocks([window([18, 19], [34, 36], ["26", 31])]) == [
+        "0.series.0.now: now must be numbers (null for none)"]
+    assert check_blocks([window([40, 19], [34, 36])]) == ["0.series.0.0: low must not be above high"]
+    assert check_blocks([window([18, None], [34, 36])]) == [
+        "0.series.0.1: a window needs both low and high, or null for neither"]
+    assert check_blocks([window([None, None], [None, None], [None, None])]) == [
+        "0: chart needs at least one number"]
+    two = {"type": "chart", "kind": "range", "x": ["Mon"],
+           "series": [{"low": [18], "high": [34]}, {"low": [1], "high": [2]}]}
+    assert check_blocks([two]) == ["0: a range chart takes 1 series"]
+
+
+def test_range_accepts_points_form():
+    points = {"type": "chart", "kind": "range", "unit": "min",
+              "series": [{"name": "Delivery",
+                          "points": [{"label": "Mon", "low": 18, "high": 34, "now": 26},
+                                     {"label": "Tue", "low": 19, "high": 36, "now": 31}]}]}
+    assert check_blocks([points]) == []
+    assert check_blocks([{"type": "chart", "kind": "range",
+                          "series": [{"points": [{"label": "Mon", "low": 40, "high": 30}]}]}]) == [
+        "0.series.0.0: low must not be above high"]
+
+
 def test_chart_tone_is_change_on_a_line_chart_only():
     rising = [{"name": "Close", "data": [1, 2]}]
     assert check_blocks([{**chart_with(rising), "tone": "change"}]) == []
@@ -103,38 +142,83 @@ def test_chart_tone_is_change_on_a_line_chart_only():
     assert check_blocks([{**chart_with(two), "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
 
 
-# --- chart: the new kinds ---------------------------------------------------------------------------
-
-def test_scatter_is_a_kind_checked_like_a_line():
-    assert check_blocks([chart_with([{"data": [3, 4]}], kind="scatter", x=["1", "2"])]) == []
-    assert check_blocks([chart_with([{"data": [3]}], kind="scatter", x=["1", "2"])]) == [
-        "0.series.0: data has 1 values but x has 2 labels"]
-
-
-def test_a_histogram_bins_one_series_and_never_asks_for_x():
-    hist = {"type": "chart", "kind": "histogram", "series": [{"name": "Scores", "data": [5, None, 61]}]}
-    assert check_blocks([hist]) == []
-    assert check_blocks([{**hist, "kind": "hist"}]) == []
-    assert check_blocks([{**hist, "x": ["ignored"] }]) == []  # any x a writer leaves is ignored, not an error
+def test_chart_drawing_controls_are_checked_only_when_on():
+    rising = [{"name": "Close", "data": [1, 2]}]
+    assert check_blocks([{**chart_with(rising), "stepped": True, "height": 240}]) == []
+    assert check_blocks([{**chart_with(rising, kind="bar"), "stepped": True}]) == [
+        '0: stepped is for a line or combo chart']
+    assert check_blocks([{**chart_with(rising, kind="bar"), "sortDesc": True}]) == []
+    assert check_blocks([{**chart_with(rising, kind="hbar"), "sortDesc": True}]) == []
+    assert check_blocks([{**chart_with(rising), "sortDesc": True}]) == ['0: sortDesc is for a bar or hbar chart']
 
 
-def test_a_histogram_without_values_or_with_two_series_is_not_drawable():
-    hist = {"type": "chart", "kind": "histogram"}
-    assert check_blocks([hist]) == ["0: chart needs 1-6 series"]
-    assert check_blocks([{**hist, "series": [{"name": "A", "data": []}]}]) == ["0: chart needs at least one number"]
-    two = {"type": "chart", "kind": "histogram",
-           "series": [{"name": "A", "data": [1]}, {"name": "B", "data": [2]}]}
-    assert check_blocks([two]) == ["0: a histogram bins the values of one series"]
-    words = {"type": "chart", "kind": "histogram", "series": [{"data": ["cold", "warm"]}]}
-    assert check_blocks([words]) == ["0.series.0: data must be numbers (null for a gap)"]
-    mixed = {"type": "chart", "kind": "histogram", "series": [{"data": ["cold", 2]}]}
-    assert check_blocks([mixed]) == ["0.series.0: data must be numbers (null for a gap)"]
+def test_chart_controls_that_are_off_or_out_of_range_are_not_refused():
+    # false or null means off, and the reader clamps height, so none of these costs the model a retry
+    rising = [{"name": "Close", "data": [1, 2]}]
+    for extra in ({"stepped": False}, {"stepped": None}, {"sortDesc": False}, {"height": 100}, {"height": 900},
+                  {"height": "tall"}, {"kind": "bar", "stepped": False}, {"sortDesc": "no"}):
+        assert check_blocks([{**chart_with(rising), **extra}]) == [], extra
 
 
-def test_a_histogram_tone_is_still_line_only():
-    hist = {"type": "chart", "kind": "histogram", "series": [{"data": [1, 2]}]}
-    assert check_blocks([{**hist, "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
-    assert check_blocks([{**hist, "tone": "green"}]) == ['0: tone can only be "change"']
+def scatter(*series: dict) -> dict:
+    return {"type": "chart", "kind": "scatter", "series": list(series)}
+
+
+def test_scatter_points_need_a_number_on_both_scales():
+    ok = scatter({"name": "Cars", "points": [{"x": 9, "y": 24.6}, {"x": 62, "y": None}]})
+    assert check_blocks([ok]) == []
+    assert check_blocks([{**ok, "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
+
+
+def test_scatter_reports_the_point_that_cannot_be_placed():
+    assert check_blocks([scatter({"points": [{"x": "9", "y": 1}]})]) == [
+        "0.series.0.points.0: point needs a numeric x"]
+    assert check_blocks([scatter({"points": [{"x": 9, "y": "1.2"}]})]) == [
+        "0.series.0.points.0: point's y is a number, or null for unknown"]
+    assert check_blocks([scatter({"points": [{"x": 9, "y": None}]})]) == [
+        "0: scatter needs at least one point with a y"]
+    assert check_blocks([scatter({"points": [{"x": 9}, "nope"]})]) == ["0.series.0.points.1: point is not an object"]
+
+
+def test_scatter_takes_two_series_of_at_most_200_points():
+    one = {"points": [{"x": 9, "y": 1}]}
+    assert check_blocks([scatter(one, {"points": [{"x": 2, "y": 2}]})]) == []
+    assert check_blocks([scatter(one, one, one)]) == ["0: a scatter chart takes 1-2 series"]
+    assert check_blocks([scatter({"points": [{"x": i, "y": 1} for i in range(201)]})]) == [
+        "0.series.0: a scatter series takes at most 200 points"]
+    assert check_blocks([scatter({"points": "nope"})]) == ["0.series.0: series needs a points list"]
+    assert check_blocks([{"type": "chart", "kind": "scatter"}]) == ["0: scatter needs 1-2 series with points"]
+
+
+def waterfall(*series: dict) -> dict:
+    return {"type": "chart", "kind": "waterfall", "series": list(series)}
+
+
+def test_waterfall_points_are_steps_or_totals():
+    bridge = waterfall({"points": [
+        {"label": "Gross revenue", "value": 120, "total": True}, {"label": "Returns", "value": -8},
+        {"label": "Card", "value": None}, {"label": "Net profit", "total": True}]})
+    assert check_blocks([bridge]) == []
+    assert check_blocks([{**bridge, "tone": "change"}]) == ['0: tone "change" is for a one-series line chart']
+
+
+def test_waterfall_reports_a_point_it_cannot_read():
+    assert check_blocks([waterfall({"points": [{"label": "Returns", "value": "8"}]})]) == [
+        "0.series.0.points.0: point's value is a number, or null for unknown"]
+    assert check_blocks([waterfall({"points": [{"label": "Card"}]})]) == [
+        "0: waterfall needs at least one point with a value or a total"]
+    assert check_blocks([waterfall({"points": [{"label": "x" * 41, "value": 1}]})]) == [
+        "0.series.0.points.0: label is text of at most 40 characters"]
+    assert check_blocks([waterfall({"points": ["nope"]})]) == [
+        "0.series.0.points.0: point is not an object"]
+
+
+def test_waterfall_is_one_series_of_points():
+    one = {"points": [{"value": 1}]}
+    assert check_blocks([waterfall(one)]) == []
+    assert check_blocks([waterfall(one, one)]) == ["0: a waterfall chart takes 1 series"]
+    assert check_blocks([waterfall({"points": 5})]) == ["0: series needs a points list"]
+    assert check_blocks([{"type": "chart", "kind": "waterfall"}]) == ["0: waterfall needs 1 series with points"]
 
 
 def test_kpi_trend_is_2_to_60_numbers():
@@ -153,6 +237,32 @@ def test_stat_trend_is_checked_too():
     assert check_blocks([{"type": "stat", "label": "Saved", "value": 1, "trend": [1, 2]}]) == []
     assert check_blocks([{"type": "stat", "label": "Saved", "value": 1, "trend": [1]}]) == [
         "0: trend must be a list of 2-60 numbers"]
+
+
+def test_a_previous_the_reader_cannot_use_costs_the_chip_not_the_board():
+    # The reader draws no chip for a text, null or non-finite previous, so the check leaves it alone: same idea as
+    # the chart controls that are off or out of range.
+    figure = {"type": "stat", "label": "Close", "value": 80}
+    for previous in (100, 80.5, None, "100", "n/a", "high", True, [1], float("nan"), float("inf"), 10**400):
+        assert check_blocks([{**figure, "previous": previous}]) == [], previous
+
+
+def test_invert_tone_is_accepted_on_a_kpi_and_a_stat():
+    # Only `true` inverts the tone; anything else is drawn as no inversion, so it does not cost a retry.
+    for item in ({"type": "kpis", "items": [{"label": "Churn", "value": 2.4, "invert_tone": True}]},
+                 {"type": "stat", "label": "Churn", "value": 2.4, "invert_tone": False},
+                 {"type": "stat", "label": "Churn", "value": 2.4, "invert_tone": "yes"},
+                 {"type": "stat", "label": "Churn", "value": 2.4, "invert_tone": None},
+                 {"type": "stat", "label": "Churn", "value": 2.4, "invert_tone": 0},
+                 {"type": "kpis", "items": [{"label": "Churn", "value": 2.4, "invert_tone": None}]}):
+        assert check_blocks([item]) == [], item
+
+
+def test_a_change_too_large_for_a_chip_is_not_refused():
+    # A chip prints one decimal; 1e308 has none. Both sides drop the chip and still draw the board.
+    figure = {"type": "stat", "label": "Close", "value": 80, "change": 1e308}
+    assert check_blocks([figure]) == []
+    assert check_blocks([{"type": "kpis", "items": [{"label": "Close", "value": 80, "change": 1e308}]}]) == []
 
 
 def test_row_and_grid_child_limits():
@@ -177,12 +287,40 @@ def test_table_limits():
     assert check_blocks([wide]) == ["0: a table holds at most 8 columns"]
 
 
-def test_table_interactive_word_draws_even_in_a_strange_shape():
-    # check_blocks refuses only what cannot be drawn. The interactive word, even miswritten,
-    # leaves a drawable table behind — the drawer then simply falls back to the static one.
-    table = {"type": "table", "columns": ["A"], "rows": [["x"]], "interactive": True}
-    assert check_blocks([table]) == []
-    assert check_blocks([{**table, "interactive": "yes please"}]) == []
+def test_structured_table_is_checked():
+    good = {"type": "table", "filterable": True,
+            "columns": [{"id": "shop", "label": "Shop"}, {"id": "spend", "label": "Spend", "kind": "currency"}],
+            "rows": [{"cells": {"shop": {"text": "A"}, "spend": {"text": "1200", "value": 1200}}}],
+            "aggregates": [{"column": "spend", "op": "sum"}]}
+    assert check_blocks([good]) == []
+    assert check_blocks([{**good, "page": 12}]) == ["0: page must be 1 to 10"]
+    assert check_blocks([{**good, "columns": [{"id": "shop", "label": "Shop", "kind": "magic"}]}]) == [
+        "0.columns.0: unknown column kind"]
+
+
+def test_a_structured_table_with_bare_column_names_is_refused_on_both_sides():
+    # The reader refuses `interactive` on this shape too, so a board can never hold a table the check would not store.
+    bare = {"type": "table", "filterable": True, "interactive": True, "columns": ["A"], "rows": [["x"]]}
+    assert check_blocks([bare]) == ["0.columns.0: column needs id and label"]
+
+
+def test_a_repeated_column_id_is_refused_on_both_sides():
+    # The reader refuses `interactive` on this shape too, so the two agree about what a board can hold.
+    repeated = {"type": "table", "filterable": True, "interactive": True,
+                "columns": [{"id": "a", "label": "A"}, {"id": "a", "label": "B"}], "rows": [{"a": "x"}]}
+    assert check_blocks([repeated]) == ["0.columns.1: column id is missing or used twice"]
+
+
+def test_interactive_on_a_plain_table_is_accepted_and_ignored():
+    # The word belongs to the structured form. The reader drops it on a plain table, so the check accepts that table
+    # and still checks it as the plain table it is: the check must never refuse what the reader draws.
+    plain = {"type": "table", "interactive": True, "columns": ["A"], "rows": [["x"]]}
+    assert check_blocks([plain]) == []
+    assert check_blocks([{**plain, "rows": [["1", "2"]]}]) == [
+        "0.rows.0: row has 2 cells, table has 1 columns"]
+    structured = {"type": "table", "interactive": True, "columns": [{"id": "a", "label": "A"}],
+                  "rows": [{"a": "x"}], "filterable": True}
+    assert check_blocks([structured]) == []
 
 
 def test_columns_hold_two_or_three_wide_blocks():
@@ -213,6 +351,16 @@ def test_list_needs_a_row_with_a_title():
     assert check_blocks([{"type": "list", "items": [{"subtitle": "no title"}]}]) == [
         "0: list needs at least one item with a title"]
     assert check_blocks([{"type": "list"}]) == ["0: list needs at least one item with a title"]
+
+
+def test_list_takes_bars_the_reader_skips():
+    good = {"type": "list", "items": [{"title": "Rent", "bar": 62}, {"title": "Mubi", "bar": None}]}
+    assert check_blocks([good]) == []
+    # The reader draws no bar for these, so the board is still usable and the check must not refuse it.
+    skipped = {"type": "list", "items": [
+        {"title": "A", "bar": "62"}, {"title": "B", "bar": "34,500"}, {"title": "C", "bar": -3},
+        {"title": "D", "bar": True}, {"title": "E", "bar": False}]}
+    assert check_blocks([skipped]) == []
 
 
 def test_progress_needs_title_value_and_a_goal_above_zero():
@@ -258,6 +406,8 @@ def test_small_atoms():
     assert check_blocks([{"type": "badge", "text": "New"}, {"type": "link", "url": "https://www.irctc.co.in"},
                          {"type": "image", "url": "https://x.example/a.jpg"},
                          {"type": "bar", "label": "Packed", "value": 6, "max": 9}]) == []
+    # A null value is a figure nobody knows: the bar keeps its place and reads "no data", so it isn't a refusal.
+    assert check_blocks([{"type": "bar", "label": "Spent", "value": None, "max": 500}]) == []
     assert check_blocks([{"type": "badge"}, {"type": "link", "url": "javascript:alert(1)"},
                          {"type": "image", "url": "http://x.example/a.jpg"}, {"type": "bar", "label": "x"}]) == [
         "0: badge needs text", "1: link needs an https url", "2: image needs an https url",
@@ -371,6 +521,14 @@ def test_tabs_hold_two_to_six_labelled_tabs_of_blocks():
     ]
 
 
+def test_a_tab_may_carry_a_count_badge():
+    one, two = {"label": "Bills", "children": [TEXT], "badge": 4}, {"label": "Done", "children": [TEXT]}
+    assert check_blocks([tabs_of(one, two)]) == []
+    for bad in (0, -1, 1000, 2.5, "4", True):
+        assert check_blocks([tabs_of({**one, "badge": bad}, two)]) == [
+            "0.tabs.0: a tab's badge is a whole number from 1 to 999"], bad
+
+
 def test_a_tab_holds_any_blocks_read_as_if_at_the_top_level():
     columns = {"type": "columns", "children": [TEXT, TEXT]}
     section = {"type": "section", "title": "S", "children": [{"type": "row", "children": [TEXT, TEXT]}]}
@@ -445,7 +603,9 @@ def test_new_helpers_cannot_be_input_ids():
 
 def test_formula_helpers_match_the_web_side():
     source = (ROOT / "web" / "src" / "lib" / "formula.ts").read_text(encoding="utf-8")
-    block = re.search(r"const HELPERS[^{]*\{(.*?)\};", source, re.DOTALL).group(1)
+    found = re.search(r"const HELPERS[^{]*\{(.*?)\};", source, re.DOTALL)
+    assert found, "formula.ts has no HELPERS table"
+    block = found.group(1)
     assert sorted(re.findall(r"(\w+): \[", block)) == sorted(FORMULA_HELPERS)
 
 
@@ -725,3 +885,84 @@ def test_step_holds_send_and_tick_are_checked_strictly():
         "0.items.6: tick is a whole number from 1 to 20",
         '0.items.7: holds maps node ids to chips: {"embed": ["a vector"]}, at most 10 nodes',
     ]
+
+
+def test_checklist_items_may_carry_unique_short_ids():
+    ok = [{"type": "checklist", "items": [{"text": "Pay Xfinity", "id": "a1b2c3d4"},
+                                          {"text": "Reply to Emma", "id": "e5"}]}]
+    assert check_blocks(ok) == []
+    dup = [{"type": "checklist", "items": [{"text": "A", "id": "x"}, {"text": "B", "id": "x"}]}]
+    assert check_blocks(dup) == ["0.items.1: item id is used twice"]
+    long = [{"type": "checklist", "items": [{"text": "A", "id": "x" * 41}]}]
+    assert check_blocks(long) == ["0.items.0: item id is plain text up to 40 characters"]
+
+
+# A block with no "type" (small models sometimes write the fields in alphabetical order and leave it out): the problem
+# says so and names the block its fields point to, so the model can fix it in one go.
+def test_a_block_without_a_type_is_told_which_one_its_fields_point_to():
+    timeline = {"groups": [{"label": "Day 1", "items": [{"time": "09:00", "title": "Amber Fort"}]}]}
+    assert check_blocks([timeline]) == [
+        '0: no "type"; every block needs one, written first, e.g. {"type": "timeline", ...}']
+    kpis = {"items": [{"label": "Revenue", "value": 4.2}]}
+    assert check_blocks([kpis]) == ['0: no "type"; every block needs one, written first, e.g. {"type": "kpis", ...}']
+
+
+def test_a_close_call_names_both_blocks_and_no_match_names_none():
+    assert check_blocks([{"text": "Heads up", "tone": "warn"}]) == [
+        '0: no "type"; every block needs one, written first, e.g. {"type": "callout", ...} (or badge)']
+    assert check_blocks([{"sundial": 3}]) == ['0: no "type"; every block needs one, written first']
+
+
+def test_a_block_inside_a_container_without_a_type_gets_the_same_help():
+    row = {"type": "row", "children": [{"items": [{"label": "Revenue", "value": 4.2}]}]}
+    assert check_blocks([row]) == [
+        '0.children.0: no "type"; every block needs one, written first, e.g. {"type": "kpis", ...}']
+
+
+@pytest.mark.parametrize("entry", CATALOG["blocks"], ids=lambda e: e["kind"])
+def test_no_catalog_example_without_its_type_is_taken_for_another_block(entry):
+    fields = {k: v for k, v in entry["example"].items() if k != "type"}
+    problem = check_blocks([fields])[0]
+    named = re.findall(r'"type": "(\w+)"|\(or (\w+)\)', problem)
+    kinds = {k for pair in named for k in pair if k}
+    assert not kinds or entry["kind"] in kinds, problem
+
+
+def test_a_chart_kind_used_as_a_type_points_to_the_chart():
+    pie = {"type": "pie", "x": ["Rent", "Food"], "series": [{"name": "Spend", "data": [1800, 650]}]}
+    assert check_blocks([pie]) == ['0: "pie" is a chart kind: write {"type": "chart", "kind": "pie", ...}']
+def test_checklist_items_may_carry_a_state_an_owner_and_a_note():
+    ok = [{"type": "checklist", "items": [
+        {"text": "Copy", "state": "active", "owner": "Priya", "note": "Half done"},
+        {"text": "Verify", "state": "blocked"}, {"text": "Ship", "state": "done"},
+        {"text": "Backfill", "state": "skipped"}, {"text": "Announce", "state": "pending"},
+        {"text": "Normalise", "state": "Done", "owner": "  Dev  ", "note": " [JIRA-12] <3 days \n"},
+        {"text": "In progress", "state": "in progress"}, {"text": "Todo", "state": "todo"},
+        {"text": "Long", "owner": "x" * 41, "note": "y" * 121},
+        {"text": "Blank", "owner": "", "note": "   "}]}]
+    assert check_blocks(ok) == []
+    bad = [{"type": "checklist", "items": [
+        {"text": "A", "state": "waiting"}, {"text": "B", "state": 5},
+        {"text": "C", "owner": 7}, {"text": "D", "note": []}]}]
+    assert check_blocks(bad) == [
+        "0.items.0: item state is pending, active, done, blocked or skipped",
+        "0.items.1: item state is pending, active, done, blocked or skipped",
+        "0.items.2: item owner is text up to 40 characters",
+        "0.items.3: item note is text up to 120 characters",
+    ]
+
+
+def test_checklist_phase_tracker_controls_are_checked():
+    ok = [{"type": "checklist", "density": "compact", "items": [
+        {"text": "Copy", "state": "active", "sourceIds": ["src-1", "src-2"]}]}]
+    assert check_blocks(ok) == []
+    # The reader folds "Compact", ignores null and cuts a long source list, so the checker accepts the same.
+    assert check_blocks([{**ok[0], "density": " Compact "}]) == []
+    assert check_blocks([{**ok[0], "density": None}]) == []
+    assert check_blocks([{"type": "checklist", "items": [
+        {"text": "A", "sourceIds": []},
+        {"text": "B", "sourceIds": ["a", 2, "b", "c", "d", "e"]},
+        {"text": "C", "sourceIds": "src-1"},
+        {"text": "D", "sourceIds": ["x" * 60]}]}]) == []
+    assert check_blocks([{**ok[0], "density": "tiny"}]) == ["0: density is compact or expanded"]
+

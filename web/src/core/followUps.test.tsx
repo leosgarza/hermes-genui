@@ -1,10 +1,13 @@
-// The follow-up strip (t_87119a1c, enhancement #5): a quiet line of up to four tappable prompts a board's
-// envelope offers beneath itself. The presentation is AI-directed — the reader has no controls — and a tap
-// sends the prompt to the chat over the EXISTING route: composerActions.send on the explicit force path the
-// interactive table shipped (a >120-char prompt is POSTED, not drafted), with the command/file guard holding
-// its ground and only host-acknowledged words ever shown. The strip costs a fit-content hug zero width and
-// wraps long labels rather than clipping them; real layout and real clicks are pinned in Chrome by
-// tests/test_follow_ups_chrome.py. What this file pins: markup, placement, the seam contract, and the words.
+// The follow-up strip (enhancement #5): a quiet line of up to four tappable prompts a board's envelope offers
+// beneath itself. The presentation is AI-directed — the reader has no controls — and a tap sends the prompt to
+// the chat over the EXISTING route: composerActions.send on the explicit force path this offer adds to the
+// seam (a prompt past MAX_SENT is POSTED, not left in the composer; the command/file guard still holds). The
+// word the strip says is only ever the host's own answer to the LAST tap — sent, drafted, blocked, failed,
+// nowhere — and a new tap clears the old word to a pending mark the moment it starts, never a leftover
+// success. The words arrive through the real reader (readBlocks.ts) whole; the strip's title shows the WHOLE
+// prompt before the tap, as a button's does. The row costs a fit-content hug ZERO width and wraps labels and
+// its word rather than clipping them; real layout and real clicks are pinned in Chrome by
+// tests/test_follow_ups_chrome.py. This file pins markup, the seam contract, the words, and whole words.
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Blocks } from "./Blocks";
@@ -37,10 +40,7 @@ const draw = (board: unknown[], value = {}) =>
 
 const readBoard = (data: unknown) => {
   const r = readBlocksNoted(data);
-  return render(
-    <Blocks blocks={r.blocks} boardAlign={r.align} boardAsOf={r.asOf} boardLive={r.live}
-      boardFollowUps={r.followUps} />,
-  ).container;
+  return render(<Blocks blocks={r.blocks} boardFollowUps={r.followUps} />).container;
 };
 
 describe("the strip a board offers", () => {
@@ -64,28 +64,22 @@ describe("the strip a board offers", () => {
     expect(same.innerHTML).toBe(plain.innerHTML);
   });
 
-  it("sits beneath the board, and beneath the provenance footer when the board has one", () => {
-    const root = readBoard({ blocks: [TEXT], as_of: "2026-11-18", live: true, follow_ups: ups() });
+  it("sits beneath the blocks, as the last thing in the board", () => {
+    const root = readBoard({ blocks: [TEXT], follow_ups: ups() });
     const strip = root.querySelector(".hb-followups")!;
-    const footer = root.querySelector(".hb-provenance")!;
-    expect(!!(strip.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_PRECEDING)).toBe(true);
-    expect(root.querySelectorAll(".hb-provenance, .hb-followups").length).toBe(2);
+    expect(strip.parentElement!.className).toBe("hb-blocks");
+    expect(root.querySelector(".hb-blocks")!.lastElementChild).toBe(strip);
   });
 
-  it("takes the board's placement without touching the blocks' own", () => {
-    const center = readBoard({ blocks: [{ type: "text", text: "Hi", align: "right" }], align: "center", follow_ups: ups() });
-    const strip = center.querySelector(".hb-followups")!;
-    expect(strip.className).toBe("hb-followups hb-followups-center");
-    expect(getComputedStyle(strip).justifyContent).toBe("center");
-    expect(center.querySelector(".hb-place-right")).not.toBeNull();  // block placement machinery untouched
-    const right = readBoard({ blocks: [TEXT], align: "right", follow_ups: ups() });
-    expect(getComputedStyle(right.querySelector(".hb-followups")!).justifyContent).toBe("flex-end");
-    const left = readBoard({ blocks: [TEXT], align: "left", follow_ups: ups() });
-    expect(left.querySelector(".hb-followups")!.className).toBe("hb-followups");
-    expect(getComputedStyle(left.querySelector(".hb-followups")!).justifyContent).toBe("normal");
+  it("carries a live status line, empty until a tap gets an answer", () => {
+    const root = readBoard({ blocks: [TEXT], follow_ups: ups() });
+    const said = root.querySelector(".hb-followups-said")!;
+    expect(said.getAttribute("role")).toBe("status");
+    expect(said.getAttribute("aria-live")).toBe("polite");
+    expect(said.textContent).toBe("");  // no tap, no word: the strip has said nothing yet
   });
 
-  it("wraps long labels and never clips: no nowrap, no ellipsis, no overflow hidden anywhere in the strip", () => {
+  it("wraps long labels and its word and never clips: no nowrap, no ellipsis, no overflow hidden anywhere in the strip", () => {
     const root = draw([TEXT]);
     for (const sel of [".hb-followup-label", ".hb-followups-said"]) {
       const el = root.querySelector(sel)!;
@@ -113,13 +107,19 @@ describe("the strip a board offers", () => {
     const run = ("Expand every line of this Kyoto plan into a detailed day-by-day itinerary with train " +
       "times, booking links and costs for every hop between the cities. ").repeat(4).trim();
     const root = render(
-      <BlockActions.Provider value={{ send: async () => "nowhere", fill: () => {} }}>
-        <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={[{ label, run }]} />
-      </BlockActions.Provider>,
+      <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks}
+        boardFollowUps={[{ label, run }]} />,
     ).container;
     const pill = root.querySelector(".hb-followups button")!;
     expect(pill.querySelector(".hb-followup-label")!.textContent).toBe(label);
     expect(pill.getAttribute("title")).toBe(run);
+  });
+
+  it("never becomes a second renderer of its own: the strip is drawn by the board it is under", () => {
+    // The strip is a child of the ONE .hb-blocks element — not a sibling mount — so a board update that
+    // replaces the tree replaces the strip with it; nothing stateful lives outside the board.
+    const root = readBoard({ blocks: [TEXT], follow_ups: [{ label: "Go", run: "More" }] });
+    expect(root.querySelectorAll(".hb-blocks")).toHaveLength(1);
   });
 });
 
@@ -135,11 +135,11 @@ describe("a tap on the real seam", () => {
       focus: vi.fn(),
     };
   }
-  const wire = (composer: Composer | undefined) => {
+  const wire = (composer: Composer | undefined, followUps: { label: string; run: string }[]) => {
     const a = composerActions(composer);
     return render(
       <BlockActions.Provider value={{ send: a.send, fill: a.fill }}>
-        <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={ups()} />
+        <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={followUps} />
       </BlockActions.Provider>,
     ).container;
   };
@@ -150,7 +150,7 @@ describe("a tap on the real seam", () => {
 
   it("a tap posts exactly that prompt, and the host's yes is what the strip says", async () => {
     const composer = fakeComposer();
-    const root = wire(composer);
+    const root = wire(composer, ups());
     await tapPill(root, 1);
     expect(composer.submit).toHaveBeenCalledTimes(1);
     expect(composer.submit.mock.calls[0][1]).toBe("Compare trains between Kyoto and Osaka");
@@ -162,12 +162,7 @@ describe("a tap on the real seam", () => {
     const long = { label: "Go deeper", run: "Expand every line of this Kyoto plan into a detailed day-by-day itinerary, " + "with train times, booking links and costs for every hop between the cities" };
     expect(long.run.length).toBeGreaterThan(MAX_SENT);
     const composer = fakeComposer();
-    const a = composerActions(composer);
-    const root = render(
-      <BlockActions.Provider value={{ send: a.send, fill: a.fill }}>
-        <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={[long]} />
-      </BlockActions.Provider>,
-    ).container;
+    const root = wire(composer, [long]);
     await tapPill(root);
     expect(composer.submit.mock.calls[0][1]).toBe(long.run);
     expect(composer.insertText).not.toHaveBeenCalled();  // not drafted, not kept in the composer — SENT
@@ -176,29 +171,31 @@ describe("a tap on the real seam", () => {
 
   it("a refused submit falls into an acknowledged draft, and the strip says where it went", async () => {
     const composer = fakeComposer(false, true);
-    const root = wire(composer);
+    const root = wire(composer, ups());
     await tapPill(root);
     expect(said(root)).toBe("In the composer — press Send.");
   });
 
   it("an insert that answers nothing admits the text is nowhere — no false claim, retry stays possible", async () => {
     const composer = fakeComposer(false, false);
-    const root = wire(composer);
+    const root = wire(composer, ups());
     await tapPill(root);
     expect(said(root)).toBe("Send failed — nothing was sent or kept.");
     await tapPill(root);  // tap again: the retry is the whole point
     expect(composer.submit).toHaveBeenCalledTimes(2);
   });
 
+  it("an insert that dies answers \"failed\" too — the strip never blames the reader for a host that broke", async () => {
+    const composer = fakeComposer(false, "rejects");
+    const root = wire(composer, ups());
+    await tapPill(root);
+    expect(said(root)).toBe("Send failed — nothing was sent or kept.");
+  });
+
   it("text Hermes acts on before the model is never submitted, even through the explicit route", async () => {
     // Crafted past the reader (defense in depth): the host seam is the last guard, and it holds it.
     const composer = fakeComposer();
-    const a = composerActions(composer);
-    const root = render(
-      <BlockActions.Provider value={{ send: a.send, fill: a.fill }}>
-        <Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={[{ label: "Reset", run: "/reset" }]} />
-      </BlockActions.Provider>,
-    ).container;
+    const root = wire(composer, [{ label: "Reset", run: "/reset" }]);
     await tapPill(root);
     expect(composer.submit).not.toHaveBeenCalled();
     expect(composer.insertText).toHaveBeenCalled();
@@ -206,7 +203,7 @@ describe("a tap on the real seam", () => {
   });
 
   it("with no app around a tap did nothing, and the strip says that too", async () => {
-    const root = render(<Blocks blocks={readBlocksNoted({ blocks: [TEXT] }).blocks} boardFollowUps={ups()} />).container;
+    const root = wire(undefined, ups());
     await tapPill(root);
     expect(said(root)).toBe("No chat here.");
   });
@@ -229,9 +226,9 @@ describe("a tap on the real seam", () => {
   });
 
   it("a new tap never leaves the old word standing: pending until the host answers THIS one", async () => {
-    // The round-2 defect: tap A resolves "sent", tap B goes out while the host is silent, and the strip
-    // still says "Sent to chat." — a success word for a tap nobody acknowledged. Each new tap must clear
-    // the prior word to a pending mark, and only the host's answer to the last tap may replace it.
+    // The defect the review round caught: tap A resolves "sent", tap B goes out while the host is silent,
+    // and the strip still said "Sent to chat." — a success word for a tap nobody acknowledged. Each new
+    // tap must clear the prior word to a pending mark, and only the host's answer to the last tap replaces it.
     const deferred: Array<(r: SendResult) => void> = [];
     let tapsSent = 0;
     const send = vi.fn(() => {
@@ -245,12 +242,12 @@ describe("a tap on the real seam", () => {
       </BlockActions.Provider>,
     ).container;
     const pills = () => root.querySelectorAll<HTMLButtonElement>(".hb-followups button");
-    await tapPill(root, 0);                                 // A: the host says yes
+    await tapPill(root, 0);                                   // A: the host says yes
     expect(said(root)).toBe("Sent to chat.");
     await act(async () => { fireEvent.click(pills()[1]); });  // B: the host has not answered yet
-    expect(said(root)).toBe("Pending…");                    // the old success word is GONE
+    expect(said(root)).toBe("Pending…");                      // the old success word is GONE
     expect(said(root)).not.toContain("Sent");
-    await act(async () => { deferred[0]("failed"); });      // B's real answer: nothing went anywhere
+    await act(async () => { deferred[0]("failed"); });        // B's real answer: nothing went anywhere
     expect(said(root)).toBe("Send failed — nothing was sent or kept.");
     await act(async () => { fireEvent.click(pills()[0]); });  // C: a resolved word is stale the moment a tap starts
     expect(said(root)).toBe("Pending…");
@@ -258,11 +255,11 @@ describe("a tap on the real seam", () => {
     expect(said(root)).toBe("Blocked from sending — in the composer — press Send.");
   });
 
-  it("the pill carries its prompt in full where the reader can see it, title included", async () => {
+  it("a board with no word taps nothing: no strip, no word, no submit", async () => {
     const composer = fakeComposer();
-    const root = wire(composer);
-    const pill = root.querySelectorAll(".hb-followups button")[0];
-    expect(pill.getAttribute("title")).toBe("Plan the second day of my Kyoto itinerary");
-    expect(pill.textContent).toContain("Plan day 2");
+    const root = wire(composer, []);
+    expect(root.querySelectorAll(".hb-followups button").length).toBe(0);
+    expect(root.querySelector(".hb-followups")).toBeNull();
+    expect(composer.submit).not.toHaveBeenCalled();
   });
 });

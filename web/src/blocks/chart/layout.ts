@@ -1,8 +1,11 @@
-// Where everything goes in an up-and-down chart (line, bar, area, stacked, combo, scatter, histogram), worked out from
-// the spec and the width it has on screen: the plot's edges, where a label or value sits, how wide a column is, which
-// x labels and value labels are written, and the labels at the ends of lines. Also what the hover card says at a point.
-import { fmt, partColour, seriesName, type ChartSeries, type ChartSpec } from "./chartData";
+// Where everything goes in an up-and-down chart (line, bar, area, stacked, combo, histogram, range), in a scatter,
+// and in a waterfall, worked out from the spec and the width it has on screen: the plot's edges, where a label or
+// value sits, how wide a column is, which x labels and value labels are written, and the labels at the ends of lines.
+// Also what the hover card says at a point.
+import { axisNames, fmt, fmtSpan, kindToDraw, partColour, scatterPoints, seriesName, waterfallBars,
+  type ChartPoint, type ChartSeries, type ChartSpan, type ChartSpec, type WaterfallBar } from "./chartData";
 import { columnLayout, niceTicks, spreadLabels, textWidth, xLabelsShown } from "./geometry";
+import { cutAtWord } from "../../core/fields";
 import { formatChange } from "../../lib/format";
 import type { Tip } from "./ChartTip";
 
@@ -15,8 +18,9 @@ export type XYLayout = {
   W: number; H: number;
   /** The plot's edges: left and right x, top and bottom (base) y. */
   left: number; right: number; top: number; base: number;
-  /** Whether each x label owns a column (bars, stacked, combo) rather than a point on a line; a column's width. */
-  slotted: boolean; bar: number;
+  /** Whether each x label owns a column (bars, stacked, combo, histogram, range) rather than a point on a line; the
+   *  width of a column's slot and of the bar drawn in it. */
+  slotted: boolean; slot: number; bar: number;
   xAt: (i: number) => number; yAt: (v: number) => number;
   /** The y of a value on a series's own scale (a combo's line may use the right one). */
   yOf: (s: ChartSeries) => (v: number) => number;
@@ -27,6 +31,7 @@ export type XYLayout = {
 
 const COLUMNS_H = 210, LINES_H = 220;   // the drawing's height in px
 const TOP = 10, BOTTOM = 26, VALUE_ROOM = 16, SIDE = 8;
+const X_TITLE_ROOM = 16, Y_TITLE_ROOM = 14;  // an axis caption grows the drawing; the plot keeps its own height
 const MAX_VALUE_LABELS = 12, LINE_LABEL_GAP = 80, END_NAME_MAX = 16;
 /** The gap between a gridline's value, written on the left, and the plot. */
 export const TICK_GAP = 8;
@@ -34,39 +39,6 @@ export const TICK_GAP = 8;
 /** Whether a chart is a one-series line coloured by direction from its first value (tone "change"). */
 export function isChangeLine(spec: ChartSpec): boolean {
   return spec.type === "line" && spec.tone === "change" && spec.series.length === 1;
-}
-
-/** A scatter's x as numbers when every label reads as one ("" and words are not numbers); null otherwise, which
- *  leaves the dots evenly spaced.  ["1","2.5"] -> [1,2.5];  ["a"] -> null;  [] -> null. */
-function numericX(x: (string | number)[]): number[] | null {
-  if (!x.length || x.some((v) => String(v).trim() === "")) return null;
-  const vals = x.map((v) => (typeof v === "number" ? v : Number(String(v).trim())));
-  return vals.some((v) => !Number.isFinite(v)) ? null : vals;
-}
-
-// A scatter label needs only the room its letters take plus this gap to be written.
-const LABEL_GAP = 8;
-
-/** The scatter's x labels that get written: by their real positions (a crowded cluster thins to one), the leftmost
- *  and rightmost always, in index order. Scatter labels only need the room their own letters take plus a small gap —
- *  there is no line to keep clear — while every other up-and-down chart keeps the 80px rule. `at(i)` places dot i. */
-function scatterXLabels(labels: string[], at: (i: number) => number): number[] {
-  const order = labels.map((_, i) => i).sort((a, b) => at(a) - at(b) || a - b);
-  const shown: number[] = [];
-  let edge = -Infinity;
-  for (const i of order) {
-    const half = textWidth(labels[i]) / 2;
-    if (i === order[order.length - 1]) {
-      while (shown.length && at(shown[shown.length - 1]) + textWidth(labels[shown[shown.length - 1]]) / 2 + LABEL_GAP > at(i) - half) shown.pop();
-      shown.push(i);
-      break;
-    }
-    if (at(i) - half >= edge) {
-      shown.push(i);
-      edge = at(i) + half + LABEL_GAP;
-    }
-  }
-  return shown.sort((a, b) => a - b);
 }
 
 /** The first value of a series and the index of its last one, gaps skipped; null and -1 when it has none. */
@@ -91,15 +63,21 @@ const unitOf = (spec: ChartSpec, s: ChartSeries) => s.unit ?? spec.unit;
  * 220px. Bars carry their values on top when there are 12 or fewer (bars x series) and each value fits over its bar.
  * A line ends in its last value (one series) or each series's name (several), which takes room on the right.
  * Several lines also get faint gridlines at round values, written on the left, and the scale runs from the lowest to
- * the highest of them, so the gap between the lines reads without hovering.
+ * the highest of them, so the gap between the lines reads without hovering. A range gets those gridlines too (its
+ * windows sit between round values, not on a zero line); a histogram does not, its columns stand on zero.
  *   5 bars at 600px → 96px slots centred, values on top;  53 weekly points → about every 7th x label;
  *   two lines from 0% to 18.5% and -4.2% → gridlines at -10%, 0%, 10%, 20%
  */
 export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; right: Scale | null }): XYLayout {
   const n = spec.x.length;
-  const slotted = spec.type === "bar" || spec.type === "stacked" || spec.type === "combo" || spec.type === "histogram";
-  const H = slotted ? COLUMNS_H : LINES_H;
-  const base = H - BOTTOM;
+  const slotted = spec.type === "bar" || spec.type === "stacked" || spec.type === "combo"
+    || spec.type === "histogram" || spec.type === "range";
+  const drawn = kindToDraw(spec);
+  const hasAxis = drawn !== "hbar" && drawn !== "pie" && drawn !== "donut";
+  const xRoom = hasAxis && spec.xLabel ? X_TITLE_ROOM : 0;
+  const yRoom = hasAxis && spec.yLabel ? Y_TITLE_ROOM : 0;
+  const H = (spec.height ?? (slotted ? COLUMNS_H : LINES_H)) + xRoom + yRoom;
+  const base = H - BOTTOM - xRoom;
   const endTexts = spec.type === "line" ? lineEndTexts(spec) : [];
   const ticks = gridTicks(spec);
   const tickRoom = ticks.length ? TICK_GAP + Math.max(...ticks.map((t) => textWidth(fmt(t, spec.unit)))) : 0;
@@ -108,21 +86,16 @@ export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; 
   const right = width - (endRoom || (slotted ? 4 : SIDE));
   const plotWidth = right - left;
 
-  const xValues = spec.type === "scatter" ? numericX(spec.x) : null;  // a scatter on numbers places dots by value
-  const xLo = xValues ? Math.min(...xValues) : 0;
-  const xHi = xValues ? Math.max(...xValues) : 1;
   const perSlot = spec.type === "bar" ? spec.series.length : 1;
   const columns = columnLayout(plotWidth, n, perSlot);
   const xAt = (i: number) => slotted
     ? left + columns.start + columns.slot * (i + 0.5)
-    : xValues
-      ? left + (n === 1 || xHi === xLo ? plotWidth / 2 : (plotWidth * (xValues[i] - xLo)) / (xHi - xLo))
-      : left + (n === 1 ? plotWidth / 2 : (plotWidth * i) / (n - 1));
+    : left + (n === 1 ? plotWidth / 2 : (plotWidth * i) / (n - 1));
   const step = slotted ? columns.slot : n > 1 ? plotWidth / (n - 1) : 0;
 
   const valueLabels = (spec.type === "bar" || spec.type === "histogram") && n * perSlot <= MAX_VALUE_LABELS
     && spec.series.every((s) => s.data.every((v) => v === null || textWidth(fmt(v, unitOf(spec, s)), 11.5) <= columns.slot / perSlot));
-  const top = TOP + (valueLabels ? VALUE_ROOM : 0);
+  const top = TOP + (valueLabels ? VALUE_ROOM : 0) + yRoom;
   const scaleY = ({ min, max }: Scale) => (v: number) => top + (base - top) * (1 - (v - min) / (max - min || 1));
   const yAt = scaleY(ticks.length ? { min: ticks[0], max: ticks[ticks.length - 1] } : scales.left);
   const yRight = scales.right ? scaleY(scales.right) : yAt;
@@ -130,22 +103,27 @@ export function xyLayout(spec: ChartSpec, width: number, scales: { left: Scale; 
 
   const longest = Math.max(...spec.x.map((label) => textWidth(String(label))));
   const minGap = slotted ? longest + 8 : Math.max(LINE_LABEL_GAP, longest + 12);
-  const xLabels = xValues ? scatterXLabels(spec.x.map(String), xAt) : xLabelsShown(n, step, minGap);
+  const xLabels = xLabelsShown(n, step, minGap);
 
   const dotYs = endTexts.map((e) => yAt(e.value));
   const textYs = spreadLabels(dotYs, 14, base);
   const placedEnds = endTexts.map((e, j) => ({ series: e.series, at: e.at, text: e.text, dotY: dotYs[j], y: textYs[j],
     dot: valueColour(spec, e.series, e.value), ink: spec.series.length === 1 ? "var(--hb-ink)" : partColour(e.series) }));
 
-  return { W: width, H, left, right, top, base, slotted, bar: columns.bar, xAt, yAt, yOf, xLabels, valueLabels,
-    ends: placedEnds, ticks };
+  return { W: width, H, left, right, top, base, slotted, slot: columns.slot, bar: columns.bar, xAt, yAt, yOf, xLabels,
+    valueLabels, ends: placedEnds, ticks };
 }
 
-/** The gridline values for a chart with several lines, from its lowest value to its highest; none for anything else
- *  (one line reads from its end label and the hover card). */
+/** The gridline values for a chart with several lines, from its lowest value to its highest, and for a range, from
+ *  its lowest window bottom to its highest top or dot; none for anything else (one line reads from its end label and
+ *  the hover card, and a histogram's columns stand on zero). */
 function gridTicks(spec: ChartSpec): number[] {
-  if (spec.type !== "line" || spec.series.length < 2) return [];
-  const values = spec.series.flatMap((s) => s.data.filter((v): v is number => v !== null));
+  if (spec.type === "line" && spec.series.length < 2) return [];
+  if (spec.type !== "line" && spec.type !== "range") return [];
+  const values = spec.type === "range"
+    ? spec.series.flatMap((s) => (s.span ?? []).flatMap((b) => (b ? [b.low, b.high, b.now] : [])))
+      .filter((v): v is number => v !== null)
+    : spec.series.flatMap((s) => s.data.filter((v): v is number => v !== null));
   return values.length ? niceTicks(Math.min(...values), Math.max(...values)) : [];
 }
 
@@ -202,10 +180,14 @@ function lineEndTexts(spec: ChartSpec): { series: number; at: number; value: num
 /**
  * The hover card at x label i: the label, each series's value there in full (gaps left out), and for a one-series
  * line a note of its change since the start. Bars get no share note: only a pie's slices are parts of a whole.
+ * A histogram's card is its own bin ("50–100", Count 12); a range's is both ends of the window and where the dot sits
+ * ("Mon", Range 18 min–34 min, "now 26 min").
  *   bars [4213500000, 6320250000] at 0 → "Q1", Revenue 4,213,500,000, no note
  *   line [100, 104.2] at 1 → Value 104.2, "▲ 4.2% since start"
  */
 export function xyTip(spec: ChartSpec, i: number, layout: XYLayout): Tip {
+  if (spec.type === "histogram") return binTip(spec, i, layout);
+  if (spec.type === "range") return spanTip(spec, i, layout);
   const rows: Tip["rows"] = [];
   let y = layout.base;
   let pile = 0;
@@ -216,9 +198,11 @@ export function xyTip(spec: ChartSpec, i: number, layout: XYLayout): Tip {
     pile += Math.max(v, 0);
     y = Math.min(y, layout.yOf(s)(spec.type === "stacked" || spec.type === "area" ? pile : v));
   });
-  return { x: layout.xAt(i), y, title: String(spec.x[i]), rows, note: tipNote(spec, i) };
+  return { x: layout.xAt(i), y, title: String(spec.x[i]), rows, note: rows.length ? tipNote(spec, i) : "no data" };
 }
 
+/** The hover card's note: a one-line chart says how far the picked value has moved since its start, and a label no
+ *  series measured says there is no data there (a null is never shown as a zero). */
 function tipNote(spec: ChartSpec, i: number): string | undefined {
   if (spec.series.length !== 1 || spec.type !== "line") return undefined;
   const data = spec.series[0].data;
@@ -227,4 +211,172 @@ function tipNote(spec: ChartSpec, i: number): string | undefined {
   const first = data[start] as number;
   if (v === null || i <= start || first === 0) return undefined;
   return `${formatChange(((v - first) / Math.abs(first)) * 100)} since start`;
+}
+
+// A scatter is 230px high: it carries numbers along the bottom as well as up the side, so it needs a little more room
+// under the plot than a line does.
+const SCATTER_H = 230, SCATTER_BOTTOM = 30;
+
+/** A dot of a scatter on the drawing: its series, its point, its two numbers and where it sits. */
+export type Dot = { series: number; point: ChartPoint; x: number; y: number; cx: number; cy: number };
+
+export type ScatterLayout = {
+  W: number; H: number; left: number; right: number; top: number; base: number;
+  xAt: (x: number) => number; yAt: (y: number) => number;
+  /** The round values written along the bottom and up the side. */
+  xTicks: number[]; yTicks: number[];
+  /** The points that have a place, in reading order: left to right, then top to bottom. */
+  dots: Dot[];
+};
+
+/** Round values for a scale, covering the range it was given: (9, 62) -> [0, 20, 40, 60, 80]. */
+function ticksOf(scale: Scale): number[] {
+  return niceTicks(scale.min, scale.max);
+}
+
+/**
+ * Where a scatter's dots go: both axes carry round values (the ticksOf of the scales chartScales gives it), the values
+ * up the side take room on the left, and the numbers along the bottom sit under the plot. Dots keep the reading order
+ * scatterPoints gave them, so the arrow keys walk left to right.
+ *   4 cars at 600px → dots at their x and y, y values written on the left, x values under the plot
+ */
+export function scatterLayout(spec: ChartSpec, width: number, scales: { left: Scale; x?: Scale }): ScatterLayout {
+  const xTicks = ticksOf(scales.x ?? { min: 0, max: 1 });
+  const yTicks = ticksOf(scales.left);
+  const H = SCATTER_H;
+  const base = H - SCATTER_BOTTOM;
+  const top = TOP + 6;
+  const tickRoom = yTicks.length ? TICK_GAP + Math.max(...yTicks.map((t) => textWidth(fmt(t, spec.unit)))) : 0;
+  const left = SIDE + tickRoom;
+  const right = width - SIDE;
+  const x0 = xTicks[0] ?? 0, x1 = xTicks[xTicks.length - 1] ?? 1;
+  const y0 = yTicks[0] ?? 0, y1 = yTicks[yTicks.length - 1] ?? 1;
+  const xAt = (v: number) => left + ((right - left) * (v - x0)) / (x1 - x0 || 1);
+  const yAt = (v: number) => base - ((base - top) * (v - y0)) / (y1 - y0 || 1);
+  const dots = scatterPoints(spec.series).map((p) => ({ ...p, cx: xAt(p.x), cy: yAt(p.y) }));
+  return { W: width, H, left, right, top, base, xAt, yAt, xTicks, yTicks, dots };
+}
+
+/**
+ * The hover card on a scatter's dot: the point's name (or its series), then where it sits on each axis.
+ *   {label: "Maruti 800", x: 62, y: 1.2} titled "Price against mileage" → "Maruti 800", "mileage 62" · "price 1.2"
+ */
+export function scatterTip(spec: ChartSpec, i: number, layout: ScatterLayout): Tip {
+  const dot = layout.dots[i];
+  const names = axisNames(spec.title);
+  const unit = spec.series[dot.series].unit ?? spec.unit;
+  return {
+    x: dot.cx, y: dot.cy,
+    title: dot.point.label ?? seriesName(spec.series, dot.series),
+    rows: [{ colour: partColour(dot.series), name: `${names.x ?? "x"} ${fmt(dot.x)}`,
+      value: `${names.y ?? "y"} ${fmt(dot.y, unit, { full: true })}` }],
+  };
+}
+
+// A waterfall prints its values on eight bars or fewer, when each one fits its column: a monthly bridge leaves the
+// numbers to the hover card.
+const WATERFALL_VALUE_LABELS = 8;
+
+export type WaterfallLayout = {
+  W: number; H: number; left: number; right: number; top: number; base: number;
+  slot: number; bar: number;
+  xAt: (i: number) => number; yAt: (v: number) => number;
+  /** The round values written on the left; the scale always keeps zero in view. */
+  ticks: number[];
+  /** Whether each bar's value is written on it (eight bars or fewer, each value fitting its column). */
+  valueLabels: boolean;
+  /** Each point's label, cut to the room under its column. */
+  labels: string[];
+  /** The bars as drawn: a step's band, a total's balance, or null for an unknown step and everything after it. */
+  bars: (WaterfallBar | null)[];
+};
+
+/**
+ * Where a bridge's bars go: a column per point, each step from the balance it starts at to the one it ends at, each
+ * total from zero. The scale keeps zero in view, the values are written on eight bars or fewer when they fit, and the
+ * labels under the columns are cut to the room they have (the hover card keeps them whole).
+ *   6 steps at 600px → 96px columns, values on top;  20 steps at 600px → 30px columns, no values
+ */
+export function waterfallLayout(spec: ChartSpec, width: number): WaterfallLayout {
+  const bars = waterfallBars(spec.series[0]?.points ?? []);
+  const n = bars.length;
+  const ends = bars.flatMap((b) => (b === null ? [] : [b.from, b.to]));
+  const ticks = ends.length ? niceTicks(Math.min(0, ...ends), Math.max(0, ...ends)) : [0];
+  const H = COLUMNS_H;
+  const base = H - BOTTOM;
+  const tickRoom = TICK_GAP + Math.max(...ticks.map((t) => textWidth(fmt(t, spec.unit))));
+  const left = 4 + tickRoom;
+  const right = width - 4;
+  const columns = columnLayout(right - left, n, 1);
+  const xAt = (i: number) => left + columns.start + columns.slot * (i + 0.5);
+  const drawn = bars.filter((b): b is WaterfallBar => b !== null);
+  const values = drawn.map((b) => waterfallValue(b, spec.unit));
+  const valueLabels = drawn.length <= WATERFALL_VALUE_LABELS
+    && values.every((v) => textWidth(v, 11.5) <= columns.slot - 4);
+  const top = TOP + (valueLabels ? VALUE_ROOM : 0);
+  const yAt = (v: number) => base - ((base - top) * (v - ticks[0])) / ((ticks[ticks.length - 1] - ticks[0]) || 1);
+  const labels = spec.x.map((label) => cutAtWord(String(label), Math.max(6, Math.floor((columns.slot - 6) / (11 * 0.6)))));
+  return { W: width, H, left, right, top, base, slot: columns.slot, bar: columns.bar, xAt, yAt,
+    ticks, valueLabels, labels, bars };
+}
+
+/** A waterfall bar's value as it is written on the bar and in the hover card: a step with its sign, a total's balance.
+ *  (from 0 to 2140, total) → "2,140";  (from 120 to 112) → "-8";  (from 112 to 117) → "+5" */
+export function waterfallValue(bar: WaterfallBar, unit?: string): string {
+  if (bar.total) return fmt(bar.to, unit);
+  const step = bar.to - bar.from;
+  return `${step > 0 ? "+" : ""}${fmt(step, unit)}`;
+}
+
+/**
+ * The hover card on a waterfall bar: the point's name, its direction in words and its amount, and the balance it
+ * produced.  (label "Returns", 120 → 112) → "Returns", "▼ decrease -8", "balance 112"
+ */
+export function waterfallTip(spec: ChartSpec, i: number, layout: WaterfallLayout): Tip {
+  const bar = layout.bars[i] as WaterfallBar;
+  const unit = spec.series[0]?.unit ?? spec.unit;
+  const step = bar.to - bar.from;
+  const rise = step >= 0;
+  return {
+    x: layout.xAt(i), y: layout.yAt(Math.max(bar.from, bar.to)),
+    title: String(spec.x[i]),
+    rows: [{ colour: bar.total ? partColour(0) : rise ? "var(--hb-good)" : "var(--hb-warn)",
+      name: bar.total ? "Total" : rise ? "▲ increase" : "▼ decrease", value: waterfallValue(bar, unit) }],
+    note: `balance ${fmt(bar.to, unit, { full: true })}`,
+  };
+}
+
+/** A histogram's card at bin i: the bin's label, its count, and "not counted" where the bin has no count. */
+function binTip(spec: ChartSpec, i: number, layout: XYLayout): Tip {
+  const s = spec.series[0];
+  const v = s.data[i] ?? null;
+  const rows: Tip["rows"] = v === null
+    ? [] : [{ colour: partColour(0), name: s.name ?? "Count", value: fmt(v, unitOf(spec, s), { full: true }) }];
+  return { x: layout.xAt(i), y: v === null ? layout.base : layout.yAt(v), title: String(spec.x[i]), rows,
+    note: v === null ? "not counted" : undefined };
+}
+
+/** A range's card at x label i: both ends of the window in full, and where the dot sits against them. */
+function spanTip(spec: ChartSpec, i: number, layout: XYLayout): Tip {
+  const s = spec.series[0];
+  const span = s.span?.[i] ?? { low: null, high: null, now: null };
+  const unit = unitOf(spec, s);
+  const band = span.low !== null && span.high !== null;
+  const rows: Tip["rows"] = band
+    ? [{ colour: partColour(0), name: s.name ?? "Range", value: fmtSpan(span.low, span.high, unit, { full: true }) }]
+    : [];
+  const ys = [span.high, span.now].flatMap((v) => (v === null ? [] : [layout.yAt(v)]));
+  return { x: layout.xAt(i), y: ys.length ? Math.min(...ys) : layout.base, title: String(spec.x[i]), rows,
+    note: spanNote(span, unit) };
+}
+
+/** The dot read against its window: "now 26 min" inside it, "now 42 min, above the band" outside, alone when the
+ *  window is unknown, and "no window" when neither is known. */
+function spanNote(span: ChartSpan, unit: string | undefined): string | undefined {
+  if (span.now === null) return span.low === null ? "no window" : undefined;
+  const now = `now ${fmt(span.now, unit, { full: true })}`;
+  if (span.low === null || span.high === null) return now;
+  if (span.now < span.low) return `${now}, below the band`;
+  if (span.now > span.high) return `${now}, above the band`;
+  return now;
 }

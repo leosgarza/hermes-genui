@@ -1,16 +1,25 @@
-"""chart: line, bar, area, stacked, hbar, combo, pie, donut, scatter or histogram."""
+"""chart: line, bar, area, stacked, hbar, combo, pie, donut, scatter, waterfall, histogram, range, gauge, bullet,
+funnel, pareto, radar, control, bubble, box or treemap."""
 
-from .common import change_chip, fmt_num, is_number, safe_text
+import re
 
-CHART_KINDS = ("line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut", "scatter", "histogram", "gauge", "bullet", "funnel", "pareto", "waterfall", "radar", "control", "bubble", "box", "treemap")
+from .common import change_chip, fmt_num, is_number, safe_text, short_text
+
+CHART_KINDS = ("line", "bar", "area", "stacked", "hbar", "combo", "pie", "donut",
+               "scatter", "waterfall", "histogram", "range", "gauge", "bullet", "funnel", "pareto",
+               "radar", "control", "bubble", "box", "treemap")
 KIND_ALIASES = {"doughnut": "donut", "stackedbar": "stacked", "horizontalbar": "hbar", "barh": "hbar",
-                "hist": "histogram", "dial": "gauge", "speedometer": "gauge", "bulletgraph": "bullet"}
+                "hist": "histogram", "rangebar": "range", "floatingbar": "range",
+                "dial": "gauge", "speedometer": "gauge", "bulletgraph": "bullet"}
+SCATTER_POINTS = 200   # a scatter series's cap, the same one the web reader keeps
+MAX_LABEL = 40         # a point's name, as the web reader keeps it
 
 
 def chart_kind(name: object) -> str:
     """The kind the drawing side will use for the name written (the same rule as the web reader).
 
-    "Donut" → "donut";  "stacked_bar" → "stacked";  "scatter" → "scatter";  "hist" → "histogram";  None → "line"
+    "Donut" → "donut";  "stacked_bar" → "stacked";  "hist" → "histogram";  "scatter" → "scatter";
+    "ridge" → "line";  None → "line"
     """
     if not isinstance(name, str):
         return "line"
@@ -20,34 +29,113 @@ def chart_kind(name: object) -> str:
     return KIND_ALIASES.get(plain, "line")
 
 
+def _limit(kind: str, most: int) -> str:
+    """How many series a kind takes, as the problem puts it; a kind that takes one says so without a range.
+    ("line", 3) → "a line chart takes 1-3 series";  ("histogram", 1) → "a histogram chart takes 1 series"."""
+    return f"a {kind} chart takes 1 series" if most == 1 else f"a {kind} chart takes 1-{most} series"
+
+
+def _has_window_arrays(first: dict) -> bool:
+    return isinstance(first.get("low"), list) or isinstance(first.get("high"), list)
+
+
+def _range_points(block: dict, x: object, series: object, path: str
+                   ) -> tuple[object, object, list[tuple[str, str]]]:
+    """Accept the points form the guide shows: [{label, low, high, now}] on the series, or at chart level when there is
+    one series and no x. When points are present and no low/high arrays are, turn the labels into x (if x is missing)
+    and the fields into the parallel arrays the rest of the check reads. A series already written as low/high/now
+    arrays is left alone.
+
+    points [{label: "Mon", low: 18, high: 34, now: 26}] → x ["Mon"], series[0].low [18], .high [34], .now [26]
+    """
+    if isinstance(series, list) and series and isinstance(series[0], dict):
+        first = series[0]
+    else:
+        first = {}
+    points = first.get("points")
+    points_path = f"{path}.series.0.points"
+    if not (isinstance(points, list) and not _has_window_arrays(first)):
+        points = block.get("points")
+        points_path = f"{path}.points"
+        if not (isinstance(points, list) and not _has_window_arrays(first)):
+            return x, series, []
+    labels: list[str] = []
+    lows: list[object] = []
+    highs: list[object] = []
+    nows: list[object] = []
+    problems: list[tuple[str, str]] = []
+    for j, p in enumerate(points):
+        at = f"{points_path}.{j}"
+        if not isinstance(p, dict):
+            problems.append((at, "point is not an object"))
+            continue
+        label = p.get("label", p.get("x"))
+        labels.append(label if label is not None else f"Point {j + 1}")
+        lows.append(p.get("low"))
+        highs.append(p.get("high"))
+        nows.append(p.get("now"))
+    if problems:
+        return x, series, problems
+    if not isinstance(x, list) or not x:
+        x = labels
+    converted = {**first, "low": lows, "high": highs}
+    if any(v is not None for v in nows):
+        converted["now"] = nows
+    rest = series[1:] if isinstance(series, list) else []
+    return x, [converted, *rest], []
+
+
 def check_chart(block: dict, path: str) -> list[tuple[str, str]]:
-    """x labels; 1-3 series (stacked and area up to 6); every series as long as x, holding numbers or null gaps;
-    at least one number, and for a pie or donut at least one positive one. A histogram needs no x: it bins the
-    numbers of its one series itself, and any x left on it is ignored.
+    """x labels; 1-3 series (stacked and area up to 6, histogram and range exactly 1); every series as long as x,
+    holding numbers or null gaps; at least one number, a histogram at least one count above zero and no negative ones,
+    and for a pie or donut at least one positive one. A scatter's and a waterfall's series hold points instead of data
+    and their checks are their own (_check_scatter, _check_waterfall); a range series carries low and high per x (both
+    numbers or both null, low never above high) and an optional now, or points [{label, low, high, now}].
 
     x = ["Mon", "Tue", "Wed"], series[0].data = [1, 2] → [("0.series.0", "data has 2 values but x has 3 labels")]
     a line chart with 4 series → [("0", "a line chart takes 1-3 series")]
+    a range whose low is 40 and high 30 → [("0.series.0.1", "low must not be above high")]
     The optional tone is checked last (_check_tone).
     """
+    x = block.get("x")
+    series = block.get("series")
     kind = chart_kind(block.get("kind"))
+    if kind in ("scatter", "waterfall", "range") and isinstance(block.get("points"), list):
+        first = series[0] if isinstance(series, list) and series and isinstance(series[0], dict) else {}
+        has_points = isinstance(first.get("points"), list)
+        if not has_points and not (kind == "range" and _has_window_arrays(first)):
+            rest = series[1:] if isinstance(series, list) else []
+            series = [{**first, "points": block["points"]}, *rest]
+    if kind == "scatter":
+        return _check_scatter(block, path)
+    if kind == "waterfall":
+        return _check_waterfall(block, path)
     if kind == "gauge":
         return _check_gauge(block, path)
     if kind == "box":
         return _check_box(block, path)
-    if kind == "histogram":
-        return _check_histogram(block, path)
-    x = block.get("x")
-    series = block.get("series")
+    if kind == "range":
+        x, series, point_problems = _range_points(block, x, series, path)
+        if point_problems:
+            return point_problems
     if not isinstance(x, list) or not x:
         return [(path, "chart needs x labels")]
     if not isinstance(series, list) or not series:
         return [(path, "chart needs 1-6 series")]
-    most = 6 if kind in ("stacked", "area") else 2 if kind in ("bullet", "bubble") else 1 if kind in ("funnel", "pareto", "waterfall", "control", "treemap") else 3
+    most = 1 if kind in ("histogram", "range", "funnel", "pareto", "control", "treemap") \
+        else 6 if kind in ("stacked", "area") else 2 if kind in ("bullet", "bubble") else 3
     if len(series) > most:
-        return [(path, f"a {kind} chart takes 1-{most} series")]
+        return [(path, _limit(kind, most))]
     problems = []
     numbers: list[float] = []
     for i, s in enumerate(series):
+        if kind == "range":
+            problems += _check_window(s, i, len(x), f"{path}.series.{i}")
+            for key in ("low", "high", "now"):
+                values = s.get(key) if isinstance(s, dict) else None
+                if isinstance(values, list):
+                    numbers += [v for v in values if is_number(v)]
+            continue
         data = s.get("data") if isinstance(s, dict) else None
         if not isinstance(data, list):
             problems.append((f"{path}.series.{i}", "series needs a data list"))
@@ -61,9 +149,135 @@ def check_chart(block: dict, path: str) -> list[tuple[str, str]]:
         return problems
     if not numbers:
         return [(path, "chart needs at least one number")]
+    if kind == "histogram":
+        if any(v < 0 for v in numbers):
+            return [(path, "a histogram counts, so no negative values")]
+        if not any(v > 0 for v in numbers):
+            return [(path, "a histogram needs a count above zero")]
     if kind in ("pie", "donut", "treemap") and not any(v > 0 for v in numbers):
         return [(path, f"a {kind} needs at least one positive value")]
-    return _check_tone(block, kind, len(series), path)
+    return _check_tone(block, kind, len(series), path) + _check_controls(block, kind, path)
+
+
+def _check_controls(block: dict, kind: str, path: str) -> list[tuple[str, str]]:
+    """The optional drawing controls, checked only when switched on: stepped (true) is for line and combo, sortDesc
+    (true) for bar and hbar. Anything else (false, null, a string) means the control is off, as the reader treats it.
+    height isn't checked: the reader clamps it to 120-480 and ignores a non-number."""
+    problems = []
+    if block.get("stepped") is True and kind not in ("line", "combo"):
+        problems.append((path, "stepped is for a line or combo chart"))
+    if block.get("sortDesc") is True and kind not in ("bar", "hbar"):
+        problems.append((path, "sortDesc is for a bar or hbar chart"))
+    return problems
+
+
+def _check_scatter(block: dict, path: str) -> list[tuple[str, str]]:
+    """1-2 series of points, each a number on both scales (y may be null for unknown), at most 200 points a series.
+
+    series[0].points = [{"x": 9, "y": 24.6}] → []
+    points[0] = {"x": "9", "y": 1} → [("0.series.0.points.0", "point needs a numeric x")]
+    3 series → [("0", "a scatter chart takes 1-2 series")]
+    """
+    series = block.get("series")
+    if not isinstance(series, list) or not series:
+        return [(path, "scatter needs 1-2 series with points")]
+    if len(series) > 2:
+        return [(path, "a scatter chart takes 1-2 series")]
+    problems: list[tuple[str, str]] = []
+    drawn = 0
+    for i, s in enumerate(series):
+        where = f"{path}.series.{i}"
+        points = s.get("points") if isinstance(s, dict) else None
+        if not isinstance(points, list) or not points:
+            problems.append((where, "series needs a points list"))
+            continue
+        if len(points) > SCATTER_POINTS:
+            problems.append((where, f"a scatter series takes at most {SCATTER_POINTS} points"))
+            continue
+        for j, p in enumerate(points):
+            at = f"{where}.points.{j}"
+            if not isinstance(p, dict):
+                problems.append((at, "point is not an object"))
+            elif not is_number(p.get("x")):
+                problems.append((at, "point needs a numeric x"))
+            elif p.get("y") is not None and not is_number(p.get("y")):
+                problems.append((at, "point's y is a number, or null for unknown"))
+            elif is_number(p.get("y")):
+                drawn += 1
+    if problems:
+        return problems
+    if not drawn:
+        return [(path, "scatter needs at least one point with a y")]
+    return _check_tone(block, "scatter", len(series), path)
+
+
+def _check_waterfall(block: dict, path: str) -> list[tuple[str, str]]:
+    """One series of points: a label, a signed value or total: true, and a value of null for an unknown step.
+
+    points = [{"label": "Revenue", "value": 120, "total": True}, {"label": "Returns", "value": -8}] → []
+    value "8" → [("0.series.0.points.1", "point's value is a number, or null for unknown")]
+    two series → [("0", "a waterfall chart takes 1 series")]
+    """
+    series = block.get("series")
+    if not isinstance(series, list) or not series:
+        return [(path, "waterfall needs 1 series with points")]
+    if len(series) > 1:
+        return [(path, "a waterfall chart takes 1 series")]
+    points = series[0].get("points") if isinstance(series[0], dict) else None
+    if not isinstance(points, list) or not points:
+        return [(path, "series needs a points list")]
+    problems: list[tuple[str, str]] = []
+    drawn = 0
+    for j, p in enumerate(points):
+        at = f"{path}.series.0.points.{j}"
+        if not isinstance(p, dict):
+            problems.append((at, "point is not an object"))
+            continue
+        if not short_text(p.get("label"), MAX_LABEL):
+            problems.append((at, f"label is text of at most {MAX_LABEL} characters"))
+        if p.get("value") is not None and not is_number(p.get("value")):
+            problems.append((at, "point's value is a number, or null for unknown"))
+        elif is_number(p.get("value")) or p.get("total") is True:
+            drawn += 1
+    if problems:
+        return problems
+    if not drawn:
+        return [(path, "waterfall needs at least one point with a value or a total")]
+    return _check_tone(block, "waterfall", 1, path)
+def _check_window(series: dict, i: int, count: int, path: str) -> list[tuple[str, str]]:
+    """A range series: low and high as long as x, each a number or (both) null, low never above high, and now
+    optional.
+
+    low = [18], high = [34], x has 1 label → [];  low = [40], high = [30] → [("….1", "low must not be above high")]
+    low = [18], high = [None] → [("….1", "a window needs both low and high, or null for neither")]
+    """
+    if not isinstance(series, dict):
+        return [(path, "a range needs low and high for each x")]
+    problems = []
+    for key in ("low", "high"):
+        values = series.get(key)
+        if not isinstance(values, list):
+            return [(path, f"a range needs {key} for each x")]
+        if len(values) != count:
+            problems.append((f"{path}.{key}", f"{key} has {len(values)} values but x has {count} labels"))
+        elif not all(v is None or is_number(v) for v in values):
+            problems.append((f"{path}.{key}", f"{key} must be numbers (null for no window)"))
+    if problems:
+        return problems
+    for j, (low, high) in enumerate(zip(series["low"], series["high"], strict=True)):
+        if (low is None) != (high is None):
+            problems.append((f"{path}.{j}", "a window needs both low and high, or null for neither"))
+        elif is_number(low) and is_number(high) and low > high:
+            problems.append((f"{path}.{j}", "low must not be above high"))
+    now = series.get("now")
+    if now is not None:
+        if not isinstance(now, list):
+            problems.append((f"{path}.now", "now must be a list of numbers"))
+        elif len(now) != count:
+            problems.append((f"{path}.now", f"now has {len(now)} values but x has {count} labels"))
+        elif not all(v is None or is_number(v) for v in now):
+            problems.append((f"{path}.now", "now must be numbers (null for none)"))
+    return problems
 
 
 def _check_tone(block: dict, kind: str, series_count: int, path: str) -> list[tuple[str, str]]:
@@ -81,31 +295,14 @@ def _check_tone(block: dict, kind: str, series_count: int, path: str) -> list[tu
     return []
 
 
-def _check_histogram(block: dict, path: str) -> list[tuple[str, str]]:
-    """A histogram needs no x (the web reader makes the bins the labels); its one series' data list must hold
-    numbers or null gaps, at least one of them a number. Any x left on the block is ignored, not refused.
+def _series_line(series: dict, labels: list) -> str:
+    """One series, first value to last, then how many of its slots hold no value and up to three of their labels.
 
-    {"series": [{"data": [5, None]}]} → [];  two series → [("0", "a histogram bins the values of one series")]
+    {"name": "Shop A", "data": [12, None, 0, 9, 14]} → "Shop A 12 → 14, 1 gap (Tue)".
+    No % when the first value is 0; first → last keeps working on the observed values, so the chip is unchanged.
     """
-    series = block.get("series")
-    if not isinstance(series, list) or not series:
-        return [(path, "chart needs 1-6 series")]
-    if len(series) > 1:
-        return [(path, "a histogram bins the values of one series")]
-    data = series[0].get("data") if isinstance(series[0], dict) else None
-    if not isinstance(data, list):
-        return [(f"{path}.series.0", "series needs a data list")]
-    if not all(v is None or is_number(v) for v in data):
-        return [(f"{path}.series.0", "data must be numbers (null for a gap)")]
-    if not any(is_number(v) for v in data):
-        return [(path, "chart needs at least one number")]
-    return _check_tone(block, "histogram", 1, path)
-
-
-def _series_line(series: dict) -> str:
-    """One series, first value to last: {"name": "Revenue", "data": [67087, None, 72275]}
-    → "Revenue 67,087 → 72,275 (▲ 7.7%)". No % when the first value is 0."""
-    data = [v for v in series.get("data", []) if is_number(v)]
+    raw = series.get("data", [])
+    data = [v for v in raw if is_number(v)]
     if not data:
         return ""
     name = safe_text(series.get("name"))
@@ -113,6 +310,13 @@ def _series_line(series: dict) -> str:
     line = f"{name} {fmt_num(first)} → {fmt_num(last)}".strip()
     if first:
         line += " " + change_chip(round((last - first) / abs(first) * 100, 1))
+    missing = [safe_text(label, 24) for label, v in zip(labels, raw, strict=False) if v is None]
+    if missing:
+        shown = [label for label in missing if label][:3]
+        named = ", ".join(shown) if shown else "unlabelled"
+        if len(missing) > len(shown):
+            named += f" and {len(missing) - len(shown)} more"
+        line += f", {len(missing)} gap{'' if len(missing) == 1 else 's'} ({named})"
     return line
 
 
@@ -130,87 +334,220 @@ def _slices(x: list, series: dict, top: int = 4) -> str:
     return ", ".join(shown)
 
 
-def _points_line(series: dict) -> str:
-    """One scatter series, spread rather than trend: {"name": "Samples", "data": [10, 14, 12]}
-    → "Samples 3 points, y 10 → 14"."""
-    data = [v for v in series.get("data", []) if is_number(v)]
-    if not data:
-        return ""
-    name = safe_text(series.get("name"))
-    line = f"{name} " if name else ""
-    return f"{line}{len(data)} points, y {fmt_num(min(data))} → {fmt_num(max(data))}"
+# A title that puts one measure against another names a scatter's two axes: everything before "against", "by" or
+# "vs" is the measure up the side, everything after it the one along the bottom (the same rule as axisNames on the
+# web side).
+AGAINST = re.compile(r"^(.+?)\s+(?:against|by|vs\.?)\s+(.+)$", re.IGNORECASE)
 
 
-def _histogram_line(values: list) -> str:
-    """The values a histogram bins, said plainly: [3, 40, 40, 70] → "4 values, 3 → 70, median 40"."""
-    data = sorted(v for v in values if is_number(v))
-    if not data:
+def _axis_word(text: str) -> str:
+    """("Price ", "Mileage (km/l)") → "price", "mileage (km/l)"."""
+    return re.sub(r"[\s:,.?!]+$", "", text.strip().lower())
+
+
+def _axis_names(title: str) -> tuple[str, str]:
+    """A scatter's axes, along the bottom then up the side; "x" and "y" when the title names neither.
+
+    "Price against mileage" → ("mileage", "price");  "Revenue" → ("x", "y")
+    """
+    match = AGAINST.match(title.strip())
+    if match is None:
+        return "x", "y"
+    across, up = _axis_word(match.group(2)), _axis_word(match.group(1))
+    return (across, up) if across and up else ("x", "y")
+
+
+def _count(n: int) -> str:
+    """(1) → "1 point";  (24) → "24 points"."""
+    return f"{n} point" if n == 1 else f"{n} points"
+
+
+def _drawn_points(series: dict) -> list[dict]:
+    """A scatter series' points that have a number on both scales, in the order written."""
+    return [p for p in series.get("points", [])
+            if isinstance(p, dict) and is_number(p.get("x")) and is_number(p.get("y"))]
+
+
+def _scatter_line(series: list[dict], title: str) -> str:
+    """How a scatter reads: what it plots, then the highest point; several groups give each one's range.
+
+    one series → "4 points; mileage 9 to 62, price 1.2 to 24.6; highest 24.6 at 9 (Fortuner)"
+    two series → "Petrol 2 points, mileage 480 to 610; Diesel 2 points, mileage 540 to 690"
+    """
+    across, up = _axis_names(title)
+    groups = [(safe_text(s.get("name"), MAX_LABEL), _drawn_points(s)) for s in series[:2]]
+    groups = [(name, points) for name, points in groups if points]
+    if not groups:
         return ""
-    mid = data[len(data) // 2] if len(data) % 2 else (data[len(data) // 2 - 1] + data[len(data) // 2]) / 2
-    return f"{len(data)} values, {fmt_num(data[0])} → {fmt_num(data[-1])}, median {fmt_num(mid)}"
+    if len(groups) > 1:
+        parts = []
+        for name, points in groups:
+            xs = [p["x"] for p in points]
+            parts.append(f"{name or 'Series'} {_count(len(points))}, {across} {fmt_num(min(xs))} to {fmt_num(max(xs))}")
+        return "; ".join(parts)
+    points = groups[0][1]
+    xs, ys = [p["x"] for p in points], [p["y"] for p in points]
+    top = max(points, key=lambda p: (p["y"], -p["x"]))
+    line = (f"{_count(len(points))}; {across} {fmt_num(min(xs))} to {fmt_num(max(xs))}, "
+            f"{up} {fmt_num(min(ys))} to {fmt_num(max(ys))}; highest {fmt_num(top['y'])} at {fmt_num(top['x'])}")
+    label = safe_text(top.get("label"), MAX_LABEL)
+    return f"{line} ({label})" if label else line
+
+
+def _signed(value: float) -> str:
+    """A step with its sign: 3200 → "+3,200";  -1450 → "-1,450";  0 → "0"."""
+    return f"+{fmt_num(value)}" if value > 0 else fmt_num(value)
+
+
+def _waterfall_line(series: dict) -> str:
+    """A bridge as its points in order: each step with its sign, each total as its balance, an unknown step named.
+
+    → "Gross revenue 120 → -8 Returns → -5 Discounts → Net profit 107"
+    → "Opening 2,140 → +3,200 Salary → -1,450 Rent → card, unknown → closing not stated"
+    """
+    points = [p for p in series.get("points", []) if isinstance(p, dict)]
+    balance = 0.0
+    moved = False     # whether a step has moved the balance yet
+    broken = False
+    parts = []
+    for p in points:
+        label = safe_text(p.get("label"), MAX_LABEL)
+        total = p.get("total") is True
+        if broken:
+            if total:
+                parts.append(f"{label} not stated" if label else "closing not stated")
+            continue
+        if total:
+            opening = p.get("value")
+            if not moved and is_number(opening):
+                balance = float(opening)  # type: ignore[arg-type]
+            parts.append(f"{label} {fmt_num(balance)}".strip())
+            continue
+        value = p.get("value")
+        if not is_number(value):
+            parts.append(f"{label}, unknown" if label else "unknown")
+            broken = True
+            continue
+        balance += float(value)  # type: ignore[arg-type]
+        moved = True
+        parts.append(f"{_signed(float(value))} {label}".strip())  # type: ignore[arg-type]
+    return " → ".join(part for part in parts if part)
+
+
+def _bins_line(x: list, series: dict, top: int = 8) -> str:
+    """A histogram read left to right: how many it counted, then the bins with their counts (up to 8 of them), or for a
+    long one just where the most fell. A bin with no count is not counted and isn't named.
+
+    bins 0-50: 4, 50-100: 12 → "16 counted in 2 bins: 0-50 4, 50-100 12";  20 bins → "29 counted in 20 bins, most in
+    50-100 (12)";  no counts → ""
+    """
+    pairs = [(safe_text(label), v) for label, v in zip(x, series.get("data", []), strict=False)
+             if is_number(v) and v >= 0]
+    if not pairs:
+        return ""
+    total = sum(v for _, v in pairs)
+    head = f"{fmt_num(total)} counted in {len(pairs)} bin{'s' if len(pairs) != 1 else ''}"
+    if len(pairs) > top:
+        name, most = max(pairs, key=lambda part: part[1])
+        return f"{head}, most in {name} ({fmt_num(most)})"
+    return f"{head}: " + ", ".join(f"{label} {fmt_num(v)}".strip() for label, v in pairs)
+
+
+def _windows_line(x: list, series: dict) -> str:
+    """A range read left to right: each x's window, its dot, and where the dot sits if it falls outside.
+
+    Mon 18-34 now 26, Tue 19-36, Wed 20-38 now 42 (above the band) → "Mon 18-34, now 26; Tue 19-36; Wed 20-38,
+    now 42 (above the band)";  an x with no window → "Thu no window"
+    """
+    lows, highs, nows = series.get("low") or [], series.get("high") or [], series.get("now") or []
+    parts = []
+    for i, label in enumerate(x):
+        low = lows[i] if i < len(lows) else None
+        high = highs[i] if i < len(highs) else None
+        now = nows[i] if i < len(nows) else None
+        name = safe_text(label)
+        if not (is_number(low) and is_number(high)):
+            parts.append(f"{name} no window".strip())
+            continue
+        low_n, high_n = float(low), float(high)  # type: ignore[arg-type]
+        part = f"{name} {fmt_num(low_n)}-{fmt_num(high_n)}".strip()
+        if is_number(now):
+            now_n = float(now)  # type: ignore[arg-type]
+            part += f", now {fmt_num(now_n)}"
+            part += " (above the band)" if now_n > high_n else " (below the band)" if now_n < low_n else ""
+        parts.append(part)
+    return "; ".join(parts)
 
 
 def text_chart(block: dict) -> str:
-    """One line: the title (and unit), then each series first → last, a pie's top slices, a histogram's spread
-    of its values, or a scatter's point count and y range.
+    """The title (and unit), then each series first → last, a histogram's bins and counts, a range's windows, a
+    scatter's ranges and highest point, a bridge's steps, or a pie's top slices. A written caveat becomes a second
+    italic line: "**Revenue** (₹Cr): Revenue 67,087 → 74,010 (▲ 10.3%)\n_Q3 onward is a projection._"
 
-    → "**Revenue vs profit** (₹Cr): Revenue 67,087 → 72,275 (▲ 7.7%); Net profit 10,720 → 13,420 (▲ 25.2%)"
+    → "**Calls**: 16 counted in 2 bins: 0-50 4, 50-100 12"
+    → "**Price against mileage** (₹L): 4 points; mileage 9 to 62, price 1.2 to 24.6; highest 24.6 at 9 (Fortuner)"
+    → "**Cash flow** (€): Opening 2,140 → +3,200 Salary → -1,450 Rent → card, unknown → closing not stated"
     """
     series = [s for s in block.get("series", []) if isinstance(s, dict)]
+    x = list(block.get("x") or [])
+    if block.get("sortDesc") is True and chart_kind(block.get("kind")) in ("bar", "hbar") and series:
+        values = [v if is_number(v) else None for v in series[0].get("data", [])]
+        order = sorted(range(len(x)), key=lambda i: (values[i] is None, -(values[i] or 0), i))
+        x = [x[i] for i in order if i < len(x)]
+        series = [
+            {**s, "data": [s.get("data", [])[i] if i < len(s.get("data", [])) else None for i in order]}
+            for s in series
+        ]
+    kind = chart_kind(block.get("kind"))
+    if kind in ("scatter", "waterfall", "range") and isinstance(block.get("points"), list):
+        first = series[0] if series and isinstance(series[0], dict) else {}
+        has_points = isinstance(first.get("points"), list)
+        if not has_points and not (kind == "range" and _has_window_arrays(first)):
+            series = [{**first, "points": block["points"]}, *series[1:]]
     if not series:
         return ""
-    kind = chart_kind(block.get("kind"))
-    if kind == "gauge":
-        return _gauge_text(block, series[0])
-    if kind == "bullet":
-        return _bullet_text(block, series)
-    if kind == "histogram":
-        body = _histogram_line(series[0].get("data") or [])
-    elif kind in ("funnel", "pareto"):
-        body = " · ".join(f"{safe_text(label)} {fmt_num(v)}" for label, v in zip(block.get("x") or [], series[0].get("data") or []) if is_number(v))
-    elif kind == "waterfall":
-        data = [v for v in (series[0].get("data") or []) if is_number(v)]
-        body = f"net {fmt_num(sum(data))}" if data else ""
-    elif kind == "radar":
-        body = "; ".join(f"{safe_text(s.get('name')) or 'Series'} " + " / ".join(fmt_num(v) for v in (s.get("data") or []) if is_number(v)) for s in series[:3])
-    elif kind == "control":
-        vals = [v for v in (series[0].get("data") or []) if is_number(v)]
-        if vals:
-            mean = sum(vals) / len(vals)
-            sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
-            outside = sum(1 for v in vals if v > mean + 3 * sd or v < mean - 3 * sd)
-            body = f"mean {fmt_num(mean)}, n {len(vals)}" + (f", {outside} outside the limits" if outside else ", within the limits")
-        else:
-            body = ""
-    elif kind == "bubble":
-        body = "; ".join(line for line in (_points_line(s) for s in series[:1]) if line)
-    elif kind == "box":
-        parts = []
-        xs = block.get("x") if isinstance(block.get("x"), list) else []
-        for i, s in enumerate(series[:8]):
-            vals = sorted(v for v in (s.get("data") or []) if is_number(v))
-            if vals:
-                med = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
-                label = safe_text(s.get("name")) or (safe_text(xs[i]) if i < len(xs) else "") or "Group"
-                parts.append(f"{label} median {fmt_num(med)}")
-        body = " · ".join(parts)
-    elif kind == "treemap":
-        data = series[0].get("data") or []
-        pairs = [(safe_text(l), v) for l, v in zip(block.get("x") or [], data) if is_number(v) and v > 0]
-        total = sum(v for _, v in pairs) or 1
-        pairs.sort(key=lambda p: p[1], reverse=True)
-        body = " · ".join(f"{l} {fmt_num(v)} ({round(v / total * 100)}%)" for l, v in pairs[:6])
+    title = safe_text(block.get("title"), 80)
+    if kind == "range":
+        nx, ns, _ = _range_points(block, x, series, "0")
+        if isinstance(nx, list):
+            x = nx
+        if isinstance(ns, list):
+            series = [s for s in ns if isinstance(s, dict)]
+    if kind in ("pie", "donut"):
+        body = _slices(x, series[0])
+    elif kind == "histogram":
+        body = _bins_line(x, series[0])
+    elif kind == "range":
+        body = _windows_line(x, series[0])
     elif kind == "scatter":
-        body = "; ".join(line for line in (_points_line(s) for s in series[:3]) if line)
-    elif kind in ("pie", "donut"):
-        body = _slices(block.get("x") or [], series[0])
+        body = _scatter_line(series, title)
+    elif kind == "waterfall":
+        body = _waterfall_line(series[0])
+    elif kind == "gauge":
+        body = _gauge_line(block, series[0])
+    elif kind == "bullet":
+        body = _bullet_line(block, series)
+    elif kind in ("funnel", "pareto"):
+        body = _steps_list_line(block, series[0])
+    elif kind == "radar":
+        body = _radar_line(series)
+    elif kind == "control":
+        body = _control_line(series[0])
+    elif kind == "bubble":
+        body = _bubble_line(series)
+    elif kind == "box":
+        body = _box_line(block, series)
+    elif kind == "treemap":
+        body = _treemap_line(block, series[0])
     else:
-        body = "; ".join(line for line in (_series_line(s) for s in series[:6]) if line)
+        body = "; ".join(line for line in (_series_line(s, block.get("x") or []) for s in series[:6]) if line)
     if not body:
         return ""
     unit = safe_text(block.get("unit"), 20)
-    title = f"**{safe_text(block.get('title')) or 'Chart'}**" + (f" ({unit})" if unit else "")
-    return f"{title}: {body}"
+    head = f"**{title or 'Chart'}**" + (f" ({unit})" if unit else "")
+    line = f"{head}: {body}"
+    caveat = safe_text(block.get("caveat"), 120)
+    return f"{line}\n_{caveat}_" if caveat else line
 
 
 def _check_gauge(block: dict, path: str) -> list[tuple[str, str]]:
@@ -227,7 +564,7 @@ def _check_gauge(block: dict, path: str) -> list[tuple[str, str]]:
         return [(f"{path}.series.0", "series needs a data list")]
     if not is_number(data[0]):
         return [(f"{path}.series.0", "a gauge needs one number")]
-    problems = []
+    problems: list[tuple[str, str]] = []
     for key in ("min", "max", "target"):
         if key in block and not is_number(block[key]):
             problems.append((path, f"{key} must be a number"))
@@ -237,26 +574,26 @@ def _check_gauge(block: dict, path: str) -> list[tuple[str, str]]:
     return problems
 
 
-def _gauge_text(block: dict, series: dict) -> str:
+def _gauge_line(block: dict, series: dict) -> str:
+    """The one reading, with its unit and its target when one was given: {"data": [68], "target": 75} → "68 (target 75)"."""
     data = series.get("data") or []
     value = data[0] if data else None
     if not is_number(value):
         return ""
     unit = safe_text(block.get("unit"), 20)
-    title = f"**{safe_text(block.get('title')) or 'Gauge'}**" + (f" ({unit})" if unit else "")
     reading = fmt_num(value) + ("%" if unit == "%" else (f" {unit}" if unit else ""))
     target = block.get("target")
     if is_number(target):
         reading += f" (target {fmt_num(target)})"
-    return f"{title}: {reading}"
+    return reading
 
 
-def _bullet_text(block: dict, series: list) -> str:
-    """Each row as "label actual/target", or just the actual when no target is given."""
+def _bullet_line(block: dict, series: list) -> str:
+    """Each row as "label actual/target", or just the actual when no target series was given."""
     x = block.get("x") if isinstance(block.get("x"), list) else []
     actual = series[0].get("data") if series and isinstance(series[0], dict) else []
     targets = series[1].get("data") if len(series) > 1 and isinstance(series[1], dict) else []
-    cells = []
+    cells: list[str] = []
     for i, label in enumerate(x):
         seg = safe_text(label)
         v = actual[i] if i < len(actual) else None
@@ -267,11 +604,7 @@ def _bullet_text(block: dict, series: list) -> str:
             seg += f"/{fmt_num(t)}"
         if seg:
             cells.append(seg)
-    if not cells:
-        return ""
-    unit = safe_text(block.get("unit"), 20)
-    title = f"**{safe_text(block.get('title')) or 'Bullet'}**" + (f" ({unit})" if unit else "")
-    return f"{title}: " + " · ".join(cells)
+    return " · ".join(cells)
 
 
 def _check_box(block: dict, path: str) -> list[tuple[str, str]]:
@@ -283,7 +616,7 @@ def _check_box(block: dict, path: str) -> list[tuple[str, str]]:
     series = block.get("series")
     if not isinstance(series, list) or not 1 <= len(series) <= 8:
         return [(path, "a box plot takes 1-8 groups")]
-    problems = []
+    problems: list[tuple[str, str]] = []
     for i, s in enumerate(series):
         data = s.get("data") if isinstance(s, dict) else None
         if not isinstance(data, list) or not data:
@@ -291,3 +624,71 @@ def _check_box(block: dict, path: str) -> list[tuple[str, str]]:
         elif not all(is_number(v) for v in data):
             problems.append((f"{path}.series.{i}", "group data must be numbers"))
     return problems
+
+
+def _box_line(block: dict, series: list) -> str:
+    """Each group's median, named by its series (then by its x label): "Alpha median 3 · Beta median 3"."""
+    parts: list[str] = []
+    xs = block.get("x") if isinstance(block.get("x"), list) else []
+    for i, s in enumerate(series[:8]):
+        vals = sorted(v for v in (s.get("data") or []) if is_number(v))
+        if not vals:
+            continue
+        med = vals[len(vals) // 2] if len(vals) % 2 else (vals[len(vals) // 2 - 1] + vals[len(vals) // 2]) / 2
+        label = safe_text(s.get("name")) or (safe_text(xs[i]) if i < len(xs) else "") or "Group"
+        parts.append(f"{label} median {fmt_num(med)}")
+    return " · ".join(parts)
+
+
+def _steps_list_line(block: dict, series: dict) -> str:
+    """A funnel's or a pareto's stages in order: "Visit 1,200 · Signup 300"."""
+    cells: list[str] = []
+    for label, v in zip(block.get("x") or [], series.get("data") or []):
+        if is_number(v):
+            cells.append(f"{safe_text(label)} {fmt_num(v)}")
+    return " · ".join(cells)
+
+
+def _radar_line(series: list) -> str:
+    """Each series by name with its values: "Now 6 / 4; Goal 9 / 8"."""
+    return "; ".join(
+        f"{safe_text(s.get('name')) or 'Series'} " + " / ".join(fmt_num(v) for v in (s.get("data") or []) if is_number(v))
+        for s in series[:3]
+    )
+
+
+def _control_line(series: dict) -> str:
+    """A control chart's centre and count, and how many readings sit outside the 3-sigma limits."""
+    vals = [v for v in (series.get("data") or []) if is_number(v)]
+    if not vals:
+        return ""
+    mean = sum(vals) / len(vals)
+    sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+    outside = sum(1 for v in vals if v > mean + 3 * sd or v < mean - 3 * sd)
+    tail = f", {outside} outside the limits" if outside else ", within the limits"
+    return f"mean {fmt_num(mean)}, n {len(vals)}" + tail
+
+
+def _points_line(series: dict) -> str:
+    """One bubble series, spread rather than trend: {"name": "Samples", "data": [10, 14, 12]}
+    → "Samples 3 points, y 10 → 14"."""
+    data = [v for v in series.get("data", []) if is_number(v)]
+    if not data:
+        return ""
+    name = safe_text(series.get("name"))
+    line = f"{name} " if name else ""
+    return f"{line}{len(data)} points, y {fmt_num(min(data))} → {fmt_num(max(data))}"
+
+
+def _bubble_line(series: list) -> str:
+    """The growing series as points and its y range (the second series is each bubble's size, not a reading)."""
+    return "; ".join(line for line in (_points_line(s) for s in series[:1]) if line)
+
+
+def _treemap_line(block: dict, series: dict) -> str:
+    """The parts with an area, largest first, with each one's share: "Rent 30 (100%)"."""
+    data = series.get("data") or []
+    pairs = [(safe_text(label), v) for label, v in zip(block.get("x") or [], data) if is_number(v) and v > 0]
+    total = sum(v for _, v in pairs) or 1
+    pairs.sort(key=lambda p: p[1], reverse=True)
+    return " · ".join(f"{label} {fmt_num(v)} ({round(v / total * 100)}%)" for label, v in pairs[:6])

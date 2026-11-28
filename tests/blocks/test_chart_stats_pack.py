@@ -18,24 +18,28 @@ tf = importlib.import_module("hermes_genui.hooks.text_fallback")
 
 # --- waterfall -------------------------------------------------------------------------------------------
 
-def test_a_waterfall_passes_with_signed_steps():
+def test_a_waterfall_passes_with_signed_steps_and_totals():
     assert check_blocks([{"type": "chart", "kind": "waterfall", "title": "Cash", "unit": "$k",
-                          "x": ["Start", "Sales", "Cost", "End"],
-                          "series": [{"data": [100, 40, -70, 10]}]}]) == []
+                          "series": [{"points": [{"label": "Opening", "value": 2140, "total": True},
+                                                 {"label": "Salary", "value": 3200},
+                                                 {"label": "Rent", "value": -1450}]}]}]) == []
 
 
-def test_a_waterfall_takes_one_series_and_needs_x_labels():
-    assert check_blocks([{"type": "chart", "kind": "waterfall", "x": ["a"],
-                          "series": [{"data": [1]}, {"data": [2]}]}]) == [
-        "0: a waterfall chart takes 1-1 series"]
-    assert check_blocks([{"type": "chart", "kind": "waterfall", "series": [{"data": [1, 2]}]}]) == [
-        "0: chart needs x labels"]
+def test_a_waterfall_takes_one_series_of_points():
+    assert check_blocks([{"type": "chart", "kind": "waterfall",
+                          "series": [{"points": [{"label": "a", "value": 1}]},
+                                     {"points": [{"label": "b", "value": 2}]}]}]) == [
+        "0: a waterfall chart takes 1 series"]
+    assert check_blocks([{"type": "chart", "kind": "waterfall", "x": ["a"], "series": [{"data": [1, 2]}]}]) == [
+        "0: series needs a points list"]
 
 
-def test_a_waterfall_reads_as_its_net():
+def test_a_waterfall_reads_as_its_steps():
     text = tf.blocks_as_text([{"type": "chart", "kind": "waterfall", "title": "Cash",
-                               "x": ["Start", "Sales", "Cost"], "series": [{"data": [100, 40, -70]}]}])
-    assert "Cash" in text and "net 70" in text
+                               "series": [{"points": [{"label": "Opening", "value": 2140, "total": True},
+                                                      {"label": "Salary", "value": 3200},
+                                                      {"label": "Rent", "value": -1450}]}]}])
+    assert "Cash" in text and "Salary" in text and "-1,450" in text
 
 
 # --- radar -----------------------------------------------------------------------------------------------
@@ -68,7 +72,7 @@ def test_a_control_passes_and_takes_one_series():
                           "x": ["t1", "t2", "t3"], "series": [{"data": [100, 102, 99]}]}]) == []
     assert check_blocks([{"type": "chart", "kind": "control", "x": ["a"],
                           "series": [{"data": [1]}, {"data": [1]}]}]) == [
-        "0: a control chart takes 1-1 series"]
+        "0: a control chart takes 1 series"]
 
 
 def test_a_control_reads_as_its_mean_and_count():
@@ -156,7 +160,7 @@ def test_a_treemap_passes_and_needs_one_positive_value():
 def test_a_treemap_takes_one_series():
     assert check_blocks([{"type": "chart", "kind": "treemap", "x": ["A"],
                           "series": [{"data": [1]}, {"data": [1]}]}]) == [
-        "0: a treemap chart takes 1-1 series"]
+        "0: a treemap chart takes 1 series"]
 
 
 def test_a_treemap_drops_the_values_it_cannot_draw():

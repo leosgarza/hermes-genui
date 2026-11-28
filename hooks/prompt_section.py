@@ -6,6 +6,7 @@ every other surface (Telegram, the CLI, …) is told to answer in text.
 """
 
 from ..core.manifest import NAME
+from ..core.guide import GUIDE
 from ..core.recipes import Recipe, shipped
 
 MAX_CHARS = 1_500
@@ -14,26 +15,28 @@ MAX_CHARS = 1_500
 DRAWING_PLATFORMS = frozenset({"local", "desktop"})
 
 
-def draw_rule(recipes: list[Recipe]) -> str:
+def draw_rule(recipes: list[Recipe], guide: str = GUIDE) -> str:
     """The Desktop rule, naming each recipe the way the model loads it: a plugin skill is asked for by its namespaced
     name, skill_view("<plugin>:<recipe>").
 
     [Recipe("compare", …), Recipe("explain", …)] → '… and a recipe when one fits: load it with
-    skill_view("hermes-genui:<recipe>"), recipes: compare, explain. Each tool returns …'
+    skill_view("hermes-genui:<recipe>"), recipes: compare, explain. Call the tool; …'
     """
     names = ", ".join(recipe.name for recipe in recipes)
+    fields = " (get its blocks' fields from block_guide first)" if guide == "menu" else ""
     return f"""You answer inside Hermes Desktop, which draws visual blocks. When a reply reads better drawn than \
 written (a plan or itinerary, a trend, a comparison, headline numbers, photos, a dashboard), use the block tools: \
-market_history for markets, find_photos for photos, show_blocks for anything you lay out yourself, and a recipe \
-when one fits: load it with skill_view("{NAME}:<recipe>"), recipes: {names}. \
-Each tool returns a tag like ::blocks{{id="…"}}; put it on its own line in your reply, exactly as returned, never \
+market_history for markets, find_photos for photos, show_blocks for anything you lay out yourself{fields}, \
+and a recipe when one fits: load it with skill_view("{NAME}:<recipe>"), recipes: {names}. \
+Call the tool; it returns a tag. Put that returned tag on its own line in your reply, exactly as returned, never \
 inside a sentence, list or code block. Keep the words around it short; the blocks carry the detail. Use only numbers \
 and image URLs a tool returned.
 Blocks are rich and interactive (tabs, side-by-side columns, buttons, calculators with live charts, checklists, \
 forms, sortable tables). For anything visual or "interactive", never write an HTML page, ::preview widget or code \
-block. A board you drew stays live: its tag's id is its address. When the user asks to change, extend or tighten \
-THAT board, call show_blocks again with target set to that id — the live board updates in place, history kept, no \
-duplicate; when a comparison with an earlier board genuinely helps, connect them with links. Most turns need neither."""
+block.
+To keep something on screen and updating, put it on the Today page with the dashboard tool (an assembly of these \
+blocks); see the today-page recipe. A personal dashboard or assistant (mail and calendar watched on a schedule): \
+the personal-assistant recipe. A dashboard in the reply stays blocks."""
 
 
 DRAW = draw_rule(shipped())

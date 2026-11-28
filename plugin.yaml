@@ -1,22 +1,38 @@
 manifest_version: 2
 name: hermes-genui
-version: "0.2.0"
+version: "0.3.1"
 description: >-
-  Visual, interactive blocks drawn right inside Hermes Desktop replies: charts, tables, timelines, photo strips,
-  calculators with live sliders, forms, checklists that remember their ticks, flash cards and step-by-step
+  Visual, interactive blocks drawn right inside Hermes Desktop and Webapp replies: charts, tables, timelines, photo
+  strips, calculators with live sliders, forms, checklists that remember their ticks, flash cards and step-by-step
   explainers. The model lays them out with the show_blocks tool or follows a bundled recipe (trip planner,
   comparison, what-if maths, stock dashboard, report, explainer and more), and two live tools bring in real data:
   market_history for prices from Yahoo Finance and find_photos for checked, credited photos from Wikimedia Commons,
-  Openverse, pages your own web search finds and, with your own keys, Unsplash, Pexels and Tavily. Every block is checked before it is stored, and on
-  surfaces that can't draw (Telegram, the CLI and others) the same answers arrive as plain text and Markdown.
+  Openverse, pages your own web search finds and, with your own keys, Unsplash, Pexels and Tavily. A Today page is
+  kept by a personal assistant that tracks bills, renewals, orders and replies from your mail and calendar, and
+  dashboards built from your MCP servers can be kept in the sidebar and refreshed. Every block is checked before it
+  is stored, and on surfaces that can't draw (Telegram, the CLI and others) the same answers arrive as plain text
+  and Markdown.
 author: Sagar Mainkar
 license: MIT
 homepage: https://github.com/sagarmainkar/hermes-genui
-tags: [desktop, generative-ui, charts, dashboards, visualization, photos, markets, recipes]
+tags: [desktop, generative-ui, charts, dashboards, visualization, photos, markets, recipes, assistant]
 requires_hermes: ">=0.22.5"
-provides_tools: [show_blocks, market_history, find_photos, save_recipe]
-provides_hooks: [pre_llm_call, transform_llm_output, post_tool_call]
+provides_tools: [show_blocks, block_guide, market_history, find_photos, standin_photos, save_recipe, dashboard, board_page, assistant_setup, assistant_items, assistant_open, assistant_inbox, assistant_calendar, assistant_report, assistant_ideas]
+provides_hooks: [pre_llm_call, post_tool_call, transform_llm_output]
 config_schema:
+  local_only:
+    type: bool
+    default: false
+    label: No scheduled jobs that send data to the model
+    description: >-
+      Turns off the mail assistant, prepared ideas and kept dashboards in this profile, since each sends this
+      profile's data to its model on a schedule. Jobs made before you switch it on stop reading data. Chat and boards
+      still work, and still go to the profile's model. The demo mailbox still works.
+  photo_test_tool:
+    type: bool
+    default: false
+    label: Turn on the stand-in photo tool
+    description: Registers standin_photos, which returns an https link, a local path or a broken link. Off by default so it costs nothing in the model's guide. Hermes reads this when the plugin loads, so restart Hermes after changing it.
   unsplash_access_key:
     type: secret
     env: UNSPLASH_ACCESS_KEY

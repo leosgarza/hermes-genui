@@ -212,7 +212,21 @@ export function useExportChrome(args: {
    *  model: the bytes come out of what the page already has. */
   async function runBlock(c: Candidate): Promise<void> {
     if (c.block.type === "table") {
-      saveBlob(csvBlob(c.block.columns, c.block.rows, line), `${fileBase(c.block.caption, "table")}.csv`);
+      // A structured table's columns carry a label and its rows are cells by column id; a legacy table's are plain
+      // strings. The CSV writes the words people see either way.
+      const table = c.block as {
+        columns: (string | { id: string; label: string })[];
+        rows: (string[] | { cells: Record<string, { text: string }> })[];
+      };
+      const structured = table.columns.length > 0 && typeof table.columns[0] !== "string";
+      const headers = structured
+        ? (table.columns as { label: string }[]).map((col) => col.label)
+        : (table.columns as string[]);
+      const rows = structured
+        ? (table.rows as { cells: Record<string, { text: string }> }[]).map((row) =>
+            (table.columns as { id: string }[]).map((col) => row.cells[col.id]?.text ?? ""))
+        : (table.rows as string[][]);
+      saveBlob(csvBlob(headers, rows, line), `${fileBase(c.block.caption, "table")}.csv`);
       return;
     }
     const blob = await chartPng(c.root, { spec: (c.block as { spec: ChartSpec }).spec, provenance: line });

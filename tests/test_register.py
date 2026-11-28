@@ -34,13 +34,31 @@ class FakeContext:
 def test_registers_the_tools_and_every_shipped_recipe_as_a_skill():
     ctx = FakeContext()
     plugin.register(ctx)
-    assert ctx.tools == ["show_blocks", "market_history", "find_photos", "save_recipe"]
+    assert ctx.tools == ["show_blocks", "block_guide", "market_history", "find_photos", "save_recipe",
+                         "dashboard", "board_page", "assistant_setup", "assistant_items", "assistant_open",
+                         "assistant_inbox", "assistant_calendar", "assistant_report", "assistant_ideas"]
     # Each recipes/<name>/SKILL.md becomes the read-only skill "<plugin>:<name>", with its own description.
     shipped = sorted((ROOT / "recipes").glob("*/SKILL.md"))
     assert [(name, Path(path)) for name, path, _ in ctx.skills] == [(p.parent.name, p) for p in shipped]
     for _, path, description in ctx.skills:
         assert description == recipes.frontmatter(Path(path).read_text(encoding="utf-8"))["description"]
         assert 20 <= len(description) <= 300
+
+
+class ConfiguredContext(FakeContext):
+    """A context with the stand-in setting switched on."""
+
+    def get_config(self, key, default=None):
+        return True if key == "photo_test_tool" else default
+
+
+def test_the_standin_tool_is_registered_only_when_switched_on():
+    off = FakeContext()
+    plugin.register(off)
+    assert "standin_photos" not in off.tools
+    on = ConfiguredContext()
+    plugin.register(on)
+    assert "standin_photos" in on.tools
 
 
 def test_market_rules_are_in_the_tool_description():
@@ -53,7 +71,7 @@ def test_market_rules_are_in_the_tool_description():
 def test_registers_the_visual_nudge():
     ctx = FakeContext()
     plugin.register(ctx)
-    assert ctx.hooks == ["pre_llm_call", "transform_llm_output", "post_tool_call"]
+    assert ctx.hooks == ["pre_llm_call", "post_tool_call", "transform_llm_output"]
 
 
 class RecordingContext:
@@ -86,15 +104,20 @@ def test_register_registers_exactly_the_tool_registry_in_order(monkeypatch):
     ctx = RecordingContext()
     plugin.register(ctx)
 
-    assert [t.name for t in tools.TOOLS] == ["show_blocks", "market_history", "find_photos", "save_recipe"]
+    assert [t.name for t in tools.TOOLS] == [
+        "show_blocks", "market_history", "find_photos", "standin_photos", "save_recipe", "dashboard", "board_page",
+        "assistant_setup", "assistant_items", "assistant_open", "assistant_inbox", "assistant_calendar",
+        "assistant_report", "assistant_ideas"]
+    # The menu guide adds block_guide after show_blocks; the stand-in stays out until its setting is on.
+    expected = [t for t in tools.tools_for("menu") if t.name != "standin_photos"]
     registered = [call[1] for call in ctx.calls if call[0] == "tool"]
-    assert registered == [{"name": t.name, "toolset": tools.TOOLSET, "schema": t.schema, "handler": t.handler}
-                          for t in tools.TOOLS]
+    assert registered == [{"name": t.name, "toolset": t.toolset, "schema": t.schema, "handler": t.handler}
+                          for t in expected]
     assert all(t.schema["name"] == t.name for t in tools.TOOLS)
 
     hooks = [(call[1], call[2]) for call in ctx.calls if call[0] == "hook"]
-    assert hooks == [("pre_llm_call", plugin.visual_nudge), ("transform_llm_output", plugin.text_only),
-                     ("post_tool_call", plugin.media_provenance)]
+    assert hooks == [("pre_llm_call", plugin.visual_nudge), ("post_tool_call", plugin.note_tool_photos),
+                     ("transform_llm_output", plugin.text_only)]
     sections = [call[1:] for call in ctx.calls if call[0] == "section"]
     assert sections == [(manifest.NAME, plugin.drawing_rule, {"max_chars": plugin.MAX_CHARS})]
     skills = [call[1:] for call in ctx.calls if call[0] == "skill"]
@@ -106,3 +129,19 @@ def test_register_registers_exactly_the_tool_registry_in_order(monkeypatch):
     assert ctx.dispatched == [
         ("skill_manage", {"action": "create", "name": "monthly-review", "content": "x", "category": "my-recipes"}),
         ("web_search", {"query": "Pena Palace"})]
+
+
+def test_register_reads_local_only_through_the_hosts_plugin_settings(monkeypatch):
+    monkeypatch.setattr(save_recipe, "_skill_writer", None)
+    monkeypatch.setattr(photos, "_web_search", None)
+    assistant = importlib.import_module("hermes_genui.tools.assistant")
+    monkeypatch.setattr(assistant, "_CONFIG", list(assistant._CONFIG))
+    asked = []
+
+    class SettingsContext(RecordingContext):
+        def get_config(self, key, default=None):
+            asked.append(key)
+            return {"local_only": True}.get(key, default)
+
+    plugin.register(SettingsContext())
+    assert assistant.local_only() is True and "local_only" in asked

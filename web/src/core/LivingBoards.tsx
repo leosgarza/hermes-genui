@@ -1,10 +1,10 @@
-// Living Boards v1 (enhancement #9) — the words a live board says about itself under itself.
+// Living Boards — the words a live board says about itself under itself.
 //
 // The live row (LiveRow) belongs ONLY to the live view of an address (host/BlockTag.tsx): it names the board's
 // address (#id), which version this is and when it was written, offers the handful of older versions the reader
 // can reach back into (each fetched from the door by /blocks/{id}?version=N — retrieval, never a redraw), and
 // carries the board's links: chips labelled with the AI's suggested connection, each opening the linked board
-// fetched whole from the store (GET /blocks/{id}) and drawn connected below — reach-back across the Library.
+// fetched whole from the store (GET /blocks/{id}) and drawn connected below — reach-back across the conversation.
 //
 // The pointer note (LivePointer) is what EVERY LATER tag of the same address draws instead of a second board:
 // one address, one live view (core/boardRoster.ts). It says where the live board is and shows the version the
@@ -18,8 +18,7 @@ import { markLiving } from "../blocks/checklist/savedState";
 import type { Block } from "../registry";
 import * as boards from "./boardRoster";
 import { Blocks } from "./Blocks";
-import { readBlocksNoted, type BoardLink, type FollowUp } from "./readBlocks";
-import type { Align, Density, Motion, Palette } from "./fields";
+import { readBlocksNoted, type BoardLink } from "./readBlocks";
 
 /** The most older versions offered as buttons — a reach-back row, not a changelog. */
 const HISTORY_SHOWN = 4;
@@ -75,20 +74,15 @@ function LinkChip({ link }: { link: BoardLink }) {
   );
 }
 
-type Linked = {
-  blocks: Block[]; align?: Align; textAlign?: Align; asOf?: string; live?: boolean;
-  followUps?: FollowUp[]; density?: Density; palette?: Palette; motion?: Motion;
-};
-
 /** The reach-back panel: a prior board fetched whole from the store and drawn connected below its chip —
- *  the door's answer through the same reader, so the link shows the saved board's data AND its layout words,
- *  never a redraw. Like the Library's reopened board (#8), the blocks answer to the LINKED board's own id:
- *  ticks and state they save go to /blocks/<that id>/state, never into the linking board. A board that is not
- *  on this machine says so quietly — a broken link is never dressed up as a drawing. */
+ *  the door's answer through the same reader, so the link shows the saved board's data, never a redraw.
+ *  The blocks answer to the LINKED board's own id: ticks and state they save go to /blocks/<that id>/state,
+ *  never into the linking board. A board that is not on this machine says so quietly — a broken link is
+ *  never dressed up as a drawing. */
 function LinkedBoard({ link }: { link: BoardLink }) {
   const actions = useContext(BlockActions);
   const rest = actions.rest;
-  const [board, setBoard] = useState<Linked | null | "loading">("loading");
+  const [board, setBoard] = useState<Block[] | null | "loading">("loading");
   useEffect(() => {
     if (!rest) {
       setBoard(null);
@@ -98,10 +92,10 @@ function LinkedBoard({ link }: { link: BoardLink }) {
     rest(`/blocks/${link.id}`)
       .then((data) => {
         const noted = readBlocksNoted(data);
-        // round 5: a linked board that has taken updates files its answers by identity; say so
-        // before its blocks mount, and they read and save the door the same way the live view does.
+        // a linked board that has taken updates files its answers by identity; say so before its blocks
+        // mount, and they read and save the door the same way the live view does.
         if ((noted.version ?? 0) >= 2) markLiving(link.id);
-        if (live) setBoard(noted.blocks.length ? noted : null);
+        if (live) setBoard(noted.blocks.length ? noted.blocks : null);
       })
       .catch(() => {
         if (live) setBoard(null);
@@ -124,9 +118,7 @@ function LinkedBoard({ link }: { link: BoardLink }) {
         <code>#{link.id}</code>
       </div>
       <BlockActions.Provider value={{ ...actions, blockId: link.id }}>
-        <Blocks blocks={board.blocks} boardAlign={board.align} boardTextAlign={board.textAlign}
-          boardAsOf={board.asOf} boardLive={board.live} boardFollowUps={board.followUps}
-          boardDensity={board.density} boardPalette={board.palette} boardMotion={board.motion} />
+        <Blocks blocks={board} />
       </BlockActions.Provider>
     </div>
   );

@@ -1,15 +1,32 @@
-// How a table cell reads beyond its text: a rise or a fall in a change column (with a mini bar), and a big amount
-// shortened the way the reader says it. Cells stay text in the block; this only decides how they are drawn.
+// How a table cell reads beyond its text: a rise or a fall in a change column (with a mini bar), a big amount
+// shortened the way the reader says it, and what a typed cell of a structured table reads as. Cells stay text in
+// the block; this only decides how they are drawn.
+import { formatAmount, formatNumber, formatPercent } from "../../lib/format";
 import { fmt, SHORT_FROM } from "../chart/chartData";
-import { cellNumber, isNumberColumn } from "./sort";
+import type { TableCell, TableColumn } from "./read";
+import { cellNumber, isBlank, isNumberColumn } from "./sort";
+
+/** What a structured table's cell reads as: its own text, or the value behind it written in the column's kind
+ *  (a currency with its unit, a percent, a plain number). A cell left out reads as a dash, the same mark a null
+ *  cell gets, and a sources column carries no cell (its chips are the row's sources).
+ *   {value: 1200}, kind currency, unit "$" → "$1,200";  undefined → "–" */
+export function shownCell(cell: TableCell | undefined, column: TableColumn): string {
+  if (!cell) return "–";
+  if (cell.value === undefined) return cell.text;
+  if (column.kind === "currency") return formatAmount(cell.value, column.unit) ?? formatNumber(cell.value);
+  if (column.kind === "percent") return formatPercent(cell.value);
+  if (column.kind === "number" || column.kind === "bar") return formatNumber(cell.value);
+  return cell.text;
+}
 
 /** A change column holds numbers, at least one written with a sign, and is all percentages or all signed:
- *  ["+5%", "-3%"] → true;  ["4.1%", "−2.0%"] → true;  ["₹300", "₹50"] → false;  ["-26.8%", "13.3", "+4.7%"] → false */
+ *  ["+5%", "-3%"] → true;  ["4.1%", "−2.0%"] → true;  ["₹300", "₹50"] → false;  ["-26.8%", "13.3", "+4.7%"] → false
+ *  A cell written as unknown ("–") is skipped, the way a blank one is: ["+5%", "–", "-3%"] → true. */
 export function isChangeColumn(rows: string[][], column: number): boolean {
   if (!isNumberColumn(rows, column) || !rows.some((r) => /^[-+−]/.test(r[column] ?? ""))) return false;
   // A column of mixed metrics ("13.3", "1.83x", "+4.7%") isn't a change column: every cell is a percentage, or every
   // non-zero cell carries its sign.
-  const filled = rows.map((r) => (r[column] ?? "").trim()).filter(Boolean);
+  const filled = rows.map((r) => (r[column] ?? "").trim()).filter((cell) => !isBlank(cell));
   const allPercent = filled.every((cell) => cell.endsWith("%"));
   const allSigned = filled.every((cell) => /^[-+−]/.test(cell) || cellNumber(cell) === 0);
   return allPercent || allSigned;

@@ -6,16 +6,37 @@ export type TileItem = { title: string; subtitle?: string; image?: string; icon?
 export type TilesBlock = { type: "tiles"; items: TileItem[] };
 
 const MAX_TILES = 8;
-// The subtitle is the tile's readable decision reason and must be legible without hovering (the tap message stays a
-// hover supplement), so it gets the protocol's general string maximum — 300, the same cap as the tile's own ask/run,
-// every other reader's long text, and the Python text fallback (blocks/common.MAX_STRING) — cut at a word boundary.
-// A normal 1–2 sentence reason (hundreds of characters are ordinary for two sentences) therefore passes whole;
-// only a runaway paragraph is shortened. There is no sentence-length limit: a single long sentence is as valid as two.
-const SUBTITLE_MAX = 300;
+// The subtitle is the tile's readable decision reason, shown in up to three lines on a card that keeps its cover
+// shape (the height comes from the aspect-ratio, never from the text). So the reader cuts the reason to what three
+// lines hold — about 120 characters — between words, never mid-word; the rest ends in "…". cutAtWord does that
+// while a space sits in the back half of the room and otherwise falls back to slicing one long unbroken run, so
+// the tiles cut below repairs that slice: a cover never paints half a word. (The catalog asks for a few words;
+// this cut is what keeps a two-sentence reason off a cover when a model writes one anyway.)
+const SUBTITLE_MAX = 120;
 // The fields a tile's title may come in, best first: models often write a `label` (or only a `text`) for a card.
 const TITLE_FIELDS = ["title", "label", "name", "caption", "text"];
 // The fields that say more about the tile, in the order they're joined under the title.
 const MORE_FIELDS = ["subtitle", "value", "text", "caption", "note", "description"];
+
+/**
+ * The tiles subtitle cut, built on the shared cutAtWord: at most SUBTITLE_MAX characters, always cut between whole
+ * words, "…" marking what was left out. cutAtWord already does this while a space falls in the back half of the
+ * room; when one unbroken run takes the room it falls back to slicing the run, and here that partial word is
+ * dropped instead — the whole words that fit stay. Which branch the helper took is read from its own condition on
+ * the text, never from its answer: the answer has already dropped the comma or dash left at a good boundary, and
+ * mistaking that strip for a slice would throw away a fitting word. When not even the first word fits the answer
+ * is "": the tile goes without a subtitle rather than paint half a word.
+ *   ("short " + "b".repeat(200)) → "short…";  ("…express, " + "b"×60) → "…express…";  ("u".repeat(200)) → ""
+ */
+function cutSubtitle(text: string): string {
+  const cut = cutAtWord(text, SUBTITLE_MAX);
+  if (cut === text) return cut;                       // fits whole: nothing to cut
+  const room = text.slice(0, SUBTITLE_MAX - 1);       // the same room the helper cut inside
+  const lastSpace = room.search(/\s\S*$/);
+  if (lastSpace > SUBTITLE_MAX / 2) return cut;       // the helper's real word boundary — even with its comma dropped
+  const whole = room.slice(0, Math.max(lastSpace, 0)).replace(/[\s,;:.–—-]+$/, "");
+  return whole ? `${whole}…` : "";                    // sliced run: partial word goes; unless it was the first word
+}
 
 /**
  * tiles: cover cards, up to 8 (items, also `tiles`). Each needs a title; an image must be https and an icon one of the
@@ -57,12 +78,12 @@ function readTile(item: any): TileItem | null {
   if (!titleField) return null;
   const more: string[] = [];
   for (const f of MORE_FIELDS) {
-    // No per-field cut: the joined subtitle gets the one graceful word-boundary cut below (the firstWords pattern),
-    // so a reason longer than the cap ends in "…" instead of a mid-word slice.
+    // No per-field cut: the joined subtitle gets the one word-safe cut below (cutSubtitle), so a reason longer
+    // than the cap ends in "…" at a word boundary — whole words only, never a slice of one.
     const text = textOrNumber(item[f], Infinity);
     if (f !== titleField && text !== undefined) more.push(text);
   }
-  const subtitle = more.length ? cutAtWord(more.join(" · "), SUBTITLE_MAX) : undefined;
+  const subtitle = more.length ? cutSubtitle(more.join(" · ")) || undefined : undefined;
   return clean({
     title: str(item[titleField], 40)!, subtitle, image: https(item.image), icon: icon(item.icon),
     ask: str(item.ask, 300), run: str(item.run, 300),

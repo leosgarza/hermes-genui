@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { readBlocks } from "../../core/readBlocks";
-import { changePct, chartKind, histogramBins, maxSeries, isOrderedLabel, kindToDraw, pieSlices, type ChartKind, type ChartSpec } from "./chartData";
+import { axisNames, binTotals, changePct, chartKind, chartLabel, chartScales, fmtSpan, isOrderedLabel, kindToDraw,
+  maxSeries, pieSlices, scatterPoints, waterfallBars, type ChartKind, type ChartSpec } from "./chartData";
 
 describe("chart reading", () => {
   it("maps kind names and aliases, anything else is a line", () => {
     expect(chartKind("Donut")).toBe("donut");
     expect(chartKind("stacked_bar")).toBe("stacked");
     expect(chartKind("scatter")).toBe("scatter");
-    expect(chartKind("histogram")).toBe("histogram");
-    expect(chartKind("Hist")).toBe("histogram");
+    expect(chartKind("Waterfall")).toBe("waterfall");
+    expect(chartKind("ridge")).toBe("line");
     expect(chartKind(undefined)).toBe("line");
   });
   it("keeps positive pie slices and merges past 8 into Other", () => {
@@ -26,6 +27,48 @@ describe("chart reading", () => {
     const c = readBlocks([{ type: "chart", kind: "combo", unit: "₹Cr", x: ["Q1", "Q2"], series: [
       { name: "Revenue", data: [65799, 67087] }, { name: "Margin", unit: "%", data: [18.4, 16] }] }])[0] as any;
     expect(c.spec.series.map((s: any) => s.right)).toEqual([false, true]);
+  });
+  it("reads the caveat and axis captions, trims and caps them, and drops captions without an axis", () => {
+    const raw = { type: "chart", kind: "line", x: ["a", "b", "c"], series: [{ data: [1, 2, 3] }],
+      caveat: "  Q3 onward is a projection.  ", xLabel: " Quarter ", yLabel: "Revenue" };
+    const spec = (readBlocks([raw])[0] as any).spec;
+    expect(spec.caveat).toBe("Q3 onward is a projection.");
+    expect(spec.xLabel).toBe("Quarter");
+    expect(spec.yLabel).toBe("Revenue");
+    const long = (readBlocks([{ ...raw, caveat: "x".repeat(200), xLabel: "y".repeat(60) }])[0] as any).spec;
+    expect(long.caveat.length).toBe(120);
+    expect(long.xLabel.length).toBe(40);
+    expect(long.xLabel.endsWith("…")).toBe(true);
+    const pie = (readBlocks([{ ...raw, kind: "pie", series: [{ data: [1, 2, 3] }] }])[0] as any).spec;
+    expect(pie.caveat).toBe("Q3 onward is a projection.");
+    expect(pie.xLabel).toBeUndefined();
+    expect(pie.yLabel).toBeUndefined();
+    const hbar = (readBlocks([{ ...raw, kind: "hbar" }])[0] as any).spec;
+    expect(hbar.xLabel).toBe("Quarter");
+    expect(hbar.yLabel).toBeUndefined();
+  });
+  it("builds the accessible name from the title, axes, ends and caveat", () => {
+    const spec = (readBlocks([{ type: "chart", kind: "line", unit: "₹Cr", title: "Revenue",
+      x: ["Q1", "Q4"], series: [{ data: [67087, 74010] }], xLabel: "Quarter", yLabel: "Revenue",
+      caveat: "Q4 is a projection." }])[0] as any).spec as ChartSpec;
+    expect(chartLabel(spec)).toBe(
+      "Revenue. line chart. Quarter along the bottom. Revenue up the side. ₹67,087 Cr to ₹74,010 Cr, up 10.3%. Q4 is a projection.");
+  });
+  it("reads stepped, clamps height and sorts bars descending", () => {
+    const stepped = readBlocks([{ type: "chart", kind: "line", stepped: true, height: 900,
+      x: ["a", "b"], series: [{ data: [1, 2] }] }])[0] as any;
+    expect(stepped.spec.stepped).toBe(true);
+    expect(stepped.spec.height).toBe(480);
+
+    const bars = readBlocks([{ type: "chart", kind: "bar", sortDesc: true, x: ["a", "b", "c"],
+      series: [{ data: [2, 9, 5] }, { data: [20, 90, 50] }] }])[0] as any;
+    expect(bars.spec.x).toEqual(["b", "c", "a"]);
+    expect(bars.spec.series[0].data).toEqual([9, 5, 2]);
+    expect(bars.spec.series[1].data).toEqual([90, 50, 20]);
+
+    const ranked = readBlocks([{ type: "chart", kind: "hbar", sortDesc: true, x: ["Pune", "Mumbai", "Bengaluru"],
+      series: [{ data: [38, 52, 61] }] }])[0] as any;
+    expect(ranked.spec.x).toEqual(["Bengaluru", "Mumbai", "Pune"]);
   });
 });
 
@@ -96,39 +139,150 @@ describe("changePct", () => {
   });
 });
 
-describe("scatter and histogram kinds", () => {
-  it("never change the drawing of other kinds and take their series", () => {
-    expect(kindToDraw({ type: "histogram", x: ["a", "b"], series: [{ data: [1, 2] }] } as ChartSpec)).toBe("histogram");
-    expect(kindToDraw({ type: "scatter", x: ["a", "b"], series: [{ data: [1, 2] }] } as ChartSpec)).toBe("scatter");
-    expect(maxSeries("histogram")).toBe(1);
-    expect(maxSeries("scatter")).toBe(3);
+describe("scatter and waterfall caps", () => {
+  it("keep two groups of points for a scatter and one set of bars for a waterfall", () => {
+    expect(maxSeries("scatter")).toBe(2);
+    expect(maxSeries("waterfall")).toBe(1);
+    expect(maxSeries("bar")).toBe(3);
+    expect(maxSeries("stacked")).toBe(6);
   });
 });
 
-describe("histogramBins", () => {
-  it("bins values at round edges and counts them, every value in exactly one bin", () => {
-    const { labels, counts } = histogramBins([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(10);
-    expect(labels[0]).toBe("0–2");
-    expect(labels[labels.length - 1]).toContain("8–10");
-    expect(counts).toEqual([2, 2, 2, 2, 2]);
+describe("scatterPoints", () => {
+  const series = (points: object[], name = "Cars") => [{ name, data: [], points: points as never }];
+
+  it("keeps the points with two numbers, in reading order left to right", () => {
+    const drawn = scatterPoints(series([{ x: 62, y: 1.2 }, { x: 9, y: 24.6 }, { x: 30, y: null }, { y: 5 }]));
+    expect(drawn.map((d) => [d.x, d.y])).toEqual([[9, 24.6], [62, 1.2]]);
   });
-  it("closes the last bin at the top edge", () => {
-    const { labels, counts } = histogramBins([1, 5, 5, 9]);
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(4);
-    expect(labels.indexOf("8–10")).toBeGreaterThanOrEqual(0);
-    expect(counts[labels.length - 1]).toBe(1);
+
+  it("orders points at the same x by their y, so the keys walk top to bottom", () => {
+    expect(scatterPoints(series([{ x: 5, y: 9 }, { x: 5, y: 2 }])).map((d) => d.y)).toEqual([2, 9]);
   });
-  it("keeps negatives and a spread-out set counted", () => {
-    const { counts } = histogramBins([-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]);
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(11);
+
+  it("numbers the series it took each point from", () => {
+    const drawn = scatterPoints([...series([{ x: 2, y: 2 }]), ...series([{ x: 1, y: 1 }], "Bikes")]);
+    expect(drawn.map((d) => d.series)).toEqual([1, 0]);
   });
-  it("opens a single repeated value into bins around it", () => {
-    const { labels, counts } = histogramBins([5, 5]);
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(2);
-    expect(labels).toHaveLength(4);
+});
+
+describe("waterfallBars", () => {
+  const bars = (points: object[]) => waterfallBars(points as never);
+
+  it("pins a total from zero to the balance so far and moves the balance by each step", () => {
+    expect(bars([{ label: "Revenue", value: 120, total: true }, { label: "Returns", value: -8 },
+      { label: "Discounts", value: -5 }, { label: "Net profit", value: 47, total: true }]))
+      .toEqual([{ label: "Revenue", from: 0, to: 120, total: true },
+        { label: "Returns", from: 120, to: 112, total: false },
+        { label: "Discounts", from: 112, to: 107, total: false },
+        { label: "Net profit", from: 0, to: 107, total: true }]);
   });
-  it("has nothing to bin from no values", () => {
-    expect(histogramBins([])).toEqual({ labels: [], counts: [] });
+
+  it("draws steps from the running balance with no opening anchor and no closing bar", () => {
+    expect(bars([{ label: "Salary", value: 5 }, { label: "Rent", value: -2 }]))
+      .toEqual([{ label: "Salary", from: 0, to: 5, total: false }, { label: "Rent", from: 5, to: 3, total: false }]);
+  });
+
+  it("draws nothing at an unknown step, and nothing after it", () => {
+    expect(bars([{ label: "Rent", value: -2 }, { label: "Card", value: null }, { label: "Close", value: 4, total: true }]))
+      .toEqual([{ label: "Rent", from: 0, to: -2, total: false }, null, null]);
+  });
+
+  it("reads only total: true as a total", () => {
+    expect(bars([{ label: "Opening", value: 40, total: "true" }])[0]).toEqual({ label: "Opening", from: 0, to: 40, total: false });
+  });
+});
+
+describe("axisNames", () => {
+  it("reads the measure up the side and the one along the bottom from the title", () => {
+    expect(axisNames("Price against mileage")).toEqual({ x: "mileage", y: "price" });
+    expect(axisNames("Range by price")).toEqual({ x: "price", y: "range" });
+    expect(axisNames("Battery life vs. weight")).toEqual({ x: "weight", y: "battery life" });
+  });
+  it("leaves the axes unnamed when the title names neither", () => {
+    expect(axisNames("Revenue")).toEqual({});
+    expect(axisNames(undefined)).toEqual({});
+    expect(axisNames("Against the odds")).toEqual({});
+  });
+});
+
+describe("chartScales for a scatter", () => {
+  it("gives the numbers up the side and the numbers along the bottom", () => {
+    const spec: ChartSpec = { type: "scatter", title: "Price against mileage", x: [],
+      series: [{ data: [], points: [{ x: 9, y: 24.6 }, { x: 62, y: 1.2 }] }] };
+    const scales = chartScales(spec, null);
+    expect(scales.x!.min).toBeLessThan(9);
+    expect(scales.x!.max).toBeGreaterThan(62);
+    expect(scales.left.min).toBeLessThan(1.2);
+    expect(scales.left.max).toBeGreaterThan(24.6);
+    expect(scales.right).toBeNull();
+  });
+});
+
+describe("histogram and range", () => {
+  const read = (raw: object) => readBlocks([{ type: "chart", ...raw }]) as any[];
+  const hist = (data: (number | null)[]) => read({ kind: "histogram", x: ["0-15", "15-30", "30-45"], series: [{ data }] })[0].spec;
+  const range = (series: object) => read({ kind: "range", x: ["Mon", "Tue"], series: [series] })[0]?.spec;
+
+  it("maps the new kind names and their aliases", () => {
+    expect(chartKind("Histogram")).toBe("histogram");
+    expect(chartKind("hist")).toBe("histogram");
+    expect(chartKind("range_bar")).toBe("range");
+    expect(chartKind("floating bar")).toBe("range");
+    expect(chartKind("boxplot")).toBe("line");
+  });
+
+  it("takes one series each, and a histogram's counts grow from zero", () => {
+    expect(maxSeries("histogram")).toBe(1);
+    expect(maxSeries("range")).toBe(1);
+    expect(chartScales(hist([4, 12, 0]), null).left.min).toBe(0);
+    expect(chartScales(hist([4, 12, 0]), null).left.max).toBeGreaterThan(12);
+  });
+
+  it("reads a histogram's counts, a negative one and a gap alike", () => {
+    expect(hist([4, null, 9]).series[0].data).toEqual([4, null, 9]);
+    expect(hist([4, -2, 9]).series[0].data).toEqual([4, null, 9]);
+    expect(hist([0, 0, 0]).series[0].data).toEqual([0, 0, 0]);
+    expect(read({ kind: "histogram", x: ["a"], series: [{ data: [null] }] })).toEqual([]);
+  });
+
+  it("reads a range's low, high and now, lower end first, with the window's middle as its value", () => {
+    const spec = range({ name: "Delivery", low: [34, 19], high: [18, 36], now: [26, 31] })!;
+    expect(spec.series[0].span).toEqual([{ low: 18, high: 34, now: 26 }, { low: 19, high: 36, now: 31 }]);
+    expect(spec.series[0].data).toEqual([26, 27.5]);
+  });
+
+  it("keeps a window missing one end as no window, and drops a chart with no window at all", () => {
+    const spec = range({ low: [18, null], high: [34, 36], now: [null, 31] })!;
+    expect(spec.series[0].span).toEqual([{ low: 18, high: 34, now: null }, { low: null, high: null, now: 31 }]);
+    expect(range({ low: [null], high: [null], now: [null] })).toBeUndefined();
+  });
+
+  it("hugs a range's own values instead of running to zero", () => {
+    const spec = range({ low: [18], high: [34], now: [26] })!;
+    expect(chartScales(spec, null).left.min).toBeGreaterThan(0);
+    expect(chartScales(spec, null).left.max).toBeGreaterThan(34);
+  });
+
+  it("reads a range written as points", () => {
+    const spec = read({ kind: "range", series: [{ name: "Delivery", points: [
+      { label: "Mon", low: 18, high: 34, now: 26 },
+      { label: "Tue", low: 19, high: 36, now: 31 },
+    ] }] })[0]?.spec;
+    expect(spec?.x).toEqual(["Mon", "Tue"]);
+    expect(spec?.series[0].span).toEqual([{ low: 18, high: 34, now: 26 }, { low: 19, high: 36, now: 31 }]);
+    expect(spec?.series[0].data).toEqual([26, 27.5]);
+  });
+
+  it("writes a window's ends with the unit on each, and a dash when neither is known", () => {
+    expect(fmtSpan(18, 34, "min")).toBe("18 min–34 min");
+    expect(fmtSpan(18, 34, "%")).toBe("18%–34%");
+    expect(fmtSpan(null, 34, "min")).toBe("34 min");
+    expect(fmtSpan(null, null)).toBe("–");
+  });
+
+  it("counts a histogram and finds its tallest bin", () => {
+    expect(binTotals([4, 12, null, 9])).toEqual({ total: 25, tallest: 1 });
+    expect(binTotals([null, null])).toEqual({ total: 0, tallest: -1 });
   });
 });

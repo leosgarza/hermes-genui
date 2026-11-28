@@ -419,7 +419,7 @@ export function markdownFile(body: string, provenance: BoardProvenance): string 
  *  core/provenance so the file can never disagree with the screen. */
 function provenanceText(p: BoardProvenance): string {
   const parts: string[] = [];
-  if (p.source) parts.push(p.source.text);
+  if (p.source && p.source.text) parts.push(p.source.text);
   parts.push(...p.chartSources);
   if (p.asOf) parts.push(`as of ${p.asOf}`);
   if (p.live !== undefined) parts.push(p.live ? "Live" : "Snapshot");

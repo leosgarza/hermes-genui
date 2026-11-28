@@ -70,3 +70,29 @@ def test_the_recipe_list_is_read_from_the_recipes_folder(tmp_path):
     (tmp_path / "notes").mkdir()  # a folder without a SKILL.md is not a recipe
     text = prompt.draw_rule(recipes.shipped(tmp_path))
     assert "apple-check, zebra-plan" in text and "notes" not in text
+
+
+def test_desktop_rule_sends_things_to_keep_on_screen_to_the_today_page_within_the_cap():
+    rule = prompt.drawing_rule({"platform": "local"})
+    assert "Today page with the dashboard tool" in rule and "today-page recipe" in rule
+    assert "live_board" not in rule and "ticker" not in rule
+    assert len(rule) <= prompt.MAX_CHARS
+
+
+def test_text_surfaces_are_told_not_to_draw():
+    rule = prompt.drawing_rule({"platform": "telegram"})
+    assert "Don't call show_blocks" in rule and "live_board" not in rule
+
+
+def test_desktop_rule_names_the_personal_assistant_within_the_cap():
+    rule = prompt.drawing_rule({"platform": "local"})
+    assert "personal-assistant" in rule and len(rule) <= prompt.MAX_CHARS
+
+
+def test_desktop_rule_never_shows_the_tag_so_the_model_calls_the_tool():
+    # Shown the tag's shape (::blocks{id="…"}), Gemma 4 wrote made-up tags and never called show_blocks: 20 of 34
+    # eval prompts on Gemma 4 12B, 0 once the rule only said to call the tool and paste what it returns (#43).
+    rule = prompt.drawing_rule({"platform": "local"})
+    assert "::blocks" not in rule
+    assert "Call the tool; it returns a tag." in rule
+    assert len(rule) <= prompt.MAX_CHARS

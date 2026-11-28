@@ -26,13 +26,131 @@ describe("table reader", () => {
     expect(r.blocks[0]).toEqual({ type: "table", columns: ["A", "B"], rows: [] });
     expect(r.dropped.map((d) => d.why)).toContain("table has no rows");
   });
-  it("keeps interactive only when it says true", () => {
-    const on = readBlocksNoted([{ type: "table", columns: ["A"], rows: [["x"]], interactive: true }]);
-    expect((on.blocks[0] as any).interactive).toBe(true);
-    for (const v of [false, "true", 1, null, undefined]) {
-      const off = readBlocksNoted([{ type: "table", columns: ["A"], rows: [["x"]], interactive: v }]);
-      expect(off.blocks[0]).toEqual({ type: "table", columns: ["A"], rows: [["x"]] });
-    }
+  it("writes a null cell as a dash and leaves a column an object row doesn't carry blank", () => {
+    const r = readBlocksNoted([{ type: "table", columns: ["Shop", "Price", "Change"],
+      rows: [["Shop A", 12, null], { Shop: "Shop B", Price: 0 }] }]);
+    expect((r.blocks[0] as any).rows).toEqual([["Shop A", "12", "–"], ["Shop B", "0", ""]]);
+  });
+  it("keeps a number column numeric and sortable through a null cell", () => {
+    const r = readBlocksNoted([{ type: "table", columns: ["Shop", "Sales"],
+      rows: [["A", 31000], ["B", null], ["C", 18000]] }]);
+    const { rows } = r.blocks[0] as any;
+    expect(rows).toEqual([["A", "31000"], ["B", "–"], ["C", "18000"]]);
+    // "–" is a value written as unknown, not a filled cell: the column still reads as numbers and sorts with it last.
+    expect(isNumberColumn(rows, 1)).toBe(true);
+    expect(sortedOrder(rows, { column: 1, direction: "up" })).toEqual([2, 0, 1]);
+    expect(sortedOrder(rows, { column: 1, direction: "down" })).toEqual([0, 2, 1]);
+  });
+});
+
+describe("structured table reader", () => {
+  it("reads typed columns, object rows, sources and aggregates", () => {
+    const r = readBlocksNoted([{ type: "table", caption: "Spend", columns: [
+      { id: "shop", label: "Shop" },
+      { id: "spend", label: "Spend", kind: "currency", unit: "₹" },
+      { id: "share", label: "Share", kind: "percent" },
+      { id: "from", label: "From", kind: "sources" },
+    ], rows: [
+      { shop: "A", spend: 1200, share: 40, sources: [{ label: "POS", url: "https://example.org/a" }] },
+      { shop: "B", spend: 1800, share: 60, from: "Manual" },
+    ], filterable: true, aggregates: [{ column: "spend", op: "sum" }] }]);
+    expect(r.dropped).toEqual([]);
+    const block = r.blocks[0] as any;
+    expect(block.structured).toBe(true);
+    expect(block.columns.map((c: any) => c.kind)).toEqual(["text", "currency", "percent", "sources"]);
+    expect(block.rows[0].sources).toEqual([{ label: "POS", url: "https://example.org/a" }]);
+    expect(block.rows[1].sources).toEqual([{ label: "Manual" }]);
+    expect(block.filterable).toBe(true);
+    expect(block.aggregates).toEqual([{ column: "spend", op: "sum", label: "Spend" }]);
+  });
+  it("reads cells nested under a row's cells key", () => {
+    const r = readBlocksNoted([{ type: "table", caption: "Spend", columns: [
+      { id: "shop", label: "Shop" },
+      { id: "spend", label: "Spend", kind: "currency", unit: "₹" },
+    ], rows: [
+      { cells: { shop: { text: "A" }, spend: { text: "1,200", value: 1200 } }, sources: [{ label: "POS" }] },
+    ] }]);
+    expect(r.dropped).toEqual([]);
+    const block = r.blocks[0] as any;
+    expect(block.rows[0].cells.shop.text).toBe("A");
+    expect(block.rows[0].cells.spend.value).toBe(1200);
+    expect(block.rows[0].sources).toEqual([{ label: "POS" }]);
+  });
+  it("reads interactive strictly true, and only on the structured form", () => {
+    const read = (extra: Record<string, unknown>) => readBlocksNoted([{ type: "table", columns: [
+      { id: "a", label: "A" }], rows: [{ a: "x" }], ...extra }]).blocks[0] as any;
+    expect(read({ interactive: true }).interactive).toBe(true);
+    for (const word of [false, "true", 1, "yes", null]) expect(read({ interactive: word }).interactive).toBe(false);
+    expect(read({}).interactive).toBe(false);
+  });
+  it("keeps the word off the legacy form: a legacy table is not made structured by it", () => {
+    const legacy = readBlocksNoted([{ type: "table", interactive: true, columns: ["A"], rows: [["x"]] }]).blocks[0] as any;
+    expect(legacy.structured).toBeUndefined();
+    expect(legacy.interactive).toBeUndefined();
+    expect(legacy.rows).toEqual([["x"]]);
+  });
+  it("finds a row's cells by the column id as it was written, not only by the normalized one", () => {
+    const read = (columns: unknown[], rows: unknown[]) =>
+      readBlocksNoted([{ type: "table", columns, rows }]).blocks[0] as any;
+    // an id the model wrote in capitals: the column becomes "sku", and the row is keyed "SKU"
+    const upper = read([{ id: "SKU", label: "Product" }], [{ cells: { SKU: { text: "Phone" } } }]);
+    expect(upper.columns.map((c: any) => c.id)).toEqual(["sku"]);
+    expect(upper.rows[0].cells.sku.text).toBe("Phone");
+    // an id with a capital letter in the middle
+    const camel = read([{ id: "monthlyPrice", label: "Monthly price" }], [{ cells: { monthlyPrice: { value: 12 } } }]);
+    expect(camel.rows[0].cells.monthlyprice.value).toBe(12);
+    // the normalized id and the column label keep working, with no duplicate row keys needed
+    expect(read([{ id: "SKU", label: "Product" }], [{ cells: { sku: { text: "Phone" } } }]).rows[0].cells.sku.text)
+      .toBe("Phone");
+    expect(read([{ id: "SKU", label: "Product" }], [{ Product: "Phone" }]).rows[0].cells.sku.text).toBe("Phone");
+  });
+  it("reads past a null cell to the next key, instead of dropping the row", () => {
+    const read = (columns: unknown[], rows: unknown[]) =>
+      readBlocksNoted([{ type: "table", columns, rows }]).blocks[0] as any;
+    // an explicit null under the id falls through to the label, as it did before the id lookup widened
+    const byLabel = read([{ id: "sku", label: "Product" }], [{ cells: { sku: null, Product: { text: "Phone" } } }]);
+    expect(byLabel.rows[0].cells.sku.text).toBe("Phone");
+    // the same with the id as the model wrote it: the normalized key is null too, the label still answers
+    const written = read([{ id: "SKU", label: "Product" }], [{ cells: { SKU: null, Product: { text: "Phone" } } }]);
+    expect(written.rows[0].cells.sku.text).toBe("Phone");
+    // a null under the label does not shadow a key that normalizes to the id
+    const byKey = read([{ id: "sku", label: "Product" }], [{ cells: { Product: null, SKU: { text: "Phone" } } }]);
+    expect(byKey.rows[0].cells.sku.text).toBe("Phone");
+    // a row whose only cell is null everywhere is still no row, so the table drops as it did before
+    const empty = readBlocksNoted([{ type: "table", columns: [{ id: "sku", label: "Product" }],
+      rows: [{ cells: { sku: null, Product: null } }] }]);
+    expect(empty.blocks).toEqual([]);
+    expect(empty.dropped.map((d) => d.why)).toEqual(["table needs at least one row"]);
+  });
+  it("refuses interactive on bare column names, the way the Python check does", () => {
+    const bare = (extra: Record<string, unknown>) => readBlocksNoted([{ type: "table", filterable: true, ...extra }]);
+    const refused = bare({ interactive: true, columns: ["A", "B"], rows: [["1", "2"]] });
+    expect(refused.blocks).toEqual([]);
+    expect(refused.dropped.map((d) => d.why)).toEqual([
+      "interactive needs a column object with an id for every column"]);
+    // without the word the same table reads exactly as #41 reads it
+    const kept = bare({ columns: ["A", "B"], rows: [["1", "2"]] }).blocks[0] as any;
+    expect(kept.structured).toBe(true);
+    expect(kept.columns.map((c: any) => c.label)).toEqual(["A", "B"]);
+    expect(kept.interactive).toBe(false);
+    // a column object with no id is refused for the word too, the checker refuses it as well
+    expect(bare({ interactive: true, columns: [{ label: "A" }], rows: [{ A: "x" }] }).blocks).toEqual([]);
+  });
+  it("refuses a repeated column id for interactive, the way the Python check does", () => {
+    const repeated = { columns: [{ id: "a", label: "A" }, { id: "a", label: "B" }], rows: [{ a: "x" }] };
+    const refused = readBlocksNoted([{ type: "table", filterable: true, interactive: true, ...repeated }]);
+    expect(refused.blocks).toEqual([]);
+    expect(refused.dropped.map((d) => d.why)).toEqual(["interactive needs a different id for every column"]);
+    // without the word the same table still reads, with the second column disambiguated as #41 ships it
+    const kept = readBlocksNoted([{ type: "table", filterable: true, ...repeated }]).blocks[0] as any;
+    expect(kept.columns.map((c: any) => c.id)).toEqual(["a", "a-1"]);
+  });
+  it("drops non-http source links and keeps an unknown kind as text", () => {
+    const r = readBlocksNoted([{ type: "table", columns: [{ id: "a", label: "A", kind: "magic" }],
+      rows: [{ a: "x", sources: [{ label: "Bad", url: "javascript:alert(1)" }] }] }]);
+    const block = r.blocks[0] as any;
+    expect(block.columns[0].kind).toBe("text");
+    expect(block.rows[0].sources).toEqual([{ label: "Bad" }]);
   });
 });
 

@@ -75,8 +75,9 @@ def board_size(blocks: list | dict) -> int:
 
 
 def save(blocks: list[dict] | dict, root: Path | None = None) -> str:
-    """Store a board — a list of blocks, or the envelope {"align": ..., "blocks": [...]} that says where the whole
-    board sits — and return its new id. Refused (BoardTooBig, nothing written) over BOARD_LIMIT.
+    """Store a board (a list of blocks, or the envelope a live board's links and a placed board's words ride
+    in: {align, text_align, version, updated_at, links, blocks}) and return its new id.
+    Refused (BoardTooBig, nothing written) over BOARD_LIMIT.
 
     The id is one no store on this machine uses yet (with root given, no board in root), so a new board never
     overwrites an old one and find_root never finds another profile's board under the same id.
@@ -137,8 +138,8 @@ def size(block_id: str, root: Path | None = None) -> int | None:
 
 
 def load(block_id: str, root: Path | None = None) -> list[dict] | dict | None:
-    """The stored board for an id — a list of blocks, or an envelope carrying the board's own alignment — or None
-    when the id is malformed or unknown.
+    """The stored board for an id — a list of blocks, or an envelope carrying the board's own placement words —
+    or None when the id is malformed or unknown.
 
     load("7f3a09bc") → [{"type": "chart", ...}]
     load("../etc/passwd") → None (never a path outside the store)
@@ -149,15 +150,28 @@ def load(block_id: str, root: Path | None = None) -> list[dict] | dict | None:
     return _read_json((root or default_root()) / f"{block_id}.json")
 
 
-# --- the two shapes a stored board comes in ----------------------------------------------------------------------
+# --- living boards: a board's id is its address, and an update writes a new VERSION at that address ----------------
+# A board drawn into a chat is not a dead snapshot: show_blocks can be told to update the board an address
+# names. The new content replaces <id>.json AT THE SAME ADDRESS (the tag the chat already quotes keeps
+# drawing, now the current version), and the version that was current is archived, whole, into a
+# <id>.versions.json sidecar beside it. History is BOUNDED by design: the sidecar keeps the newest
+# HISTORY_MAX archived versions within HISTORY_LIMIT bytes and drops the oldest when either cap is
+# crossed; reach-back past the cap answers like an unknown version, and the CURRENT version is never
+# dropped. A board that was never updated carries no version word at all and answers load() with
+# exactly the bytes it always had.
+
+HISTORY_SUFFIX = ".versions.json"
+HISTORY_MAX = 8                 # the newest archived versions kept; the live one answers load()
+HISTORY_LIMIT = 512 * 1024      # the sidecar's byte cap; oldest archived entries drop to stay under it
 
 
 def blocks_of(board: object) -> list:
     """The blocks inside a stored board, either shape: the plain list it has always been, or the envelope
-    {"align": ..., "blocks": [...]} that carries a whole-board alignment beside them. Anything else gives no blocks.
+    that carries the board's own words beside them (a version from an update-in-place, placement words).
+    Anything else gives no blocks.
 
     blocks_of([chart, source]) → [chart, source]
-    blocks_of({"align": "center", "blocks": [chart]}) → [chart]
+    blocks_of({"version": 2, "blocks": [chart]}) → [chart]
     blocks_of(None) → []
     """
     if isinstance(board, list):
@@ -167,102 +181,8 @@ def blocks_of(board: object) -> list:
     return []
 
 
-def align_of(board: object) -> str | None:
-    """The alignment word a stored envelope carries for the whole board, or None. The word is checked where it is
-    drawn (the web side reads anything that isn't left, center or right as left), as every model word is.
-
-    align_of({"align": "right", "blocks": [x]}) → "right";  align_of([x]) → None
-    """
-    word = board.get("align") if isinstance(board, dict) else None
-    return word if isinstance(word, str) else None
-
-
-def text_align_of(board: object) -> str | None:
-    """The text-alignment word a stored envelope carries for the whole board (how the words inside the blocks
-    read), or None. Like the align word it is checked where it is drawn; the store keeps any text as written.
-
-    text_align_of({"text_align": "center", "blocks": [x]}) → "center";  text_align_of([x]) → None
-    """
-    word = board.get("text_align") if isinstance(board, dict) else None
-    return word if isinstance(word, str) else None
-
-
-def density_of(board: object) -> str | None:
-    """The density word a stored envelope carries for the whole board, or None. The word is checked where it is
-    drawn (the web side reads anything that isn't comfortable or compact as comfortable), as every model word is.
-
-    density_of({"density": "compact", "blocks": [x]}) → "compact";  density_of([x]) → None
-    """
-    word = board.get("density") if isinstance(board, dict) else None
-    return word if isinstance(word, str) else None
-
-
-def palette_of(board: object) -> str | None:
-    """The chart-palette word a stored envelope carries for the whole board, or None. Checked where drawn
-    (anything that isn't default, cool or warm draws the house colours); the store keeps any text as written.
-
-    palette_of({"palette": "cool", "blocks": [x]}) → "cool";  palette_of([x]) → None
-    """
-    word = board.get("palette") if isinstance(board, dict) else None
-    return word if isinstance(word, str) else None
-
-
-def motion_of(board: object) -> str | None:
-    """The motion word a stored envelope carries for the whole board, or None. Checked where drawn (anything
-    that isn't full or reduced is as unsaid), never overriding a reader's own reduced-motion ask there.
-
-    motion_of({"motion": "reduced", "blocks": [x]}) → "reduced";  motion_of([x]) → None
-    """
-    word = board.get("motion") if isinstance(board, dict) else None
-    return word if isinstance(word, str) else None
-
-
-def as_of_of(board: object) -> str | None:
-    """The date line a stored envelope carries for the whole board, or None. Like the align word it is checked
-    where it is drawn; here only what was never text (or is empty) is refused.
-
-    as_of_of({"as_of": "2026-11-18", "blocks": [x]}) → "2026-11-18";  as_of_of({"as_of": 5, ...}) → None
-    """
-    line = board.get("as_of") if isinstance(board, dict) else None
-    return line if isinstance(line, str) and line else None
-
-
-def live_of(board: object) -> bool | None:
-    """Whether a stored envelope says its figures are live: True or False when it carries a real bool (False is a
-    word of its own — a snapshot — and not an absence), None when it says nothing or says it any other way.
-
-    live_of({"live": false, "blocks": [x]}) → False;  live_of({"live": "yes", ...}) → None
-    """
-    flag = board.get("live") if isinstance(board, dict) else None
-    return flag if isinstance(flag, bool) else None
-
-
-def follow_ups_of(board: object) -> list | None:
-    """The tappable follow-ups a stored envelope carries for the whole board, or None. The shape was checked
-    where it was written (show_blocks refuses an unusable one); here only "is it a list with anything in it".
-
-    follow_ups_of({"follow_ups": [{"label": "Go", "run": "More"}], "blocks": [x]}) → [that list]
-    follow_ups_of([x]) → None;  follow_ups_of({"follow_ups": "yes", ...}) → None
-    """
-    ups = board.get("follow_ups") if isinstance(board, dict) else None
-    return ups if isinstance(ups, list) and ups else None
-
-
-# --- living boards: a board's id is its address, and an update writes a new VERSION at that address ----------------
-# A board drawn into a chat is not a dead snapshot: show_blocks can be told to update the board an address
-# names. The new content replaces <id>.json AT THE SAME ADDRESS (the tag the chat already quotes keeps
-# drawing, now the current version), and the version that was current is archived, whole, into a
-# <id>.versions.json sidecar beside it. Nothing is deleted — the archive is exactly the store's old rule
-# ("blocks are never deleted, so old chats still draw") applied per version. A board that was never
-# updated carries no version word at all and answers load() with exactly the bytes it always had.
-
-HISTORY_SUFFIX = ".versions.json"
-HISTORY_MAX = 8                 # the newest archived versions kept; the live one answers load()
-HISTORY_LIMIT = 512 * 1024      # the sidecar's byte cap; oldest archived entries drop to stay under it
-
-
 def version_of(board: object) -> int | None:
-    """The version number a stored envelope carries (update stamps it), or None when the board never spoke
+    """The version number a stored envelope carries (an update stamps it), or None when the board never spoke
     one — which is every board that was only ever saved. Text is not a number here, and neither is a bool.
 
     version_of({"version": 2, "blocks": [x]}) → 2;  version_of([x]) → None;  version_of({"version": "2"}) → None
@@ -274,8 +194,8 @@ def version_of(board: object) -> int | None:
 
 
 def updated_at_of(board: object) -> str | None:
-    """The moment update wrote this version, as the store's own ISO line, or None. Checked where drawn, like
-    the as_of word; here only "is it a non-empty string"."""
+    """The moment an update wrote this version, as an ISO line, or None. Here only "is it a non-empty
+    string" is checked; who wrote the word decided it was worth storing."""
     line = board.get("updated_at") if isinstance(board, dict) else None
     return line if isinstance(line, str) and line else None
 
@@ -291,6 +211,26 @@ def links_of(board: object) -> list | None:
     return links if isinstance(links, list) and links else None
 
 
+def align_of(board: object) -> str | None:
+    """The placement word a stored envelope carries for the whole board, or None. The word is checked where it
+    is drawn (anything that isn't left, center or right reads as left), as every model word is.
+
+    align_of({"align": "right", "blocks": [x]}) → "right";  align_of([x]) → None
+    """
+    word = board.get("align") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def text_align_of(board: object) -> str | None:
+    """The text-alignment word a stored envelope carries for the whole board (how the words inside read), or
+    None. Like the placement word it is checked where it is drawn.
+
+    text_align_of({"text_align": "center", "blocks": [x]}) → "center";  text_align_of([x]) → None
+    """
+    word = board.get("text_align") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
 def history_path(block_id: str, root: Path) -> Path:
     """Where a board's archived versions live: <id>.versions.json, beside the board file itself."""
     return root / f"{block_id}{HISTORY_SUFFIX}"
@@ -299,7 +239,7 @@ def history_path(block_id: str, root: Path) -> Path:
 def load_versions(block_id: str, root: Path | None = None) -> list:
     """The archived versions of a board, oldest first, each {"version", "saved_at", "board"}; [] when the id
     is malformed, unknown, or was never updated. The archived board is kept exactly as it was saved (a
-    plain list or any envelope), so every version's own words — alignment, look, provenance — ride with it."""
+    plain list or an envelope), so every version's own words ride with it."""
     if not re.fullmatch(ID_PATTERN, block_id or ""):
         return []
     folder = root or find_root(block_id)
@@ -319,13 +259,15 @@ def update(block_id: str, board: list[dict] | dict, root: Path | None = None) ->
     version that said them — the new board carries only what this call gave it.
 
     Refused, with nothing written, before any disk is touched: a malformed or unknown address
-    (NoSuchBlock — the same honesty rule as pin), or a board over BOARD_LIMIT (BoardTooBig).
+    (NoSuchBlock — the same honesty rule as save_state), or a board over BOARD_LIMIT (BoardTooBig).
+
+    A write stays in its own profile: with no root given, the address resolves ONLY in the active
+    profile's store. Reaching across profiles is right for reading a board (find_root, issue #6) but
+    an update never writes into another profile's bytes — a board owned elsewhere answers NoSuchBlock here.
     """
     if not re.fullmatch(ID_PATTERN, block_id or ""):
         raise NoSuchBlock(block_id)
-    folder = root or find_root(block_id)
-    if folder is None:
-        raise NoSuchBlock(block_id)
+    folder = root or default_root()
     current = _read_json(folder / f"{block_id}.json")
     if current is None:
         raise NoSuchBlock(block_id)
@@ -344,6 +286,22 @@ def update(block_id: str, board: list[dict] | dict, root: Path | None = None) ->
     _write_whole(history_path(block_id, folder), json.dumps({"versions": archived}, ensure_ascii=False))
     _write_whole(folder / f"{block_id}.json", text)
     return block_id
+
+
+def _now() -> str:
+    """The moment, as an ISO line with seconds: what an update stamps its version with."""
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def follow_ups_of(board: object) -> list | None:
+    """The tappable follow-ups a stored envelope carries for the whole board, or None. The shape was checked
+    where it was written (show_blocks refuses an unusable one); here only "is it a list with anything in it".
+
+    follow_ups_of({"follow_ups": [{"label": "Go", "run": "More"}], "blocks": [x]}) → [that list]
+    follow_ups_of([x]) → None;  follow_ups_of({"follow_ups": "yes", ...}) → None
+    """
+    ups = board.get("follow_ups") if isinstance(board, dict) else None
+    return ups if isinstance(ups, list) and ups else None
 
 
 PHOTO_LIST = "photo-urls.txt"
@@ -411,6 +369,56 @@ def save_state(block_id: str, state: dict, root: Path | None = None) -> None:
     _write_whole((root or default_root()) / f"{block_id}.state.json", text)
 
 
+def density_of(board: object) -> str | None:
+    """The density word a stored envelope carries for the whole board, or None. The word is checked where it is
+    drawn (the web side reads anything that isn't comfortable or compact as comfortable), as every model word is.
+
+    density_of({"density": "compact", "blocks": [x]}) → "compact";  density_of([x]) → None
+    """
+    word = board.get("density") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def palette_of(board: object) -> str | None:
+    """The chart-palette word a stored envelope carries for the whole board, or None. Checked where drawn
+    (anything that isn't default, cool or warm draws the house colours); the store keeps any text as written.
+
+    palette_of({"palette": "cool", "blocks": [x]}) → "cool";  palette_of([x]) → None
+    """
+    word = board.get("palette") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def motion_of(board: object) -> str | None:
+    """The motion word a stored envelope carries for the whole board, or None. Checked where drawn (anything
+    that isn't full or reduced is as unsaid), never overriding a reader's own reduced-motion ask there.
+
+    motion_of({"motion": "reduced", "blocks": [x]}) → "reduced";  motion_of([x]) → None
+    """
+    word = board.get("motion") if isinstance(board, dict) else None
+    return word if isinstance(word, str) else None
+
+
+def as_of_of(board: object) -> str | None:
+    """The date line a stored envelope carries for the whole board, or None. Like the align word it is checked
+    where it is drawn; here only what was never text (or is empty) is refused.
+
+    as_of_of({"as_of": "2026-11-18", "blocks": [x]}) → "2026-11-18";  as_of_of({"as_of": 5, ...}) → None
+    """
+    line = board.get("as_of") if isinstance(board, dict) else None
+    return line if isinstance(line, str) and line else None
+
+
+def live_of(board: object) -> bool | None:
+    """Whether a stored envelope says its figures are live: True or False when it carries a real bool (False is a
+    word of its own — a snapshot — and not an absence), None when it says nothing or says it any other way.
+
+    live_of({"live": false, "blocks": [x]}) → False;  live_of({"live": "yes", ...}) → None
+    """
+    flag = board.get("live") if isinstance(board, dict) else None
+    return flag if isinstance(flag, bool) else None
+
+
 # --- the Library shelf ------------------------------------------------------------------
 # A pin is a note, not a copy: one small JSON file, in this profile's store folder, holding
 # {board id: {title, folder, favorite, pinned, saved_at}}. The boards themselves stay exactly where
@@ -430,10 +438,6 @@ TITLE_WORDS = ("title", "caption", "text", "label")
 
 class LibraryTooBig(ValueError):
     """The shelf note file grew over LIBRARY_LIMIT bytes."""
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def title_of(board: object) -> str:

@@ -1,15 +1,14 @@
-/* Tiles: cover cards. A card's reason (its subtitle) reads at a glance, never by hovering: the text is in flow, so
-   a card grows to fit a long reason (its height is never fixed by an aspect, which would clip it), rows keep equal
-   heights, and the text keeps strong contrast on every wash with full white, a shadow and a firm scrim under it. */
+/* Tiles: cover cards. Every card keeps the cover shape — its height comes from its aspect-ratio, never from the
+   text, so rows stay even however long a reason is. The reason reads in up to three lines (the reader cuts it to
+   about 120 characters between words), in full white with a shadow, and the photo stays bright: only the caption
+   block darkens behind the text, there is no overlay over the whole card. */
 .hb-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .hb-tile {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  min-height: 158px;
+  display: block;
+  aspect-ratio: 1 / 1.05;
   margin: 0;
-  padding: 12px 12px 12px 14px;
+  padding: 0;
   overflow: hidden;
   border: 0;
   border-radius: 20px;
@@ -17,7 +16,7 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 0.15s var(--hb-ease-out);
 }
 .hb-tile:hover { transform: translateY(-1px); }
 .hb-tile:active { transform: scale(0.98); }
@@ -27,7 +26,6 @@
 .hb-tile-static:active { transform: none; }
 .hb-tile:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }
 .hb-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.hb-tile-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(12, 8, 24, 0.5) 65%, rgba(12, 8, 24, 0.88) 100%); }
 .hb-tile-icon {
   position: absolute;
   top: 12px;
@@ -41,12 +39,26 @@
   background: rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(8px);
 }
-/* A card that grows to the very top keeps its title clear of the icon chip (an engine without :has only loses
-   this clearance in the rare tall+icon case, never the text itself). */
-.hb-tile:has(.hb-tile-icon) { padding-top: 52px; }
-.hb-tile-text { position: relative; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+/* The scrim is localized: it is the caption block's own background, so it fades in over the text and nowhere
+   else — the photo above the caption keeps its full brightness. It is already dark by the title (the top third of
+   the fade does most of the work), so a title over snow or sky reads as well as the lines under it. */
+.hb-tile-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 30px 12px 12px 14px;
+  background: linear-gradient(180deg, rgba(12, 8, 24, 0) 0%, rgba(12, 8, 24, 0.46) 34%, rgba(12, 8, 24, 0.72) 100%);
+}
 .hb-tile-title { font-size: 15.5px; line-height: 20px; font-weight: 700; letter-spacing: -0.01em; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.3); }
 .hb-tile-subtitle {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   font-size: 12.5px;
   line-height: 16px;
   color: #fff;

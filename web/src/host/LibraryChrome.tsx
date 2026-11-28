@@ -392,7 +392,7 @@ export function useLibraryChrome(args: {
             <BlockActions.Provider value={{ ...actions, blockId: view.id }}>
               <Blocks blocks={view.board.blocks} boardAlign={view.board.boardAlign}
                 boardTextAlign={view.board.boardTextAlign} boardAsOf={view.board.boardAsOf}
-                boardLive={view.board.boardLive} boardFollowUps={view.board.boardFollowUps}
+                live={view.board.boardLive} boardFollowUps={view.board.boardFollowUps}
                 boardDensity={view.board.boardDensity} boardPalette={view.board.boardPalette}
                 boardMotion={view.board.boardMotion} />
             </BlockActions.Provider>

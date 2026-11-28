@@ -1,17 +1,18 @@
-// Provenance: a board whose stored envelope declares `as_of` (when its data is from) or `live` (true: the figures
-// update; false: a snapshot) draws a quiet footer — source · as_of · a [Live] or [Snapshot] badge — reusing the
-// source block's line for the "where from" part. A top-level source block on such a board is drawn inside the
-// footer, not twice, and keeps its placement: it resolves through the very same path as any block (the block's
-// own ask, then the board's default, then left — the model's cascade alone), and it gets its OWN full-width row — a
-// place box only shares out space in a block context, never as a flex child of the join line (the real geometry
-// is pinned in Chrome by tests/test_layout_alignment.py). The `source` a chart block carries joins the line
-// beside it — deduped, in draw order — while the chart keeps its own inline attribution. Anything that isn't
-// a usable date string or a real boolean is ignored, and a board with no provenance declared draws exactly what
-// it always drew: no footer, no new nodes, source blocks where they sit.
+// Provenance, the quiet way — after the maintainer's read of 2026-11-25, two rules shape the line:
+//   (1) A board that SHOWS a source block already says where its data came from: the block draws in the
+//       flow, so the footer never echoes it. The same source words must not show twice. The rule behind
+//       the line stays as accepted — only the board's own source data speaks it (item labels and
+//       `accessed` dates, in draw order, each shown once; a chart's inline `source` stays the chart's
+//       business; nested sources keep drawing inside their cells), and nothing is ever invented.
+//   (2) The Live badge answers to the host, not to sources: a kept, refreshing view (DashboardView knows
+//       the fact; a chat tag or a panel never does) wears it EVEN WHEN the page shows no source block —
+//       Today's shape. A non-live drawing claims nothing and grows no line.
+// Nothing is asked of the model: the envelope gains no word, and a board with no source words and no live
+// host draws byte-identical to the plain path.
 import { cleanup, render } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Blocks } from "./Blocks";
-import { readBlocksNoted } from "./readBlocks";
+import { Blocks, provenanceParts } from "./Blocks";
+import { readBlocks, readBlocksNoted } from "./readBlocks";
 import { withStyles } from "./testing";
 import tokens from "../styles/tokens.css?raw";
 import shared from "../styles/shared.css?raw";
@@ -22,218 +23,258 @@ beforeAll(() => (unstyle = withStyles(tokens, shared, sourceCss)));
 afterAll(() => unstyle());
 
 const TEXT = { type: "text", text: "Hi" };
-const SRC = { type: "source", text: "BLS", url: "https://www.bls.gov/ooh" };
+const HEADING = { type: "heading", level: 2, text: "Markets" };
 
-/** A valid one-series line chart, optionally carrying its own `source` attribution. */
+/** A line-form source: one small line saying where the data came from. */
+const LINE_SRC = { type: "source", text: "BLS JOLTS", url: "https://www.bls.gov/jlt" };
+
+/** A list-form source: labels, kind, and the dates the reader cares about. */
+function listSrc(items: { label: string; accessed?: string; note?: string }[], title = "Sources") {
+  return { type: "source", title, items };
+}
+
+/** A valid one-series line chart, optionally carrying its own inline `source` attribution. */
 const chart = (source?: string) => {
-  const c: any = { type: "chart", x: ["Q1", "Q2"], series: [{ name: "Jobs", data: [1, 2] }] };
+  const c: any = { type: "chart", kind: "line", x: ["Q1", "Q2"], series: [{ name: "Jobs", data: [1, 2] }] };
   if (source !== undefined) c.source = source;
   return c;
 };
 
-const draw = (data: unknown) => {
-  const noted = readBlocksNoted(data);
-  return render(
-    <Blocks blocks={noted.blocks} boardAlign={noted.align}
-      boardAsOf={noted.asOf} boardLive={noted.live} />,
-  ).container;
-};
+const draw = (data: unknown, live?: boolean) =>
+  render(<Blocks blocks={readBlocks(data)} live={live} />).container;
 
-describe("envelope read: as_of and live ride beside align", () => {
+/** The footer's spoken parts, in order. */
+function footerParts(root: ParentNode): string[] {
+  const footer = root.querySelector(".hb-provenance");
+  if (!footer) return [];
+  return Array.from(footer.querySelectorAll(
+    ".hb-provenance-source, .hb-provenance-time, .hb-provenance-badge, .hb-provenance-more"))
+    .map((n) => n.textContent!);
+}
+
+const blocksChildren = (root: ParentNode) =>
+  Array.from(root.querySelector(".hb-blocks")!.children);
+
+/** How many times a word is spoken anywhere in the drawing: an echo would make it two. */
+const sayCount = (root: ParentNode, word: string) => root.textContent!.split(word).length - 1;
+
+describe("a board that shows a source block is never echoed (maintainer tweak 2026-11-25 #1)", () => {
   afterEach(cleanup);
 
-  it("reads the words a stored envelope carries", () => {
-    const noted = readBlocksNoted({ align: "center", as_of: "2026-11-18", live: true, blocks: [TEXT] });
-    expect([noted.align, noted.asOf, noted.live]).toEqual(["center", "2026-11-18", true]);
-    expect(noted.blocks.length).toBe(1);
+  it("a shown list-form source grows NO footer: every word of it appears exactly once", () => {
+    const root = draw([HEADING, TEXT,
+      listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }, { label: "BLS", accessed: "2026-11-18" }]),
+    ]);
+    expect(root.querySelector(".hb-provenance")).toBeNull(); // no second listing of the same sources
+    expect(root.querySelectorAll(".hb-blocks > .hb-source").length).toBe(1); // the block itself still draws
+    expect(root.querySelector(".hb-source")!.textContent).toContain("Yahoo Finance");
+    expect(sayCount(root, "Yahoo Finance")).toBe(1);
+    expect(sayCount(root, "2026-11-24")).toBe(1);
   });
 
-  it("keeps live false — a snapshot is a word, not an absence", () => {
-    expect(readBlocksNoted({ as_of: "Nov 18, 14:05 UTC", live: false, blocks: [TEXT] }).live).toBe(false);
+  it("a shown line-form source says its own line once: no footer repeats it, nothing is moved", () => {
+    const root = draw([HEADING, LINE_SRC, TEXT]);
+    const inFlow = root.querySelectorAll(".hb-blocks > .hb-source");
+    expect(inFlow.length).toBe(1);
+    expect(inFlow[0].textContent).toContain("BLS JOLTS");
+    expect(root.querySelector(".hb-provenance")).toBeNull();
+    expect(sayCount(root, "BLS JOLTS")).toBe(1);
+    // nothing joins the flow: heading, the source line, text — and nothing moved, absorbed or hidden
+    expect(blocksChildren(root).length).toBe(3);
   });
 
-  it("ignores anything that is not a usable date string or a real boolean", () => {
-    for (const data of [
-      { as_of: 5, blocks: [TEXT] },
-      { as_of: "   ", blocks: [TEXT] },
-      { live: "yes", blocks: [TEXT] },
-      { live: 1, blocks: [TEXT] },
-    ]) {
-      const noted = readBlocksNoted(data);
-      expect([noted.asOf, noted.live, noted.blocks.length]).toEqual([undefined, undefined, 1]);
-    }
+  it("several shown source blocks still grow no footer: dedup never rescues the repeat", () => {
+    const root = draw([
+      listSrc([{ label: "BLS JOLTS", accessed: "2026-11-18" }]),
+      LINE_SRC,
+      listSrc([{ label: "BLS JOLTS", accessed: "2026-11-18" }, { label: "FRED", accessed: "2026-11-18" }]),
+    ]);
+    expect(root.querySelector(".hb-provenance")).toBeNull();
+    expect(sayCount(root, "FRED")).toBe(1);
   });
 
-  it("cuts an over-long date line to what the footer can show", () => {
-    expect(readBlocksNoted({ as_of: "x".repeat(200), blocks: [TEXT] }).asOf).toBe("x".repeat(80));
+  it("a chart's inline source stays the chart's own line: no source block, no footer", () => {
+    const root = draw([chart("BLS JOLTS"), TEXT]);
+    expect(root.querySelector(".hb-provenance")).toBeNull();
+    // beside a shown source block the chart word stays its own as ever, and the block is not echoed either
+    const both = draw([chart("BLS JOLTS"), LINE_SRC]);
+    expect(both.querySelector(".hb-provenance")).toBeNull();
+    expect(sayCount(both, "BLS JOLTS")).toBe(2); // chart line + source block — the footer adds no third
   });
 
-  it("leaves old boards as they were: plain lists and align-only envelopes give no provenance", () => {
-    for (const data of [[TEXT], { align: "center", blocks: [TEXT] }]) {
-      const noted = readBlocksNoted(data);
-      expect([noted.asOf, noted.live]).toEqual([undefined, undefined]);
-    }
-  });
-
-  it("is not fooled by a block that spells its children blocks (its own fields stay the block's)", () => {
-    const noted = readBlocksNoted({ type: "section", title: "T", as_of: "2026-11-18", blocks: [TEXT] });
-    expect(noted.asOf).toBeUndefined();
-  });
-});
-
-describe("footer render", () => {
-  afterEach(cleanup);
-
-  it("draws source · as_of · the badge, once, on a board that declares provenance", () => {
-    const root = draw({ as_of: "2026-11-18", live: true, blocks: [TEXT, SRC] });
-    const footer = root.querySelector(".hb-provenance")!;
-    expect(footer).toBeTruthy();
-    expect(footer.parentElement!.classList.contains("hb-blocks")).toBe(true);
-    expect(footer.textContent).toContain("2026-11-18");
-    // the source line is the existing one, absorbed into the footer rather than drawn twice
-    expect(root.querySelectorAll(".hb-source").length).toBe(1);
-    expect(footer.querySelector(".hb-source a")!.getAttribute("href")).toBe("https://www.bls.gov/ooh");
-    // the order reads: source, then as_of, then the badge
-    const line = footer.textContent!;
-    expect(line.indexOf("BLS")).toBeLessThan(line.indexOf("2026-11-18"));
-    expect(line.indexOf("2026-11-18")).toBeLessThan(line.indexOf("Live"));
-  });
-
-  it("the badge carries its word: Live or Snapshot, not colour alone", () => {
-    const live = draw({ live: true, blocks: [TEXT] }).querySelector(".hb-provenance-badge")!;
-    expect([live.textContent, live.getAttribute("data-live")]).toEqual(["Live", "live"]);
-    const snap = draw({ live: false, blocks: [TEXT] }).querySelector(".hb-provenance-badge")!;
-    expect([snap.textContent, snap.getAttribute("data-live")]).toEqual(["Snapshot", "snapshot"]);
-  });
-
-  it("shows only the parts a board gave: as_of alone has no badge, live alone has no date", () => {
-    const dated = draw({ as_of: "2026-11-18", blocks: [TEXT] });
-    expect(dated.querySelector(".hb-provenance-badge")).toBeNull();
-    expect(dated.querySelector(".hb-provenance")!.textContent).toBe("2026-11-18");
-    const badged = draw({ live: true, blocks: [TEXT] }).querySelector(".hb-provenance")!;
-    expect(badged.textContent).toBe("Live");
-  });
-
-  it("a source without a usable link still shows as text in the footer", () => {
-    const footer = draw({ as_of: "2026-11-18", blocks: [{ type: "source", text: "desk notes" }] }).querySelector(".hb-provenance")!;
-    expect(footer.querySelector(".hb-source a")).toBeNull();
-    expect(footer.querySelector(".hb-source")!.textContent).toBe("desk notes");
-  });
-
-  it("absorbs only the first top-level source; a later one draws where it sits", () => {
-    const root = draw({ as_of: "2026-11-18", blocks: [SRC, { type: "source", text: "field log" } ] });
-    expect(root.querySelectorAll(".hb-source").length).toBe(2);  // one in the footer, one in the board
-    expect(root.querySelector(".hb-blocks > .hb-place > .hb-source")!.textContent).toBe("field log");
-  });
-
-  it("a board with no provenance draws exactly what it always did: no footer, no new nodes", () => {
-    for (const data of [[TEXT, SRC], { align: "center", blocks: [TEXT, SRC] }]) {
+  it("a board without a source block grows nothing: no footer, no new nodes", () => {
+    for (const data of [[TEXT], [HEADING, TEXT, chart("BLS JOLTS")],
+      [{ type: "grid", rows: [[TEXT, listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }])]] }]]) {
       const root = draw(data);
       expect(root.querySelector(".hb-provenance")).toBeNull();
-      const blocks = root.querySelector(".hb-blocks")!;
-      expect(blocks.children.length).toBe(2);  // one per block, nothing added after them
-      expect(root.querySelectorAll(".hb-source").length).toBe(1);
-      expect(root.querySelector(".hb-source")!.textContent).toBe("BLS");  // where it always sat, not in a footer
     }
   });
 
-  it("ignores junk the envelope may carry: an unusable date and a non-boolean live draw no footer", () => {
-    const root = draw({ as_of: 5, live: "yes", blocks: [TEXT] });
+  it("works straight from the stored envelope a door answers — and the reader gained NO words", () => {
+    const noted = readBlocksNoted({ version: 3, updated_at: "2026-11-18T10:00:00",
+      links: [{ id: "7f3a09bc" }], blocks: [HEADING, LINE_SRC] });
+    // the envelope reader is untouched: no asOf, no live ever come out of it
+    expect("asOf" in noted).toBe(false);
+    expect("live" in noted).toBe(false);
+    // and the shown source block is not echoed
+    expect(render(<Blocks blocks={noted.blocks} />).container.querySelector(".hb-provenance")).toBeNull();
+  });
+
+  it("reads nothing from junk: a source with no usable word grows no footer", () => {
+    const root = draw([{ type: "source", text: "   " }]);
     expect(root.querySelector(".hb-provenance")).toBeNull();
-    expect(root.querySelector(".hb-blocks")!.children.length).toBe(1);
+  });
+
+  it("an align-wrapped board is the same rule: a shown source stays the block's own", () => {
+    const root = draw({ align: "center", blocks: [HEADING, LINE_SRC] }, undefined);
+    expect(root.querySelector(".hb-provenance")).toBeNull();
+    const root2 = draw({ align: "center", blocks: [HEADING] });
+    expect(root2.querySelector(".hb-provenance")).toBeNull();
   });
 });
 
-describe("the footer source keeps its placement (rework of defect 1)", () => {
+describe("the resolved contract (parent ruling 2026-11-25): source words stay shown-in-flow; the line survives for the host badge", () => {
   afterEach(cleanup);
 
-  it("a source that asks for right lands right inside the footer (reviewer probe)", () => {
-    const root = draw({ as_of: "2026-11-18", blocks: [{ type: "source", text: "BLS", align: "right" }] });
-    const place = root.querySelector(".hb-provenance .hb-place")!;
-    expect([place.getAttribute("data-align"), place.classList.contains("hb-place-right")]).toEqual(["right", true]);
-    expect(place.querySelector(".hb-source")!.textContent).toBe("BLS");
+  // The honest end-to-end witness, in place of a fabricated sourced footer: the footer's only derivation
+  // input is a top-level source block, and the echo gate is exactly that block — so on ANY shipped board
+  // no source words reach the line. A source-less board has no unseen source data either: every carrier
+  // below already draws its words inside its own block (the accepted silence of charts, credits, nested
+  // cells — provenanceParts reads none of them). Live is a host fact: the badge is the line's whole
+  // remaining content, standing alone on Today's shape.
+  const CARRIERS: [string, unknown[]][] = [
+    ["a shown list-form source block",
+      [HEADING, TEXT, listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }])]],
+    ["a shown line-form source block", [LINE_SRC, TEXT]],
+    ["a chart's inline attribution beside a shown block",
+      [chart("BLS JOLTS"), listSrc([{ label: "FRED", accessed: "2026-11-18" }])]],
+    ["a source nested in a grid cell",
+      [{ type: "grid", rows: [[TEXT, listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }])]] }]],
+    ["an image credit",
+      [{ type: "images", images: [{ url: "https://img.example/a.jpg", source: "AP Photo" }] }]],
+    ["no carrier at all (plain board)", [HEADING, TEXT]],
+  ];
+  const CARRIER_WORDS = ["Yahoo Finance", "2026-11-24", "BLS JOLTS", "FRED", "2026-11-18", "AP Photo"];
+
+  it("non-live, every carrier shape: no footer source words ever render; no word is said twice", () => {
+    for (const [, data] of CARRIERS) {
+      const root = draw(data);
+      expect(root.querySelectorAll(".hb-provenance-source, .hb-provenance-time").length).toBe(0);
+      for (const word of CARRIER_WORDS) expect(sayCount(root, word)).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("the identical ask without provenance still lands right on the board (alignment control)", () => {
-    const root = draw([{ type: "source", text: "BLS", align: "right" }]);
-    expect(root.querySelector(".hb-provenance")).toBeNull();
-    expect(root.querySelector(".hb-blocks > .hb-place")!.getAttribute("data-align")).toBe("right");
+  it("live, every carrier shape: the line renders badge-ONLY — the pill is its one child", () => {
+    for (const [, data] of CARRIERS) {
+      const root = draw(data, true);
+      expect(footerParts(root)).toEqual(["Live"]);
+      expect(root.querySelector(".hb-provenance-dot")).toBeNull();
+      expect(root.querySelectorAll(".hb-provenance-source, .hb-provenance-time").length).toBe(0);
+      for (const word of CARRIER_WORDS) expect(sayCount(root, word)).toBeLessThanOrEqual(1);
+    }
   });
 
-  it("center asks for a centre place too; a source that sits left needs no wrapper", () => {
-    const center = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "center" }] });
-    expect(center.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("center");
-    const plain = draw({ as_of: "d", blocks: [SRC] });
-    expect(plain.querySelector(".hb-provenance .hb-place:not(.hb-bare)")).toBeNull();
-    expect(plain.querySelector(".hb-provenance .hb-source")!.textContent).toBe("BLS");
-  });
-
-  it("the board's default cascades onto the footer source like any block", () => {
-    const root = draw({ align: "center", as_of: "2026-11-18", blocks: [TEXT, SRC] });
-    expect(root.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("center");
-  });
-
-  it("the model's word moves the footer source; nothing else can", () => {
-    const plain = draw({ as_of: "d", blocks: [SRC] });
-    expect(plain.querySelector(".hb-provenance .hb-place:not(.hb-bare)")).toBeNull();  // left is how it sits anyway
-    const asked = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS", align: "right" }] });
-    expect(asked.querySelector(".hb-provenance .hb-place")!.getAttribute("data-align")).toBe("right");
-    expect(asked.querySelectorAll("button").length).toBe(0);                // no reader chips, not even beside a footer
-  });
-
-  it("the placed source sits beside the join line, never inside its flex row", () => {
-    const root = draw({ as_of: "d", live: true, blocks: [{ type: "source", text: "BLS", align: "right" }] });
-    const source = root.querySelector(".hb-provenance .hb-source")!;
-    expect(source.parentElement!.classList.contains("hb-place")).toBe(true);
-    // the place box is a child of the footer's column — the block context where its auto margins have space —
-    // not a child of the line, which shrink-wraps every flex child to its content (the measured defect shape)
-    expect(source.parentElement!.parentElement!.classList.contains("hb-provenance")).toBe(true);
-    expect(root.querySelector(".hb-provenance-line .hb-place")).toBeNull();
-    expect(root.querySelector(".hb-provenance-line .hb-source")).toBeNull();
-    const plain = draw({ as_of: "d", blocks: [SRC] });  // left asks need no wrapper but still sit on the row
-    expect(plain.querySelector(".hb-provenance > .hb-place > .hb-source")).toBeTruthy();
+  it("the Today pair: source-less NON-live grows no footer at all; source-less LIVE wears the pill alone", () => {
+    expect(draw([HEADING, TEXT]).querySelector(".hb-provenance")).toBeNull();
+    const root = draw([HEADING, TEXT], true);
+    expect(footerParts(root)).toEqual(["Live"]);
   });
 });
 
-describe("chart sources join the line (rework of defect 2)", () => {
+describe("the line's rule is kept: derived from the board's source data, never invented", () => {
   afterEach(cleanup);
 
-  it("a chart-only board reads source · as_of · the badge (reviewer probe)", () => {
-    const root = draw({ as_of: "2026-11-18", live: false, blocks: [chart("BLS")] });
-    expect(root.querySelector(".hb-provenance")!.textContent).toBe("BLS·2026-11-18·Snapshot");
-    // the footer joins the chart's attribution, it does not replace it: the inline line stays
-    expect(root.querySelector(".hb-chart-source")!.textContent).toBe("BLS");
+  // The gate that stops an echo lives in Blocks; the accepted derivation itself — labels and accessed
+  // dates of source blocks, in draw order, each shown once — stays the whole rule of the line and is
+  // pinned here as the pure rule it is. No shipped board feeds it words today (a shown source is never
+  // echoed), and the drawer keeps its cap at eight parts then a quiet ellipsis for whatever reaches it.
+  const parts = (data: unknown) => provenanceParts(readBlocks(data));
+
+  it("joins item labels and accessed dates in draw order, each shown once", () => {
+    expect(parts([HEADING, TEXT,
+      listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }, { label: "BLS", accessed: "2026-11-18" }]),
+    ])).toEqual(["Yahoo Finance", "2026-11-24", "BLS", "2026-11-18"]);
   });
 
-  it("several charts dedupe their sources in draw order", () => {
-    const root = draw({ as_of: "d", blocks: [chart("BLS"), chart("FRED"), chart("BLS"), chart()] });
-    expect(root.querySelector(".hb-provenance")!.textContent).toBe("BLS·FRED·d");
+  it("an item's note, kind and link stay the block's own business — the rule reads label and date", () => {
+    expect(parts([listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24", note: "prices at 11:30 IST" }])]))
+      .toEqual(["Yahoo Finance", "2026-11-24"]);
   });
 
-  it("a chart without a source joins nothing and changes nothing", () => {
-    const root = draw({ as_of: "2026-11-18", blocks: [chart()] });
-    expect(root.querySelector(".hb-provenance")!.textContent).toBe("2026-11-18");
-    expect(root.querySelector(".hb-chart-source")).toBeNull();
-    // and a chart source alone is not provenance: no declaration, no footer, board as it always drew
-    const plain = draw([chart("BLS")]);
-    expect(plain.querySelector(".hb-provenance")).toBeNull();
-    expect(plain.querySelector(".hb-chart-source")!.textContent).toBe("BLS");
+  it("dedupes across source blocks in draw order: repeated labels and dates say once", () => {
+    expect(parts([
+      listSrc([{ label: "BLS JOLTS", accessed: "2026-11-18" }]),
+      LINE_SRC,
+      listSrc([{ label: "BLS JOLTS", accessed: "2026-11-18" }, { label: "FRED", accessed: "2026-11-18" }]),
+    ])).toEqual(["BLS JOLTS", "2026-11-18", "FRED"]);
   });
 
-  it("a source block and chart sources join cleanly, each said once", () => {
-    const same = draw({ as_of: "d", blocks: [{ type: "source", text: "BLS" }, chart("BLS")] });
-    // deduped across the seams: the chart says nothing the source row hasn't already said, so the line is the date
-    expect(same.querySelector(".hb-provenance .hb-source")!.textContent).toBe("BLS");
-    expect(same.querySelector(".hb-provenance-line")!.textContent).toBe("d");
-    expect(same.querySelectorAll(".hb-source").length).toBe(1);
-    const both = draw({ as_of: "d", blocks: [{ type: "source", text: "Census" }, chart("BLS")] });
-    expect(both.querySelector(".hb-provenance .hb-source")!.textContent).toBe("Census");  // its own placed row
-    expect(both.querySelector(".hb-provenance-line")!.textContent).toBe("BLS·d");
-    expect(both.querySelector(".hb-chart-source")!.textContent).toBe("BLS");  // inline stays too
+  it("a line-form source contributes its text; a matching list label says once", () => {
+    expect(parts([LINE_SRC, listSrc([{ label: "BLS JOLTS", accessed: "2026-11-18" }])]))
+      .toEqual(["BLS JOLTS", "2026-11-18"]);
   });
 
-  it("a declared but sourceless footer still reads as_of · badge without a stray dot", () => {
-    const root = draw({ as_of: "d", live: true, blocks: [chart(), TEXT] });
-    expect(root.querySelector(".hb-provenance")!.textContent).toBe("d·Live");
+  it("an item's date shape: only the leading YYYY-MM-DD speaks (read.ts cuts the rest)", () => {
+    expect(parts([listSrc([{ label: "Yahoo", accessed: "2026-11-24 prices at 11:30 IST" }])]))
+      .toEqual(["Yahoo", "2026-11-24"]);
+  });
+
+  it("labels are folded to one line: an embedded newline cannot break the quiet line", () => {
+    expect(parts([listSrc([{ label: "Yahoo\nFinance" }, { label: "BLS\tJOLTS" }])]))
+      .toEqual(["Yahoo Finance", "BLS JOLTS"]);
+  });
+
+  it("charts and nested sources feed nothing: only the board's own source blocks are source data", () => {
+    expect(parts([chart("BLS JOLTS"), TEXT])).toEqual([]);
+    expect(parts([{ type: "grid", rows: [[TEXT, listSrc([{ label: "Yahoo Finance" }])]] }])).toEqual([]);
+  });
+
+  it("nothing to say is nothing said: a sourceless board's parts are empty", () => {
+    expect(parts([HEADING, TEXT])).toEqual([]);
+  });
+});
+
+describe("the Live badge is host knowledge, decoupled from sources (maintainer tweak 2026-11-25 #2)", () => {
+  afterEach(cleanup);
+
+  it("a live board with NO source block wears the pill alone: Today's shape", () => {
+    const root = draw([HEADING, TEXT], true);
+    const footer = root.querySelector(".hb-provenance");
+    expect(footer).toBeTruthy();
+    const badge = root.querySelector(".hb-provenance-badge")!;
+    expect([badge.textContent, badge.getAttribute("data-live")]).toEqual(["Live", "live"]);
+    // the line says NOTHING else: no dots, no words, no invented rivals — the pill is its one child,
+    // and the footer is the only node added to the flow
+    expect(Array.from(footer!.children).map((k) => k.className)).toEqual(["hb-provenance-badge"]);
+    expect(root.querySelector(".hb-provenance-dot")).toBeNull();
+    expect(root.querySelectorAll(".hb-provenance-source, .hb-provenance-time").length).toBe(0);
+    expect(blocksChildren(root).at(-1)!.classList.contains("hb-provenance")).toBe(true);
+    expect(footerParts(root)).toEqual(["Live"]);
+  });
+
+  it("a live board whose sources are shown wears the pill and echoes nothing", () => {
+    const root = draw([HEADING, LINE_SRC], true);
+    const badge = root.querySelector(".hb-provenance-badge")!;
+    expect([badge.textContent, badge.getAttribute("data-live")]).toEqual(["Live", "live"]);
+    expect(root.querySelector(".hb-provenance-source")).toBeNull(); // the block above already said it
+    expect(footerParts(root)).toEqual(["Live"]);
+    expect(sayCount(root, "BLS JOLTS")).toBe(1);
+  });
+
+  it("live undefined or false claims nothing: no badge, and the word Live is nowhere", () => {
+    for (const live of [undefined, false]) {
+      for (const data of [[HEADING, LINE_SRC], [HEADING, TEXT]]) {
+        const root = draw(data, live);
+        expect(root.querySelector(".hb-provenance-badge")).toBeNull();
+        expect(root.textContent).not.toContain("Live");
+        expect(root.textContent).not.toContain("Snapshot"); // absence is the answer; no rival word is invented
+      }
+    }
+  });
+
+  it("a sourceless NON-live board stays byte-identical: no footer for a pill to stand in", () => {
+    for (const root of [draw([HEADING, TEXT]), draw([HEADING, TEXT], undefined)]) {
+      expect(root.querySelector(".hb-provenance")).toBeNull();
+    }
   });
 });

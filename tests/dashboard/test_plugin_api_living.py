@@ -1,6 +1,6 @@
-"""The living-board door (enhancement #9): GET /blocks/{id} carries the version words when a board has
-them, an archived version answers GET /blocks/{id}?version=N in the SAME shape as the live one (so the
-viewer can reach back without redrawing), and GET /blocks/{id}/versions lists what history exists.
+"""The living-board door: GET /blocks/{id} carries the version words when a board has them, an archived
+version answers GET /blocks/{id}?version=N in the SAME shape as the live one (so the viewer can reach back
+without redrawing), and GET /blocks/{id}/versions lists what history exists.
 
 Unsaid boards answer exactly what they always answered — no version key, no links key, nothing new.
 """
@@ -29,79 +29,79 @@ V1 = [{"type": "heading", "text": "Portfolio · Q4"}, {"type": "text", "text": "
 
 
 def _updated(api, tmp_path):
+    other = api.store.save([{"type": "heading", "text": "Portfolio · Q3"}], root=tmp_path)
     board_id = api.store.save(V1, root=tmp_path)
-    other = _other(api, tmp_path)
-    api.store.update(board_id, {"align": "center", "blocks": V1 + [{"type": "text", "text": "plus NVDA"}],
-                                "density": "compact", "links": [{"id": other, "note": "last quarter"}]},
-                     root=tmp_path)
-    return board_id
-
-
-def _other(api, tmp_path):
-    if not hasattr(api, "_other_id"):
-        api._other_id = api.store.save([{"type": "heading", "text": "Portfolio · Q3"}], root=tmp_path)
-    return api._other_id
+    api.store.update(board_id, {"blocks": V1 + [{"type": "text", "text": "plus NVDA"}],
+                                "links": [{"id": other, "note": "last quarter"}]}, root=tmp_path)
+    return board_id, other
 
 
 # --- unsaid boards answer exactly as they always did ----------------------------------------------------------------
 
 
-def test_unsaid_board_carries_no_version_keys(client):
+def test_unsaid_board_carries_no_version_keys(client, tmp_path):
     http, api = client
-    board_id = api.store.save(V1, root=api.store.default_root())
-    body = http.get(f"/blocks/{board_id}").json()
-    assert "version" not in body and "updated_at" not in body and "links" not in body
-    assert body["blocks"] == V1
+    block_id = api.store.save(V1, root=tmp_path)
+    answer = http.get(f"/blocks/{block_id}").json()
+    assert answer == {"blocks": V1}  # the accepted shape, byte for byte: no new keys
+    assert http.get(f"/blocks/{block_id}/versions").json() == {"versions": []}
 
 
-# --- the version words ride the same door ---------------------------------------------------------------------------
+# --- the live answer speaks its words --------------------------------------------------------------------------------
 
 
-def test_updated_board_answers_version_updated_at_and_links(client):
+def test_updated_board_answers_current_version_with_its_words(client, tmp_path):
     http, api = client
-    board_id = _updated(api, api.store.default_root())
-    body = http.get(f"/blocks/{board_id}").json()
-    assert body["version"] == 2
-    assert isinstance(body["updated_at"], str) and body["updated_at"]
-    assert body["links"] == [{"id": _other(api, api.store.default_root()), "note": "last quarter"}]
-    assert body["align"] == "center" and body["density"] == "compact"      # the version's own words
-    assert len(body["blocks"]) == 3
+    block_id, other = _updated(api, tmp_path)
+    answer = http.get(f"/blocks/{block_id}").json()
+    assert answer["blocks"] == V1 + [{"type": "text", "text": "plus NVDA"}]  # the envelope never leaks
+    assert answer["version"] == 2
+    assert isinstance(answer["updated_at"], str) and answer["updated_at"]
+    assert answer["links"] == [{"id": other, "note": "last quarter"}]
 
 
 # --- reach-back: an archived version answers in the same shape -------------------------------------------------------
 
 
-def test_archived_version_answers_by_number_in_the_projection_shape(client):
+def test_version_one_answers_from_the_archive(client, tmp_path):
     http, api = client
-    board_id = _updated(api, api.store.default_root())
-    body = http.get(f"/blocks/{board_id}", params={"version": 1}).json()
-    assert body["blocks"] == V1
-    assert "align" not in body                                            # v1 said no layout words
-    assert "version" not in body or body.get("version") == 1              # honest about which version it is
-    assert "stored" in body and body["stored"] == V1                      # the export source rides, as always
+    block_id, _ = _updated(api, tmp_path)
+    answer = http.get(f"/blocks/{block_id}", params={"version": "1"}).json()
+    assert answer["blocks"] == V1
+    assert answer["version"] == 1
 
 
-def test_unknown_version_number_is_404(client):
+def test_version_three_with_nothing_behind_it_is_a_404(client, tmp_path):
     http, api = client
-    board_id = api.store.save(V1, root=api.store.default_root())
-    assert http.get(f"/blocks/{board_id}", params={"version": 2}).status_code == 404
-    assert http.get(f"/blocks/{board_id}", params={"version": "0"}).status_code == 400
-    assert http.get(f"/blocks/{board_id}", params={"version": "x"}).status_code == 400
+    block_id, _ = _updated(api, tmp_path)
+    assert http.get(f"/blocks/{block_id}", params={"version": "3"}).status_code == 404
 
 
-def test_versions_listing_names_what_history_exists(client):
+def test_an_unusable_version_number_is_a_400(client, tmp_path):
     http, api = client
-    fresh = api.store.save(V1, root=api.store.default_root())
-    assert http.get(f"/blocks/{fresh}/versions").json() == {"versions": []}
-    board_id = _updated(api, api.store.default_root())
-    api.store.update(board_id, V1, root=api.store.default_root())
-    rows = http.get(f"/blocks/{board_id}/versions").json()["versions"]
-    assert [r["version"] for r in rows] == [3, 2, 1]          # newest first
-    assert rows[0]["current"] is True                          # the live one, honestly labelled
-    assert rows[0]["updated_at"] and not rows[2]["saved_at"]   # v1 predates any update stamp
+    block_id, _ = _updated(api, tmp_path)
+    assert http.get(f"/blocks/{block_id}", params={"version": "x"}).status_code == 400
 
 
-def test_versions_of_an_unknown_or_malformed_address_is_404(client):
+# --- what history exists ---------------------------------------------------------------------------------------------
+
+
+def test_versions_route_lists_history_newest_first(client, tmp_path):
     http, api = client
-    assert http.get("/blocks/0badc0de/versions").status_code == 404
-    assert http.get("/blocks/../etc/versions").status_code in (404, 422)
+    block_id, _ = _updated(api, tmp_path)
+    api.store.update(block_id, {"blocks": [{"type": "heading", "text": "v3"}]}, root=tmp_path)
+    rows = http.get(f"/blocks/{block_id}/versions").json()["versions"]
+    assert [r["version"] for r in rows] == [3, 2, 1]
+    assert rows[0]["current"] is True
+    assert rows[1]["current"] is False
+    assert isinstance(rows[1]["saved_at"], str) and rows[1]["saved_at"]  # v2 knows when v1 was current
+
+
+# --- state at an address that took updates stays a state door ---------------------------------------------------------
+
+
+def test_state_still_round_trips_at_a_living_address(client, tmp_path):
+    http, api = client
+    block_id, _ = _updated(api, tmp_path)
+    assert http.put(f"/blocks/{block_id}/state", json={"state": {"0": [1]}}).status_code == 200
+    assert http.get(f"/blocks/{block_id}/state").json() == {"state": {"0": [1]}}

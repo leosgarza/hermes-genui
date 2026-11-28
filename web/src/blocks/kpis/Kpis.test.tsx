@@ -81,10 +81,82 @@ describe("kpi card", () => {
   });
 });
 
+describe("a change from a previous number", () => {
+  it("prints the chip the reader worked out, in one decimal, and marks an inverted tone", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "kpis", items: [
+      { label: "Revenue", value: 72275, unit: "₹Cr", previous: 70223 },
+      { label: "Churn", value: 2.4, unit: "%", previous: 3.1, invert_tone: true }] }])} />);
+    const chips = [...container.querySelectorAll(".hb-kpi-change")];
+    expect(chips.map((c) => c.textContent)).toEqual(["▲ 2.9%", "▼ 0.7 pt"]);
+    expect(chips.map((c) => c.className)).toEqual([
+      "hb-kpi-change hb-kpi-up",
+      "hb-kpi-change hb-kpi-down hb-kpi-invert",
+    ]);
+  });
+  it("draws a flat chip for a change of zero, and none when a side is unknown", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "kpis", items: [
+      { label: "Flat", value: 5, previous: 5 }, { label: "Unknown", value: 5, previous: null }] }])} />);
+    const chips = [...container.querySelectorAll(".hb-kpi-change")];
+    expect(chips.map((c) => c.textContent)).toEqual(["0.0%"]);
+    expect(chips[0].className).toBe("hb-kpi-change hb-kpi-flat");
+  });
+  it("gives a stat its chip from previous as well", () => {
+    render(<Blocks blocks={readBlocks([{ type: "stat", label: "Margin", value: 18.6, unit: "%", previous: 19.5 }])} />);
+    expect(screen.getByText("▼ 0.9 pt")).toBeTruthy();
+  });
+  it("rounds a tie the way the text fallback does", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "stat", label: "Close", value: 1.25, unit: "%", previous: 1 }])} />);
+    expect(container.querySelector(".hb-kpi-change")!.textContent).toBe("▲ 0.3 pt");
+  });
+  it("keeps a written change in % on a % card, and points only for a computed one", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "kpis", items: [
+      { label: "Margin", value: 18.6, unit: "%", change: 5 },
+      { label: "Same margin", value: 18.6, unit: "%", previous: 18.1 }] }])} />);
+    expect([...container.querySelectorAll(".hb-kpi-change")].map((c) => c.textContent))
+      .toEqual(["▲ 5.0%", "▲ 0.5 pt"]);
+  });
+  it("draws no chip for a change no chip can print", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "stat", label: "Close", value: 80, change: 1e308 }])} />);
+    expect(container.querySelector(".hb-kpi-change")).toBeNull();
+  });
+});
+
 describe("sparkline path", () => {
   it("spans the box, highest at the top, a flat trend across the middle", () => {
     expect(sparkPath([0, 10])).toBe("M0 26L120 2");
     expect(sparkPath([0, 10, 5])).toBe("M0 26L60 2L120 14");
     expect(sparkPath([5, 5])).toBe("M0 14L120 14");
+  });
+  it("leaves a gap's slot empty, so the line breaks instead of joining across it", () => {
+    expect(sparkPath([0, null, 10])).toBe("M0 26M120 2");
+    expect(sparkPath([10, null, null, 0])).toBe("M0 2M120 26");
+    expect(sparkPath([null, null])).toBe("");
+  });
+});
+
+describe("kpis with an unknown value", () => {
+  it("write no data where the number would be, not a 0 and not a dash", () => {
+    expect(kpiValue({ label: "Chargebacks", value: null })).toBe("no data");
+    expect(kpiValue({ label: "Chargebacks", value: null }, { full: true })).toBe("no data");
+    render(<Blocks blocks={readBlocks([{ type: "kpis", items: [{ label: "Chargebacks", value: null }, { label: "Returns", value: 0 }] }])} />);
+    const card = screen.getByText("Chargebacks").parentElement!;
+    expect(card.querySelector(".hb-kpi-value")!.textContent).toBe("no data");
+    expect(card.querySelector(".hb-kpi-value")!.className).toContain("hb-kpi-value-empty");
+    const zeros = document.querySelectorAll(".hb-kpi-value");
+    expect(zeros[1].textContent).not.toBe("no data");  // a measured zero stays a figure
+    expect(zeros[1].className).not.toContain("hb-kpi-value-empty");
+  });
+  it("draw a trend's gaps as breaks in its sparkline", () => {
+    const { container } = render(<Blocks blocks={readBlocks([{ type: "stat", label: "Close", value: 80, trend: [100, null, 80] }])} />);
+    expect(container.querySelector("svg.hb-kpi-spark path")!.getAttribute("d")).toBe(sparkPath([100, null, 80]));
+    expect(container.querySelector("svg.hb-kpi-spark path")!.getAttribute("d")).toBe("M0 2M120 26");
+  });
+  it("read a value the card can't use as no data, not as 0", () => {
+    // the checker lets these through, so the card must draw them the way it draws a null
+    for (const value of [true, false, [1, 2], Number.NaN, "   "]) {
+      const { container, unmount } = render(<Blocks blocks={readBlocks([{ type: "stat", label: "Saved", value, unit: "₹" }])} />);
+      expect([...container.querySelectorAll(".hb-kpi-value")].map((v) => v.textContent)).toEqual(["no data"]);
+      unmount();
+    }
   });
 });

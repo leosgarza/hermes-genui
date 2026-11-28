@@ -1,7 +1,6 @@
-// Tabs: a bar of tab buttons above one panel. Only the picked tab's blocks are drawn. Since round 7
-// the pick is the BOARD's answer from the click itself (core/blockState.ts): a never-updated board,
-// a living update, a move, or a reopen lands on the tab the reader left open — the door holds it
-// from the edit onward, mounted or headless alike.
+// Tabs: a bar of tab buttons above one panel. Only the picked tab's blocks are drawn. The pick is the BOARD's
+// answer from the click itself (core/blockState.ts): a never-updated board, a living update, a move, or a reopen
+// lands on the tab the reader left open — the door holds it from the edit onward, mounted or headless alike.
 import { useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useStoredValue } from "../../core/blockState";
 import { InlineText } from "../../lib/InlineText";
@@ -16,8 +15,11 @@ export function tabAfterKey(current: number, count: number, key: string): number
   return current;
 }
 
-/** `labels` name the tabs; `panel(i)` draws tab i's blocks, called only for the picked tab. */
-export function Tabs({ labels, panel }: { labels: string[]; panel: (i: number) => ReactNode }) {
+/** `labels` name the tabs; `badges[i]`, when set, is a count shown beside tab i's label; `panel(i)` draws tab i's
+ *  blocks, called only for the picked tab. */
+export function Tabs({ labels, badges = [], panel }: {
+  labels: string[]; badges?: (number | undefined)[]; panel: (i: number) => ReactNode;
+}) {
   const [answer, pick] = useStoredValue<number>({
     door: "identity",
     initial: () => 0,
@@ -41,8 +43,10 @@ export function Tabs({ labels, panel }: { labels: string[]; panel: (i: number) =
           <button key={i} type="button" role="tab" id={`${base}-tab-${i}`} aria-controls={`${base}-panel`}
             aria-selected={i === picked} tabIndex={i === picked ? 0 : -1}
             className={i === picked ? "hb-tab hb-tab-on" : "hb-tab"}
-            ref={(el) => { buttons.current[i] = el; }} onClick={() => pick(i)}>
+            ref={(el) => { buttons.current[i] = el; }} onClick={() => pick(i)}
+            aria-label={badges[i] ? `${label}, ${badges[i]} open` : undefined}>
             <InlineText text={label} />
+            {badges[i] ? <span className="hb-tab-badge" aria-hidden="true">{badges[i]}</span> : null}
           </button>
         ))}
       </div>

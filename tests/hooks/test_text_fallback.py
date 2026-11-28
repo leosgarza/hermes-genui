@@ -11,6 +11,14 @@ plugin_store = importlib.import_module("hermes_genui.core.store")
 
 CATALOG = json.loads((ROOT / "core" / "catalog.json").read_text(encoding="utf-8"))
 EXAMPLES = {entry["kind"]: entry["example"] for entry in CATALOG["blocks"]}
+# The catalog example is a structured table now, so the legacy array form is written out here.
+LEGACY_TABLE = {
+    "type": "table",
+    "caption": "Phones under ₹50k",
+    "columns": ["Phone", "Price", "Camera"],
+    "highlight": {"row": 0},
+    "rows": [["Pixel 10a", "₹44,999", "Best in class"], ["Nothing 4", "₹39,999", "OK"]],
+}
 
 
 def render(*blocks: dict) -> str:
@@ -46,6 +54,33 @@ def test_source_is_italic():
 def test_source_with_url_links_it():
     out = render({"type": "source", "text": "screener", "url": "https://www.screener.in/x/"})
     assert out == "_Source: [screener](https://www.screener.in/x/)_"
+
+
+def test_source_list_keeps_kind_accessed_and_note():
+    out = render({"type": "source", "title": "Sources", "items": [
+        {"label": "Screener", "url": "https://screener.in/x", "kind": "web",
+         "accessed": "2026-11-17T14:32Z", "note": "Quarterly results"},
+        {"label": "Local export", "kind": "file"},
+    ]})
+    assert out == (
+        "**Sources**\n"
+        "_Sources: [Screener](https://screener.in/x) [web] · accessed 2026-11-17 · Quarterly results · "
+        "Local export [file]_"
+    )
+
+
+def test_source_list_falls_back_to_the_line_when_no_item_survives():
+    out = render({"type": "source", "text": "screener.in", "url": "https://screener.in/x",
+                  "items": [{"note": "no label"}]})
+    assert out == "_Source: [screener.in](https://screener.in/x)_"
+
+
+def test_source_list_reads_only_label_url_kind_accessed_and_note():
+    out = render({"type": "source", "items": [{"name": "Screener", "accessed_at": "2026-11-17"}, {
+        "label": "Screener", "src": "https://screener.in/x", "href": "https://screener.in/y",
+        "accessed_at": "2026-11-17T09:00Z",
+    }]})
+    assert out == "_Sources: Screener_"
 
 
 def test_divider():
@@ -101,19 +136,95 @@ def test_button_with_url_is_a_link():
 
 def test_stat_with_change():
     assert render({"type": "stat", "label": "Saved", "value": 12500, "unit": "₹", "change": 8}) == (
-        "Saved: 12,500 ₹ (▲ 8%)"
+        "Saved: 12,500 ₹ (▲ 8.0%)"
     )
 
 
 def test_kpis_one_line_each():
     out = render(EXAMPLES["kpis"])
-    assert out == "Revenue: 72,275 ₹Cr (▲ 2.2%)\nNet margin: 18.6% (▼ 0.9pt)"
+    assert out == "Revenue: 72,275 ₹Cr (▲ 2.9%)\nChurn: 2.4% (▼ 0.7 pt)"
+
+
+def test_a_change_from_previous_is_what_the_card_draws():
+    # The card computes the same change from the same pair: a share of the previous number, points on a "%" figure.
+    assert render({"type": "stat", "label": "Down", "value": 80, "unit": "$", "previous": 100}) == (
+        "Down: 80 $ (▼ 20.0%)"
+    )
+    assert render({"type": "stat", "label": "Margin", "value": 18.6, "unit": "%", "previous": 19.5}) == (
+        "Margin: 18.6% (▼ 0.9 pt)"
+    )
+    assert render({"type": "stat", "label": "Up", "value": 120, "change_unit": "pt", "previous": 100}) == (
+        "Up: 120 (▲ 20.0 pt)"
+    )
+
+
+def test_previous_wins_over_a_written_change():
+    assert render({"type": "stat", "label": "Close", "value": 80, "previous": 100, "change": 2}) == (
+        "Close: 80 (▼ 20.0%)"
+    )
+
+
+def test_a_change_needs_two_numbers():
+    # previous null, a text value, or a percentage from zero: no chip at all, never a wrong one.
+    assert render({"type": "stat", "label": "Close", "value": 80, "previous": None, "change": 2}) == "Close: 80"
+    assert render({"type": "stat", "label": "Opponent", "value": "Leeds (H)", "previous": 2}) == "Opponent: Leeds (H)"
+    assert render({"type": "stat", "label": "From zero", "value": 70, "previous": 0}) == "From zero: 70"
+
+
+def test_a_change_of_zero_is_flat_not_missing():
+    assert render({"type": "kpis", "items": [{"label": "Flat", "value": 5, "previous": 5}]}) == "Flat: 5 (0.0%)"
+
+
+def test_a_change_tie_rounds_the_way_the_card_does():
+    # The card's toFixed rounds 0.25 up; Python's own format would round the tie to even and print 0.2.
+    assert render({"type": "stat", "label": "Close", "value": 1.25, "unit": "%", "previous": 1}) == (
+        "Close: 1.25% (▲ 0.3 pt)"
+    )
+
+
+def test_the_fallback_rounds_a_tie_and_a_near_tie_like_the_card():
+    # Both sides round the same stored double: 0.35 is just under 0.35 and prints 0.3, an exact tie goes up. The old
+    # math.floor(v * 10 + 0.5) said 0.4 and 0.2 here, which the card never drew.
+    tenths = importlib.import_module("hermes_genui.blocks.kpis")._tenths
+    assert [tenths(v) for v in (0.35, 0.15, 2.25, 1.25, 2.922119, 12)] == [
+        "0.3", "0.1", "2.3", "1.3", "2.9", "12.0"]
+    assert render({"type": "stat", "label": "Close", "value": 80, "change": 0.35}) == "Close: 80 (▲ 0.3%)"
+
+
+def test_a_written_change_keeps_its_percent_on_a_percent_card():
+    # Only a change worked out from `previous` counts points; a written one keeps the meaning the model gave it.
+    assert render({"type": "stat", "label": "Margin", "value": 18.6, "unit": "%", "change": 5}) == (
+        "Margin: 18.6% (▲ 5.0%)"
+    )
+    assert render({"type": "stat", "label": "Margin", "value": 18.6, "unit": "%",
+                   "change": 5, "change_unit": "pt"}) == "Margin: 18.6% (▲ 5.0 pt)"
+
+
+def test_a_change_no_chip_can_print_leaves_the_line():
+    # 1e308 passes the check and has no chip: the number is drawn and the movement is skipped, not raised.
+    assert render({"type": "stat", "label": "Close", "value": 80, "change": 1e308}) == "Close: 80"
+    assert render({"type": "kpis", "items": [{"label": "Close", "value": 80, "previous": 1e-300}]}) == "Close: 80"
+
+
+def test_invert_tone_changes_no_text():
+    # A card where a fall is good news (churn) prints the same chip; only the colour it gets changes.
+    chip = {"label": "Churn", "value": 2.4, "unit": "%", "previous": 3.1}
+    assert render({"type": "stat", **chip, "invert_tone": True}) == render({"type": "stat", **chip}) == (
+        "Churn: 2.4% (▼ 0.7 pt)"
+    )
 
 
 def test_progress_and_bar():
-    assert render(EXAMPLES["progress"]) == "Level 4: 95 / 120 XP"
+    assert render(EXAMPLES["progress"]) == (
+        "Budget used: 32,000 / 50,000 ₹. Rent 20,000 ₹, Food 12,000 ₹."
+    )
     assert render({"type": "bar", "label": "Budget used", "value": 62}) == "Budget used: 62 / 100"
     assert render({"type": "bar", "label": "Food", "value": 7200, "max": 8000, "unit": "₹"}) == "Food: 7,200 / 8,000 ₹"
+    # A null value is a figure nobody knows: "no data" in its place, never a 0.
+    assert render({"type": "bar", "label": "Spent", "value": None, "max": 500, "unit": "₹"}) == "Spent: no data / 500 ₹"
+    # A null goal keeps the value's unit, so ₹95 still says what it counts.
+    assert render({"type": "progress", "title": "Level 5", "value": 95, "goal": None, "unit": "₹"}) == \
+        "Level 5: 95 ₹ / no data"
 
 
 def test_streak():
@@ -129,9 +240,16 @@ def test_chart_first_to_last_per_series():
     )
 
 
-def test_chart_skips_gaps_and_zero_start():
+def test_chart_starts_at_its_first_number_and_names_its_gaps():
     chart = {"type": "chart", "title": "T", "x": ["a", "b", "c"], "series": [{"name": "S", "data": [None, 0, 5]}]}
-    assert render(chart) == "**T**: S 0 → 5"
+    # 0 is a measured start, so there is no % chip; the gap is named instead of being silently skipped.
+    assert render(chart) == "**T**: S 0 → 5, 1 gap (a)"
+
+
+def test_chart_caveat_is_a_second_italic_line():
+    chart = {"type": "chart", "title": "T", "x": ["a", "b"], "series": [{"name": "S", "data": [1, 2]}],
+             "caveat": "  Q3 onward is a projection.  "}
+    assert render(chart) == "**T**: S 1 → 2 (▲ 100%)\n_Q3 onward is a projection._"
 
 
 def test_pie_shows_top_slices_with_shares():
@@ -140,22 +258,91 @@ def test_pie_shows_top_slices_with_shares():
     assert render(pie) == "**Mix**: A 50%, B 20%, C 15%, D 10%, +1 more"
 
 
-def test_histogram_reads_its_values_not_its_bins():
-    hist = {"type": "chart", "kind": "histogram", "title": "Scores", "unit": "pts",
-            "series": [{"name": "Students", "data": [3, 40, 40, 70, None]}]}
-    assert render(hist) == "**Scores** (pts): 4 values, 3 → 70, median 40"
+def test_chart_sort_desc_orders_the_text_by_the_first_series():
+    chart = {"type": "chart", "kind": "bar", "sortDesc": True, "title": "Spend",
+             "x": ["a", "b", "c"], "series": [{"name": "S", "data": [2, 9, 5]}]}
+    assert render(chart) == "**Spend**: S 9 → 2 (▼ 77.8%)"
+    assert render({**chart, "kind": "hbar"}) == "**Spend**: S 9 → 2 (▼ 77.8%)"
 
 
-def test_scatter_reads_its_spread_per_series():
-    scat = {"type": "chart", "kind": "scatter", "title": "Size vs price", "x": ["1", "2", "4"], "unit": "kg",
-            "series": [{"name": "Samples", "data": [10, 14, 12]}]}
-    assert render(scat) == "**Size vs price** (kg): Samples 3 points, y 10 → 14"
+def test_scatter_reads_its_ranges_and_highest_point():
+    chart = {"type": "chart", "kind": "scatter", "title": "Price against mileage", "unit": "₹L", "series": [
+        {"name": "Listed cars", "points": [
+            {"x": 62, "y": 1.2, "label": "Maruti 800"}, {"x": 9, "y": 24.6, "label": "Fortuner"},
+            {"x": 40, "y": 8, "label": "City"}, {"x": 30, "y": None}]}]}
+    assert render(chart) == ("**Price against mileage** (₹L): 3 points; mileage 9 to 62, price 1.2 to 24.6; "
+                             "highest 24.6 at 9 (Fortuner)")
+
+
+def test_scatter_with_two_groups_gives_each_its_range():
+    chart = {"type": "chart", "kind": "scatter", "title": "Range against price", "unit": "km", "series": [
+        {"name": "Petrol", "points": [{"x": 610, "y": 8.2}, {"x": 540, "y": 9.1}]},
+        {"name": "Diesel", "points": [{"x": 690, "y": 9.4}, {"x": 480, "y": 9.9}]}]}
+    assert render(chart) == ("**Range against price** (km): Petrol 2 points, price 540 to 610; "
+                             "Diesel 2 points, price 480 to 690")
+
+
+def test_waterfall_reads_its_steps_and_closing_balance():
+    chart = {"type": "chart", "kind": "waterfall", "title": "Revenue to net profit", "unit": "₹Cr", "series": [
+        {"points": [{"label": "Gross revenue", "value": 120, "total": True}, {"label": "Returns", "value": -8},
+                    {"label": "Discounts", "value": -5}, {"label": "Net profit", "total": True}]}]}
+    assert render(chart) == ("**Revenue to net profit** (₹Cr): Gross revenue 120 → -8 Returns → -5 Discounts → "
+                             "Net profit 107")
+
+
+def test_waterfall_names_an_unknown_step_and_leaves_the_close_unstated():
+    chart = {"type": "chart", "kind": "waterfall", "title": "Account balance", "unit": "€", "series": [
+        {"points": [{"label": "Opening", "value": 2140, "total": True}, {"label": "Salary", "value": 3200},
+                    {"label": "Rent", "value": -1450}, {"label": "card", "value": None},
+                    {"label": "closing", "total": True}]}]}
+    assert render(chart) == ("**Account balance** (€): Opening 2,140 → +3,200 Salary → -1,450 Rent → "
+                             "card, unknown → closing not stated")
+def test_histogram_counts_its_bins():
+    hist = {"type": "chart", "kind": "histogram", "title": "Calls", "unit": "min",
+            "x": ["0-50", "50-100", "100-150"], "series": [{"name": "Calls", "data": [4, 12, 9]}]}
+    assert render(hist) == "**Calls** (min): 25 counted in 3 bins: 0-50 4, 50-100 12, 100-150 9"
+
+
+def test_histogram_leaves_out_a_bin_with_no_count():
+    hist = {"type": "chart", "kind": "histogram", "title": "Calls", "x": ["0-50", "50-100", "100-150"],
+            "series": [{"data": [4, None, 9]}]}
+    assert render(hist) == "**Calls**: 13 counted in 2 bins: 0-50 4, 100-150 9"
+
+
+def test_a_long_histogram_names_only_its_tallest_bin():
+    bins = [f"{i * 10}-{i * 10 + 10}" for i in range(12)]
+    hist = {"type": "chart", "kind": "histogram", "title": "Calls", "x": bins,
+            "series": [{"data": [1] * 11 + [7]}]}
+    assert render(hist) == "**Calls**: 18 counted in 12 bins, most in 110-120 (7)"
+
+
+def test_range_writes_each_window_its_dot_and_where_the_dot_sits():
+    band = {"type": "chart", "kind": "range", "title": "Delivery time", "unit": "min",
+            "x": ["Mon", "Tue", "Wed", "Thu"],
+            "series": [{"name": "Delivery", "low": [18, 19, 20, None], "high": [34, 36, 38, None],
+                        "now": [26, 31, 42, None]}]}
+    assert render(band) == ("**Delivery time** (min): Mon 18-34, now 26; Tue 19-36, now 31; "
+                            "Wed 20-38, now 42 (above the band); Thu no window")
+
+
+def test_range_with_a_dot_below_its_window():
+    band = {"type": "chart", "kind": "range", "title": "Rent", "unit": "₹",
+            "x": ["Indiranagar"], "series": [{"low": [38000], "high": [52000], "now": [35000]}]}
+    assert render(band) == "**Rent** (₹): Indiranagar 38,000-52,000, now 35,000 (below the band)"
+
+
+def test_range_points_form_writes_windows():
+    band = {"type": "chart", "kind": "range", "title": "Delivery time", "unit": "min",
+            "series": [{"name": "Delivery",
+                        "points": [{"label": "Mon", "low": 18, "high": 34, "now": 26},
+                                   {"label": "Tue", "low": 19, "high": 36}]}]}
+    assert render(band) == "**Delivery time** (min): Mon 18-34, now 26; Tue 19-36"
 
 
 # --- tables ---------------------------------------------------------------------------------------
 
 def test_table_is_markdown():
-    out = render(EXAMPLES["table"])
+    out = render(LEGACY_TABLE)
     assert out == (
         "**Phones under ₹50k**\n"
         "| Phone | Price | Camera |\n"
@@ -179,6 +366,32 @@ def test_table_rows_as_objects_and_short_rows():
     assert out.splitlines()[2:] == ["| 1 | 2.5 |", "| x |  |"]
 
 
+def test_structured_table_reads_as_markdown_with_footer():
+    out = render({"type": "table", "caption": "Spend", "columns": [
+        {"id": "shop", "label": "Shop"}, {"id": "spend", "label": "Spend", "kind": "currency", "unit": "$"},
+        {"id": "share", "label": "Share", "kind": "percent"}, {"id": "from", "label": "From", "kind": "sources"}],
+        "rows": [{"cells": {"shop": {"text": "A"}, "spend": {"text": "1200", "value": 1200},
+                            "share": {"text": "40", "value": 40}},
+                  "sources": [{"label": "POS"}, {"label": "Bank"}]}],
+        "aggregates": [{"column": "spend", "op": "sum", "label": "Spend"}]})
+    assert out == (
+        "**Spend**\n"
+        "| Shop | Spend | Share | From |\n"
+        "| --- | --- | --- | --- |\n"
+        "| A | $1,200 | 40% | POS, Bank |\n"
+        "_Spend: 1,200_"
+    )
+
+
+def test_the_tick_and_send_word_changes_nothing_in_the_text_half():
+    # A screen word: Telegram and the CLI read the same table, word or no word. Ticks, the search row and the
+    # answer are drawn, never written into the message.
+    table = {"type": "table", "caption": "Spend", "columns": [{"id": "shop", "label": "Shop"},
+             {"id": "spend", "label": "Spend", "kind": "currency", "unit": "$"}],
+             "rows": [{"cells": {"shop": {"text": "A"}, "spend": {"text": "1200", "value": 1200}}}]}
+    assert render({**table, "filterable": True, "interactive": True}) == render(table)
+
+
 def test_heatmap_is_a_compact_table():
     out = render(EXAMPLES["heatmap"])
     assert out == (
@@ -193,7 +406,7 @@ def test_heatmap_is_a_compact_table():
 # --- robustness and safety ------------------------------------------------------------------------
 
 def test_unknown_malformed_and_include_blocks_are_skipped():
-    blocks = [{"type": "weather"}, "not a block", None, {"type": "include", "id": "7f3a09bc"},
+    blocks = [{"type": "sundial"}, "not a block", None, {"type": "include", "id": "7f3a09bc"},
               {"type": "chart", "series": "nonsense"}, {"type": "table", "rows": 5},
               {"type": "text", "text": "kept"}]
     assert tf.blocks_as_text(blocks) == "kept"
@@ -235,21 +448,26 @@ def test_images_with_source_in_brackets():
     assert render(images) == "**Kyoto**\n![Fushimi Inari](https://a.org/1.jpg) [Wikimedia]\nGion"
 
 
-def test_images_generated_local_paths_keep_no_path_in_the_text():
-    # A text-only app can't read the file: the line says what it is, never the path.
-    images = {"type": "images", "title": "Kyoto", "images": [
-        {"url": "/Users/me/.hermes/cache/generated/images/a.png", "caption": "A fox gate"},
-        {"url": "/Users/me/.hermes/cache/generated/images/b.png"},
-    ]}
-    assert render(images) == "**Kyoto**\nA fox gate (generated image)\nGenerated image"
-
-
 def test_list_ranked_and_bulleted():
     assert render(EXAMPLES["list"]) == (
         "**Cafés nearby**\n1. Third Wave — 80 Feet Road · 4.5★\n2. Dyu Art Café — Garden seats · 4.4★"
     )
     plain = {"type": "list", "items": ["Plain", {"name": "Named", "value": 3}]}
     assert render(plain) == "- Plain\n- Named · 3"
+
+
+def test_list_uses_the_bar_when_no_value_was_written():
+    block = {"type": "list", "ranked": True, "items": [
+        {"title": "Rent", "bar": 34500}, {"title": "Travel", "bar": 9800, "value": "9.8k"}]}
+    assert render(block) == "1. Rent · 34,500\n2. Travel · 9.8k"
+
+
+def test_list_prints_the_rows_own_value_where_the_card_shows_one():
+    block = {"type": "list", "items": [
+        {"title": "Rent", "price": "₹62,000", "bar": 62},
+        {"title": "Food", "rating": 4.6, "bar": 90},
+        {"title": "Travel", "bar": 30}]}
+    assert render(block) == "- Rent · ₹62,000\n- Food · 4.6\n- Travel · 30"
 
 
 def test_flip_cards():
@@ -259,7 +477,38 @@ def test_flip_cards():
 
 
 def test_checklist():
-    assert render(EXAMPLES["checklist"]) == "**Packing**\n- [ ] Jacket\n- [ ] ID card"
+    assert render(EXAMPLES["checklist"]) == "**Packing**\n- [ ] Jacket\n- [ ] ID card (in progress)"
+
+
+def test_checklist_states_read_as_words_beside_the_item():
+    board = {"type": "checklist", "title": "Archive move", "items": [
+        {"text": "Freeze writes", "done": True, "state": "blocked"},
+        {"text": "Copy the 2019 shard", "state": "active", "owner": "Priya"},
+        {"text": "Verify checksums", "state": "blocked", "note": "Waiting on the storage team"},
+        {"text": "Announce the cutover", "state": "pending"},
+        {"text": "Backfill the 2020 shard", "state": "skipped", "note": "Moved to March"},
+        {"text": "Drop the old index", "state": "done"},
+        {"text": "Checked in the UI", "checked": True},
+    ]}
+    assert render(board) == (
+        "**Archive move**\n"
+        "- [x] Freeze writes\n"
+        "- [ ] Copy the 2019 shard (in progress, Priya)\n"
+        "- [ ] Verify checksums (blocked: Waiting on the storage team)\n"
+        "- [ ] Announce the cutover (not started)\n"
+        "- [ ] Backfill the 2020 shard (skipped: Moved to March)\n"
+        "- [x] Drop the old index\n"
+        "- [x] Checked in the UI")
+
+
+def test_checklist_note_alone_needs_no_word():
+    assert render({"type": "checklist", "items": [{"text": "Ship", "note": "Friday"}]}) == "- [ ] Ship (Friday)"
+
+
+def test_checklist_phase_tracker_reads_source_ids():
+    board = {"type": "checklist", "density": "compact", "items": [
+        {"text": "Publish", "state": "blocked", "sourceIds": ["src-1", "src-2"]}]}
+    assert render(board) == "- [ ] Publish (blocked, sources src-1, src-2)"
 
 
 def test_tiles():
@@ -325,7 +574,7 @@ def test_row_grid_columns_give_children_in_order():
 
 
 def test_section_title_then_children():
-    section = {"type": "section", "title": "Prices", "children": [EXAMPLES["table"], {"type": "text", "text": "ok"}]}
+    section = {"type": "section", "title": "Prices", "children": [LEGACY_TABLE, {"type": "text", "text": "ok"}]}
     out = render(section)
     assert out.startswith("**Prices**\n\n**Phones under ₹50k**\n| Phone | Price | Camera |")
     assert out.endswith("| Nothing 4 | ₹39,999 | OK |\n\nok")
@@ -403,7 +652,7 @@ def test_replace_tags_bad_or_missing_board():
 
 
 def test_replace_tags_board_with_nothing_readable_or_a_load_error():
-    assert tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [{"type": "weather"}]) == NOT_SHOWN
+    assert tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [{"type": "sundial"}]) == NOT_SHOWN
 
     def broken(_):
         raise ValueError("bad json")
@@ -557,23 +806,8 @@ def test_steps_without_a_flow_on_the_board_name_the_node_id():
     assert render(steps) == "**Step 1 of 2 · A**\nemb now holds: v\n\n**Step 2 of 2 · B**"
 
 
-def test_replace_tags_reads_both_board_shapes():
-    # A stored board is either a plain list or an envelope carrying the board's own words; as text, both are
-    # just their blocks: placement, text alignment and provenance are drawing concerns.
-    heading = EXAMPLES["heading"]
-    plain = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: [heading])
-    wrapped = tf.replace_tags('::blocks{id="7f3a09bc"}', load=lambda _: {"align": "right", "blocks": [heading]})
-    assert wrapped == plain
-    voiced = tf.replace_tags('::blocks{id="7f3a09bc"}',
-                             load=lambda _: {"text_align": "center", "blocks": [heading]})
-    assert voiced == plain
-    assert wrapped.strip() and wrapped != tf.NOT_SHOWN
-
-
-def test_blocks_as_text_can_go_uncapped_for_exports():
-    """limit=None is the export's ask: every block whole. The default cap is the chat contract, untouched."""
-    blocks = [{"type": "text", "text": f"line {i} " + "x" * 60} for i in range(80)]
-    whole = tf.blocks_as_text(blocks, limit=None)
-    assert len(whole) > tf.LIMIT and whole.count("line ") == 80
-    capped = tf.blocks_as_text(blocks)
-    assert len(capped) <= tf.LIMIT and capped.endswith(tf.MORE_NOTE)
+def test_an_envelope_board_still_becomes_text():
+    # Placement words are a drawing concern; the text side just takes the blocks out of either board shape.
+    board = {"align": "center", "text_align": "center", "blocks": [{"type": "heading", "text": "Kyoto"}]}
+    reply = '::blocks{id="7f3a09bc"}'
+    assert tf.replace_tags(reply, load=lambda _id: board) == "**Kyoto**"
