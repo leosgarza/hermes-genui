@@ -66,7 +66,7 @@ describe("a board that shows a source block is never echoed (maintainer tweak 20
       listSrc([{ label: "Yahoo Finance", accessed: "2026-11-24" }, { label: "BLS", accessed: "2026-11-18" }]),
     ]);
     expect(root.querySelector(".hb-provenance")).toBeNull(); // no second listing of the same sources
-    expect(root.querySelectorAll(".hb-blocks > .hb-source").length).toBe(1); // the block itself still draws
+    expect(root.querySelectorAll(".hb-blocks > .hb-slot > .hb-source").length).toBe(1); // the block itself still draws
     expect(root.querySelector(".hb-source")!.textContent).toContain("Yahoo Finance");
     expect(sayCount(root, "Yahoo Finance")).toBe(1);
     expect(sayCount(root, "2026-11-24")).toBe(1);
@@ -74,7 +74,7 @@ describe("a board that shows a source block is never echoed (maintainer tweak 20
 
   it("a shown line-form source says its own line once: no footer repeats it, nothing is moved", () => {
     const root = draw([HEADING, LINE_SRC, TEXT]);
-    const inFlow = root.querySelectorAll(".hb-blocks > .hb-source");
+    const inFlow = root.querySelectorAll(".hb-blocks > .hb-slot > .hb-source");
     expect(inFlow.length).toBe(1);
     expect(inFlow[0].textContent).toContain("BLS JOLTS");
     expect(root.querySelector(".hb-provenance")).toBeNull();

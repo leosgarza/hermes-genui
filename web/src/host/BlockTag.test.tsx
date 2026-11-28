@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import catalog from "../../../core/catalog.json";
 import { Blocks } from "../core/Blocks";
@@ -56,6 +56,21 @@ describe("BlockTag", () => {
     expect(screen.queryByText("Couldn't load this block")).toBeNull();
     expect(container.querySelector(".hb-state")).toBeNull();
     expect(load).not.toHaveBeenCalled();
+  });
+
+  it("does not carry the prior block's version into a different id", async () => {
+    let finishNext!: () => void;
+    const load = (qid: string) => qid === "7f3a09bc"
+      ? Promise.resolve({ blocks: [{ type: "text", text: "OLD BOARD" }] })
+      : new Promise((resolve) => { finishNext = () => resolve({ blocks: [{ type: "text", text: "NEW BOARD" }] }); });
+    const view = render(<BlockTag id="7f3a09bc" streaming={false} load={load} />);
+    await screen.findByText("OLD BOARD");
+    view.rerender(<BlockTag id="8a4c10de" streaming={false} load={load} />);
+    expect(screen.queryByText("OLD BOARD")).toBeNull();
+    await waitFor(() => expect(finishNext).toBeTypeOf("function"));
+    await act(async () => { finishNext(); });
+    await screen.findByText("NEW BOARD");
+    expect(screen.queryByText("OLD BOARD")).toBeNull();
   });
 
   it("renders nothing when loading fails", async () => {
@@ -226,6 +241,23 @@ describe("BlockTag expand / full-screen", () => {
     expect(button).not.toBe(document.activeElement);                     // focus never escaped to the inline button
   });
 
+  it("full screen shows no export controls, and Tab never reaches one", async () => {
+    const { container } = await drawn([{ type: "table", caption: "Sample", columns: ["Item"], rows: [["A"]] }]);
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // inline: the corner is there
+    fireEvent.click(screen.getByRole("button", { name: "Expand board" }));
+    await waitFor(() => expect(document.querySelector(".hb-board-overlay")).toBeTruthy());
+    expect(document.querySelector(".hb-export-btn")).toBeNull();          // full screen: no corners under the backdrop
+    expect(document.querySelector(".hb-export")).toBeNull();              // and no board menu either
+    const dialog = document.querySelector<HTMLElement>(".hb-board-overlay")!;
+    const controls = [...dialog.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")]
+      .filter((el) => el.tabIndex >= 0 && (el as HTMLButtonElement).disabled !== true && !el.closest("[hidden]"));
+    controls[controls.length - 1].focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);           // the loop wraps inside the dialog
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // back inline: it returns
+  });
+
   it("the trap wraps on the real ends when the last control is disabled — the reviewer probe", async () => {
     await openExpanded([calc]);
     const dialog = document.querySelector(".hb-board-overlay")!;
@@ -344,5 +376,24 @@ describe("BlockTag expand width semantics", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(getComputedStyle(board).maxWidth).toBe("1100px");             // closed: the cap returns with the inline view
     expect(getComputedStyle(card).maxWidth).toBe("720px");               // and the cards never moved
+  });
+});
+
+describe("the export chrome is the only control a board grows", () => {
+  // enhancement #6: the tag gains a board menu and a corner per exportable chart/table — view acts, never
+  // placement or composer asks. Everything the chrome adds lives OUTSIDE .hb-blocks; the drawing itself is
+  // none of its business (ExportChrome.test.tsx pins the bytes and the acts).
+  it("the tag's controls at rest are the expand button and the export chrome — nothing inside the drawing", async () => {
+    const chart = { type: "chart", title: "T", x: ["a"], series: [{ name: "s", data: [1, 2] }] };
+    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => ({ blocks: [chart], stored: [chart] })} />);
+    await waitFor(() => expect(document.querySelector(".hb-blocks")).toBeTruthy());
+    const tag = document.querySelector(".hb-tag")!;
+    const buttons = [...tag.querySelectorAll("button")];
+    expect(buttons.length).toBe(3);                       // #72's expand + the menu + this chart's corner
+    for (const b of buttons) {
+      expect(b.classList.contains("hb-expand")
+        || b.classList.contains("hb-export") || b.classList.contains("hb-export-btn")).toBe(true);
+    }
+    expect(document.querySelector(".hb-blocks button")).toBeNull();   // nothing inside the drawing
   });
 });

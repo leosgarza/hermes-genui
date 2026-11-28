@@ -1,8 +1,8 @@
-"""Serves stored blocks to the Desktop half: GET /api/plugins/hermes-genui/blocks/<id>, plus what the user did to
-them (a checklist's ticks): GET and PUT /blocks/<id>/state; and the Today page and kept dashboards: /dashboard,
-/pages, and the buttons on the assistant's items. Desktop asks the active profile for every board, so a board
-missing from this profile's store is looked up in the other profiles' stores (store.find_root), and its ticks are
-kept beside it there.
+"""Serves stored blocks to the Desktop half: GET /api/plugins/hermes-genui/blocks/<id>, its whole-board text:
+GET /blocks/<id>/markdown, plus what the user did to them (a checklist's ticks): GET and PUT /blocks/<id>/state;
+and the Today page and kept dashboards: /dashboard, /pages, and the buttons on the assistant's items. Desktop asks
+the active profile for every board, so a board missing from this profile's store is looked up in the other
+profiles' stores (store.find_root), and its ticks are kept beside it there.
 
 Hermes imports this file on its own (not as part of the plugin package), so core/store.py is loaded by path
 (it imports nothing from the package).
@@ -10,6 +10,7 @@ Hermes imports this file on its own (not as part of the plugin package), so core
 
 import importlib.util
 import json
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -42,14 +43,15 @@ pages_layout = _load_by_path("hermes_genui_pages_layout", "core", "pages", "layo
 pages_refresh = _load_by_path("hermes_genui_pages_refresh", "core", "pages", "refresh.py")
 router = APIRouter()
 BUTTON_STATUSES = ("done", "dismissed", "pending", "suggested")
-_CHECKER: list = []
+_MODULES: dict = {}
 
 
-def _checker():
-    """The block checker show_blocks uses (core/check.py), from the plugin package loaded under a private name: it
-    imports the block modules, so it can't be loaded by path on its own. None if that fails (the web reader still
-    drops malformed blocks)."""
-    if not _CHECKER:
+def _pkg_module(sub: str):
+    """A plugin-package module by dotted name (e.g. "core.check", "hooks.text_fallback"), from the package
+    loaded under a private name: those modules use relative imports, so they load as parts of the package,
+    never by path on their own. None when the package cannot load (validation is a safety net here, not a
+    requirement)."""
+    if sub not in _MODULES:
         try:
             import sys
             root = Path(__file__).resolve().parent.parent
@@ -60,10 +62,17 @@ def _checker():
                 package = importlib.util.module_from_spec(spec)
                 sys.modules[name] = package
                 spec.loader.exec_module(package)
-            _CHECKER.append(importlib.import_module(f"{name}.core.check").check_blocks)
-        except Exception:  # noqa: BLE001 - validation is a safety net here, not a requirement
-            _CHECKER.append(None)
-    return _CHECKER[0]
+            _MODULES[sub] = importlib.import_module(f"{name}.{sub}")
+        except Exception:  # noqa: BLE001
+            _MODULES[sub] = None
+    return _MODULES[sub]
+
+
+def _checker():
+    """The block checker show_blocks uses (core/check.py). None if that fails (the web reader still
+    drops malformed blocks)."""
+    module = _pkg_module("core.check")
+    return module.check_blocks if module is not None else None
 
 
 @router.get("/dashboard")
@@ -225,28 +234,56 @@ async def post_assistant_item(item_id: str, request: Request):
     return item
 
 
-@router.get("/blocks/{block_id}")
-async def get_block(block_id: str, version: str | None = None):
+def _resolve_board(block_id: str, version: str | None):
+    """The board an address answers, and which version of it this is: (board, served_version, None) on
+    success, (None, None, error answer) otherwise. ONE rule for both block doors: a board's address answers
+    its CURRENT version by default; ?version=N reaches back into the archive and answers that version —
+    a prior board is fetched by address, never redrawn. An unusable number is a 400; a number with no
+    archive behind it is a 404."""
     root = store.find_root(block_id)
     board = store.load(block_id, root)
     if board is None:
-        return JSONResponse({"error": "not found"}, status_code=404)
-    # A board's address answers its CURRENT version by default; ?version=N reaches back into the archive
-    # and answers that version in the very same shape (blocks, words, stored) — a prior board is fetched
-    # by address, never redrawn. An unusable number is a 400; a number with no archive behind it is a 404.
+        return None, None, JSONResponse({"error": "not found"}, status_code=404)
     served_version = store.version_of(board)
     if version is not None:
         if not version.isdigit() or int(version) < 1:
-            return JSONResponse({"error": "version must be a number 1 or up"}, status_code=400)
+            return None, None, JSONResponse({"error": "version must be a number 1 or up"}, status_code=400)
         want = int(version)
         if want != (served_version or 1):
             archived = next((e for e in store.load_versions(block_id, root)
                              if isinstance(e, dict) and e.get("version") == want), None)
             if archived is None or not isinstance(archived.get("board"), (list, dict)):
-                return JSONResponse({"error": f"no version {want} of this board"}, status_code=404)
+                return None, None, JSONResponse({"error": f"no version {want} of this board"}, status_code=404)
             board = archived["board"]
             served_version = want
-    answer = {"blocks": store.blocks_of(board)}
+    return board, served_version, None
+
+
+def _json_ready(value):
+    """The answer, made renderable: Starlette refuses to serialize a float that is not finite, so an
+    Infinity/NaN stored in the envelope (Python's json writes and reads both) would turn the door into a
+    500 — and a board that cannot be READ cannot be drawn. The rare non-finite number says None; every
+    word it travels beside rides exactly as stored."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _json_ready(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_ready(v) for v in value]
+    return value
+
+
+@router.get("/blocks/{block_id}")
+async def get_block(block_id: str, version: str | None = None):
+    board, served_version, error = _resolve_board(block_id, version)
+    if error is not None:
+        return error
+    # `stored` is the envelope exactly as it was saved, riding along so a board's JSON export is the board's
+    # OWN words — unknown fields and all — with no second read and no request at export time (enhancement #6:
+    # an export is a deterministic host act, local to the page). The drawer ignores the key; its reader
+    # (core/readBlocks.ts) reads the words it knows, as it always did. With ?version=N it is that version's
+    # envelope, the same board this answer describes.
+    answer = {"blocks": store.blocks_of(board), "stored": _json_ready(board)}
     if served_version is not None:  # living boards: which version this answer is
         answer["version"] = served_version
     if (stamp := store.updated_at_of(board)) is not None:  # and when this version was written
@@ -259,7 +296,24 @@ async def get_block(block_id: str, version: str | None = None):
         answer["text_align"] = word
     if (ups := store.follow_ups_of(board)) is not None:  # and its tappable follow-ups, when the board offers them
         answer["follow_ups"] = ups
-    return answer
+    return _json_ready(answer)
+
+
+@router.get("/blocks/{block_id}/markdown")
+async def get_block_markdown(block_id: str, version: str | None = None):
+    """The board as the ONE text writer reads it: exactly what the chat fallback would say about this board
+    (hooks/text_fallback.py's blocks_as_text), uncapped — a file is not one chat message, and an export that
+    silently dropped blocks would be a different board than the one drawn. The version rule is get_block's
+    own (the shared _resolve_board): the address answers its current version; ?version=N reaches back, so
+    the export always says the version on screen. One writer means the file can never disagree with the
+    reply — no second serializer to keep in step."""
+    board, _served, error = _resolve_board(block_id, version)
+    if error is not None:
+        return error
+    writer = _pkg_module("hooks.text_fallback")
+    if writer is None:  # the package would not load: say so, never answer a board's words with a guess
+        return JSONResponse({"error": "text writer unavailable"}, status_code=500)
+    return {"markdown": writer.blocks_as_text(store.blocks_of(board), limit=None)}
 
 
 @router.get("/blocks/{block_id}/versions")

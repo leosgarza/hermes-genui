@@ -4,7 +4,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from conftest import ROOT
+from conftest import ROOT, load_plugin_package
 
 
 @pytest.fixture
@@ -23,7 +23,8 @@ def test_api_returns_blocks(client, tmp_path):
     block_id = api.store.save([{"type": "text", "text": "hi"}], root=tmp_path)
     response = http.get(f"/blocks/{block_id}")
     assert response.status_code == 200
-    assert response.json() == {"blocks": [{"type": "text", "text": "hi"}]}
+    # the stored envelope rides along (enhancement #6): the page's JSON export is the board's OWN words.
+    assert response.json() == {"blocks": [{"type": "text", "text": "hi"}], "stored": [{"type": "text", "text": "hi"}]}
 
 
 def test_an_envelope_board_answers_with_its_blocks_and_its_words(client, tmp_path):
@@ -32,9 +33,11 @@ def test_an_envelope_board_answers_with_its_blocks_and_its_words(client, tmp_pat
                                "blocks": [{"type": "text", "text": "hi"}]}, root=tmp_path)
     response = http.get(f"/blocks/{block_id}")
     assert response.status_code == 200
+    # The #54 words ride; enhancement #6 adds ONE key to the exact shape: stored, the envelope as saved.
     assert response.json() == {"blocks": [{"type": "text", "text": "hi"}],
-                               "align": "center", "text_align": "right"}
-
+                               "align": "center", "text_align": "right",
+                               "stored": {"align": "center", "text_align": "right",
+                                          "blocks": [{"type": "text", "text": "hi"}]}}
 
 
 def test_api_404_for_unknown(client):
@@ -111,7 +114,9 @@ def test_a_board_from_another_profile_draws_and_keeps_its_ticks_there(client, tm
     other = tmp_path / "profiles" / "claude" / "blocks"
     monkeypatch.setattr(api.store, "profile_stores", lambda: [other])
     block_id = api.store.save([{"type": "checklist", "items": ["Passport"]}], root=other)
-    assert http.get(f"/blocks/{block_id}").json() == {"blocks": [{"type": "checklist", "items": ["Passport"]}]}
+    assert http.get(f"/blocks/{block_id}").json() == {
+        "blocks": [{"type": "checklist", "items": ["Passport"]}],
+        "stored": [{"type": "checklist", "items": ["Passport"]}]}
     assert http.put(f"/blocks/{block_id}/state", json={"state": {"0": [0]}}).status_code == 200
     assert (other / f"{block_id}.state.json").is_file()
     assert not (tmp_path / f"{block_id}.state.json").exists()
@@ -304,14 +309,18 @@ def test_api_passes_the_boards_own_follow_ups(client, tmp_path):
     ups = [{"label": "Go", "run": "Tell me more"}]
     board = {"follow_ups": ups, "blocks": [{"type": "text", "text": "hi"}]}
     block_id = api.store.save(board, root=tmp_path)
-    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"], "follow_ups": ups}
+    assert http.get(f"/blocks/{block_id}").json() == (
+        {"blocks": board["blocks"], "follow_ups": ups, "stored": board}
+    )
 
 
 def test_api_skips_follow_ups_that_were_never_a_list(client, tmp_path):
     http, api = client
     board = {"follow_ups": "just keep going", "blocks": [{"type": "text", "text": "hi"}]}
     block_id = api.store.save(board, root=tmp_path)
-    assert http.get(f"/blocks/{block_id}").json() == {"blocks": board["blocks"]}
+    assert http.get(f"/blocks/{block_id}").json() == (
+        {"blocks": board["blocks"], "stored": board}
+    )
 
 
 def test_api_serves_follow_ups_the_version_it_belong_to(client, tmp_path):
@@ -323,3 +332,156 @@ def test_api_serves_follow_ups_the_version_it_belong_to(client, tmp_path):
     assert "follow_ups" not in http.get(f"/blocks/{block_id}").json()
     archived = http.get(f"/blocks/{block_id}?version=1").json()
     assert archived["blocks"] == [{"type": "text", "text": "v1"}] and archived["follow_ups"] == ups1
+
+
+# --- export rides the load; there is no export door (t_bff8178a round 2, F1) ---------------------------------
+
+def test_the_load_itself_carries_the_stored_envelope_whole(client, tmp_path):
+    """The board page needs nothing else to export JSON: the stored envelope arrives with the board itself —
+    unknown words and all, exactly as saved (the drawer may serve a projection; the export keeps the original)."""
+    http, api = client
+    board = {"version": 2, "updated_at": "2026-11-18T10:00:00+05:30", "model_note": "kept", "blocks": [
+        {"type": "heading", "text": "Day 1"},
+        {"type": "text", "text": "Leaves at 7:10."},
+    ]}
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json()["stored"] == board
+
+
+def test_plain_list_boards_store_ride_as_they_were_saved(client, tmp_path):
+    http, api = client
+    board = [{"type": "text", "text": "hi"}]
+    block_id = api.store.save(board, root=tmp_path)
+    assert http.get(f"/blocks/{block_id}").json()["stored"] == board
+
+
+def test_reach_back_stores_the_version_answered(client, tmp_path):
+    """With ?version=N the `stored` word is THAT version's envelope — the very board the answer describes,
+    never the live one beside it."""
+    http, api = client
+    first = [{"type": "text", "text": "Q3: 41"}]
+    block_id = api.store.save(first, root=tmp_path)
+    api.store.update(block_id, {"blocks": first + [{"type": "text", "text": "plus NVDA"}]}, root=tmp_path)
+    answer = http.get(f"/blocks/{block_id}", params={"version": "1"}).json()
+    assert answer["stored"] == first
+
+
+def test_there_is_no_export_route_to_ask(client, tmp_path):
+    """The old GET /blocks/<id>/export door stays removed: nothing named "export" answers on a board.
+    Pinned BOTH ways CodeRabbit asked on #75: a SAVED board (a handler returning 404 only for unknown ids
+    could not hide behind the miss) and the router's own registered paths."""
+    http, api = client
+    block_id = api.store.save([{"type": "text", "text": "hi"}], root=tmp_path)
+    assert http.get(f"/blocks/{block_id}/export").status_code == 404
+    registered = {getattr(route, "path", "") for route in api.router.routes}
+    assert not any(path.endswith("/export") for path in registered), sorted(registered)
+
+
+# --- the markdown door: ONE writer, asked at export time (the maintainer's reshape of offer #6) --------------
+
+def test_markdown_answers_the_boards_own_text_whole(client, tmp_path):
+    """GET /blocks/<id>/markdown says EXACTLY what the chat serializer says about this board, uncapped —
+    blocks_as_text with limit=None. One writer: the file can never disagree with the reply."""
+    import importlib
+
+    load_plugin_package()
+    tf = importlib.import_module("hermes_genui.hooks.text_fallback")
+    http, api = client
+    board = {"blocks": [{"type": "heading", "text": "Day 1"}, {"type": "text", "text": "Leaves at 7:10."}]}
+    block_id = api.store.save(board, root=tmp_path)
+    answer = http.get(f"/blocks/{block_id}/markdown")
+    assert answer.status_code == 200
+    assert answer.json() == {"markdown": tf.blocks_as_text(board["blocks"], limit=None)}
+
+
+def test_markdown_goes_uncapped_where_chat_would_cut(client, tmp_path):
+    """A file is not one chat message: a board whose text passes LIMIT arrives WHOLE, with no more-note."""
+    http, api = client
+    blocks = [{"type": "text", "text": f"line {i} " + "x" * 60} for i in range(80)]
+    block_id = api.store.save(blocks, root=tmp_path)
+    text = http.get(f"/blocks/{block_id}/markdown").json()["markdown"]
+    assert len(text) > 3500 and text.count("line ") == 80 and "more in Hermes Desktop" not in text
+
+
+def test_markdown_reads_either_board_shape(client, tmp_path):
+    """Plain lists and Living envelopes answer the same text: the door reads blocks, not history."""
+    http, api = client
+    heading = [{"type": "heading", "text": "Same"}]
+    plain = api.store.save(heading, root=tmp_path)
+    wrapped = api.store.save({"version": 3, "updated_at": "2026-11-18T10:00:00+05:30", "blocks": heading},
+                             root=tmp_path)
+    assert http.get(f"/blocks/{plain}/markdown").json() == http.get(f"/blocks/{wrapped}/markdown").json()
+
+
+def test_markdown_version_reach_back_answers_the_version_on_screen(client, tmp_path):
+    """/markdown shares get_block's ONE version rule (the shared _resolve_board): the address answers the
+    current version; ?version=N reaches back; a bad number is a 400; nothing behind it is a 404; nowhere
+    is a 404. The export then always speaks the board the reader is looking at."""
+    http, api = client
+    first = [{"type": "text", "text": "Q3: 41"}]
+    block_id = api.store.save(first, root=tmp_path)
+    api.store.update(block_id, {"blocks": first + [{"type": "text", "text": "plus NVDA"}]}, root=tmp_path)
+    now = http.get(f"/blocks/{block_id}/markdown").json()["markdown"]
+    back = http.get(f"/blocks/{block_id}/markdown", params={"version": "1"}).json()["markdown"]
+    assert "Q3: 41" in now and "plus NVDA" in now
+    assert "Q3: 41" in back and "plus NVDA" not in back
+    assert http.get(f"/blocks/{block_id}/markdown", params={"version": "0"}).status_code == 400
+    assert http.get(f"/blocks/{block_id}/markdown", params={"version": "x"}).status_code == 400
+    assert http.get(f"/blocks/{block_id}/markdown", params={"version": "9"}).status_code == 404
+    assert http.get("/blocks/0badc0de/markdown").status_code == 404
+
+
+def test_markdown_version_one_answers_the_unversioned_current_board(client, tmp_path):
+    """The rule the always-versioned export ask leans on, pinned at the door: a board that never spoke a
+    version word IS version 1 (_resolve_board's own "or 1") — so ?version=1 answers the live board's bytes
+    EXACTLY, no archive needed. After an update, ?version=1 reaches back to the archived first version.
+    The client may therefore pin an initial, unversioned drawing and still say the board on screen."""
+    http, api = client
+    board = [{"type": "text", "text": "the first draft"}]
+    block_id = api.store.save(board, root=tmp_path)
+    plain = http.get(f"/blocks/{block_id}").json()
+    assert plain.get("version") is None                       # unversioned: the door says no version word
+    assert http.get(f"/blocks/{block_id}/markdown", params={"version": "1"}).json() == \
+        http.get(f"/blocks/{block_id}/markdown").json()       # ?version=1 IS the live board here
+    api.store.update(block_id, {"blocks": board + [{"type": "text", "text": "the second pass"}]},
+                     root=tmp_path)
+    back = http.get(f"/blocks/{block_id}/markdown", params={"version": "1"}).json()["markdown"]
+    assert "the first draft" in back and "the second pass" not in back   # now it reaches back
+
+
+def test_markdown_corpus_pins_the_door_to_the_writer(client, tmp_path):
+    """The corpus contract SURVIVES the twin's death, aimed at the door: every board in the golden corpus
+    gets, through /blocks/<id>/markdown, byte for byte the text the serializer was pinned to say. A change
+    to the writer without regenerating this corpus reddens here — exactly the drift alarm the twin test
+    used to raise, now with ONE writer underneath."""
+    import json
+    from pathlib import Path
+
+    CORPUS = Path(__file__).resolve().parents[1] / "fixtures" / "markdown.corpus.json"
+    entries = json.loads(CORPUS.read_text(encoding="utf-8"))
+    assert len(entries) >= 40, "the corpus arrived truncated"
+    http, api = client
+    for entry in entries:
+        block_id = api.store.save(entry["blocks"], root=tmp_path)
+        answer = http.get(f"/blocks/{block_id}/markdown")
+        assert answer.status_code == 200, entry["name"]
+        assert answer.json()["markdown"] == entry["expected"], f"corpus drift at {entry['name']!r}"
+
+
+# --- the stored passthrough never breaks the draw (CodeRabbit on #75) -----------------------------------------
+
+def test_a_board_with_a_non_finite_unknown_field_still_draws(client, tmp_path):
+    """JSON reads and writes Infinity/NaN, and Starlette REFUSES to serialize one: an odd saved word in an
+    unknown envelope field may not turn GET /blocks/<id> into a 500. The non-finite value says None; every
+    block and every other word ride, and the board still arrives whole enough to draw."""
+    http, api = client
+    board = {"model_note": float("inf"), "notes": [{"deep": float("nan")}, "kept"],
+             "blocks": [{"type": "heading", "text": "Still draws"}]}
+    block_id = api.store.save(board, root=tmp_path)
+    answer = http.get(f"/blocks/{block_id}")
+    assert answer.status_code == 200
+    body = answer.json()
+    assert body["blocks"] == [{"type": "heading", "text": "Still draws"}]
+    assert body["stored"]["model_note"] is None
+    assert body["stored"]["notes"] == [{"deep": None}, "kept"]
+    assert http.get(f"/blocks/{block_id}/markdown").json()["markdown"] == "**Still draws**"
