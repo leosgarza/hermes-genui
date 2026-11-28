@@ -6,7 +6,6 @@ that can't draw gets, so it has to keep them — and an "unknown" must stay the 
 
 import importlib
 
-import pytest
 
 from conftest import load_plugin_package
 

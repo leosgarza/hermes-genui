@@ -575,7 +575,8 @@ def _check_gauge(block: dict, path: str) -> list[tuple[str, str]]:
 
 
 def _gauge_line(block: dict, series: dict) -> str:
-    """The one reading, with its unit and its target when one was given: {"data": [68], "target": 75} → "68 (target 75)"."""
+    """The one reading, with its unit and its target when one was given:
+    {"data": [68], "target": 75} → "68 (target 75)"."""
     data = series.get("data") or []
     value = data[0] if data else None
     if not is_number(value):
@@ -652,7 +653,8 @@ def _steps_list_line(block: dict, series: dict) -> str:
 def _radar_line(series: list) -> str:
     """Each series by name with its values: "Now 6 / 4; Goal 9 / 8"."""
     return "; ".join(
-        f"{safe_text(s.get('name')) or 'Series'} " + " / ".join(fmt_num(v) for v in (s.get("data") or []) if is_number(v))
+        f"{safe_text(s.get('name')) or 'Series'} "
+        + " / ".join(fmt_num(v) for v in (s.get("data") or []) if is_number(v))
         for s in series[:3]
     )
 

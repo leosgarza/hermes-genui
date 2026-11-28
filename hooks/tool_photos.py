@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..blocks.common import is_https, is_local_path
+from ..blocks.common import is_local_path
 from ..core import store
 
 # A short, named allowlist. Adding a tool here is a deliberate decision, not a pattern match over every tool result.

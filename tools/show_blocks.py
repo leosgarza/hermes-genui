@@ -424,7 +424,7 @@ def schema(guide: str = "full") -> dict:
                 "as_of": {
                     "type": "string",
                     "description": "Optional. When the board's data is from, as one line people read rather than a "
-                    "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The board's footer shows "
+                    "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The footer shows "
                     "it beside its source line.",
                 },
                 "live": {

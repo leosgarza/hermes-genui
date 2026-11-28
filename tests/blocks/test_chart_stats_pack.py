@@ -7,7 +7,6 @@ the numbers a chat app that can't draw still needs.
 
 import importlib
 
-import pytest
 
 from conftest import load_plugin_package
 

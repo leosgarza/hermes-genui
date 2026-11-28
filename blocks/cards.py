@@ -14,7 +14,8 @@ TONES = ("good", "warn", "bad", "neutral")
 
 
 def check_cards(block: dict, path: str) -> list[tuple[str, str]]:
-    """1-14 cards, each with a title; the ring, metrics, needs and action are optional but, when present, must be well shaped.
+    """1-14 cards, each with a title; the ring, metrics, needs and action are optional but, when present, must be
+    well shaped.
 
     {"items": [{"title": "Mission Control"}]} → []
     {"items": []} → [("0", "cards needs 1-14 items")]
@@ -49,7 +50,9 @@ def _check_card(item: object, path: str) -> list[tuple[str, str]]:
             problems.append((f"{path}.metrics", f"metrics must be 0-{METRIC_MAX} items"))
         else:
             for j, metric in enumerate(metrics):
-                if not (isinstance(metric, dict) and has_text(metric.get("label")) and metric.get("value") not in (None, "")):
+                ok = (isinstance(metric, dict) and has_text(metric.get("label"))
+                      and metric.get("value") not in (None, ""))
+                if not ok:
                     problems.append((f"{path}.metrics.{j}", "metric needs a label and a value"))
     needs = item.get("needs")
     if needs is not None and not (isinstance(needs, dict) and has_text(needs.get("text"))):
@@ -145,14 +148,16 @@ def _ring_line(ring: dict) -> str:
         return ""
     labels = " · ".join(safe_text(s, 24) for s in stages[:4])
     at = ring.get("at")
-    now = f" (now: {safe_text(stages[at], 24)})" if isinstance(at, int) and not isinstance(at, bool) and 0 <= at < len(stages) else ""
+    shown = isinstance(at, int) and not isinstance(at, bool) and 0 <= at < len(stages)
+    now = f" (now: {safe_text(stages[at], 24)})" if shown else ""
     centre = f" · {safe_text(ring.get('label'), 24)}" if has_text(ring.get("label")) else ""
     return f"{labels}{now}{centre}"
 
 
 def _needs_line(item: dict) -> str:
     needs = item.get("needs")
-    line = f"needs you: {safe_text(needs.get('text'), 120)}" if isinstance(needs, dict) and has_text(needs.get("text")) else ""
+    asked = isinstance(needs, dict) and has_text(needs.get("text"))
+    line = f"needs you: {safe_text(needs.get('text'), 120)}" if asked else ""
     if not line:
         line = "unknown" if _has_unknown(item) else "clear"
     freshness = safe_text(item.get("freshness"), 40) if has_text(item.get("freshness")) else ""

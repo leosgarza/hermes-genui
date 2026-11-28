@@ -10,8 +10,10 @@ tf = importlib.import_module("hermes_genui.hooks.text_fallback")
 
 
 def test_funnel_and_pareto_pass():
-    funnel = {"type": "chart", "kind": "funnel", "x": ["Visits", "Signups", "Paid"], "series": [{"data": [1000, 200, 40]}]}
-    pareto = {"type": "chart", "kind": "pareto", "x": ["Defect A", "Defect B", "Defect C"], "series": [{"data": [50, 30, 20]}]}
+    funnel = {"type": "chart", "kind": "funnel", "x": ["Visits", "Signups", "Paid"],
+              "series": [{"data": [1000, 200, 40]}]}
+    pareto = {"type": "chart", "kind": "pareto", "x": ["Defect A", "Defect B", "Defect C"],
+              "series": [{"data": [50, 30, 20]}]}
     assert check_blocks([funnel, pareto]) == []
 
 

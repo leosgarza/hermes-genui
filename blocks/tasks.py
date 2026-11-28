@@ -11,7 +11,8 @@ def check_tasks(block: dict, path: str) -> list[tuple[str, str]]:
     """1-40 tasks, each titled; status and priority are optional but must be on the list when present; a run is guarded.
 
     {"items": [{"title": "Fix roof", "owner": "Leo", "due": "Fri", "status": "doing"}]} → []
-    {"items": [{"title": "X", "status": "started"}]} → [(".items.0.status", "status must be todo, doing, blocked or done")]
+    {"items": [{"title": "X", "status": "started"}]}
+        → [(".items.0.status", "status must be todo, doing, blocked or done")]
     """
     items = block.get("items")
     if not isinstance(items, list) or not 1 <= len(items) <= TASK_MAX:
