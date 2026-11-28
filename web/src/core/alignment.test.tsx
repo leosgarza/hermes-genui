@@ -81,6 +81,18 @@ describe("block placement", () => {
     expect(places.map((p) => p.getAttribute("data-align"))).toEqual(["right", "center"]);  // left block sits unplaced; right beats center
   });
 
+  it("centers one block without centering the board: one place box, no board voice", () => {
+    // The reviewer's repro, drawn straight on the stable root: "center the verdict" is ONE block's ask. Only that
+    // block's place carries data-align; the board speaks no default, and no block picks up a text voice from it.
+    const root = draw([TEXT, { ...TEXT, text: "Verdict", align: "center" }, CALC]);
+    const places = [...root.querySelectorAll(".hb-place")];
+    expect(places.length).toBe(3);                                       // every block keeps its one stable root
+    expect(places.filter((p) => p.getAttribute("data-align") === "center")).toHaveLength(1);
+    expect(places.find((p) => p.getAttribute("data-align") === "center")!.textContent).toBe("Verdict");
+    expect(root.querySelector("[data-text-align]")).toBeNull();
+    expect(root.querySelector(".hb-ta-center, .hb-ta-right")).toBeNull();
+  });
+
   it("is the model's cascade alone: the block's word, then the board's, then left — nothing else", () => {
     const root = draw({ align: "center", blocks: [{ ...TEXT, align: "right" }, TEXT, CALC] });
     expect([...root.querySelectorAll(".hb-place")].map((p) => p.getAttribute("data-align"))).toEqual(["right", "center", "center"]);

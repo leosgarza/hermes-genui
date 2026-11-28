@@ -59,8 +59,9 @@ export function readBlocksNoted(data: unknown): {
       boardAlign = align((list as any).align);
       boardTextAlign = align((list as any).text_align);
       boardFollowUps = readFollowUps((list as any).follow_ups, top.at("follow_ups"));
-      // The look and provenance words (enhancement #7 and the provenance footer): how the board packs, colours and
-      // moves, and when its data is from. Unknown words read as unsaid, like every model word.
+      // The look and provenance words: how the board packs, colours and moves, and when its data is from. The
+      // DRAWING never speaks the provenance words (the chat footer answers to the host alone — maintainer ruling
+      // 2026-11-25), but a board's own file export does serialize what the board said, so they are still read here.
       boardAsOf = str((list as any).as_of, 80);
       boardLive = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
       boardDensity = density((list as any).density);

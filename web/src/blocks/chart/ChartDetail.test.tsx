@@ -269,13 +269,17 @@ describe("coincident scatter dots: a real click reaches EACH point at the spot",
     const { container } = render(<Blocks blocks={dots({ x: [1, 2, 1],
       series: [{ name: "A", data: [50, 90, 7] }, { name: "B", data: [4, 9, 50] }] })} />);
     const marks = [...container.querySelectorAll<SVGCircleElement>("circle.hb-chart-dot")];
-    // drawn A0 A1 A2 B0 B1 B2 — B2 (DOM mark 5) paints last over A0 (mark 0) at the x=1, 50 kg px
-    expect(marks.map((m) => m.dataset.pt)).toEqual(["0", "1", "2", "0", "1", "2"]);
-    const first = clickDot(container, 5);
+    // Each series keeps its own point indices; the drawing groups the marks by pixel, so the coincident pair is
+    // found by shared position rather than by assuming a series-major draw order. B2 paints last over A0.
+    const at = (m: SVGCircleElement) => `${m.getAttribute("cx")},${m.getAttribute("cy")}`;
+    const spot = marks.map(at).find((p) => marks.filter((m) => at(m) === p).length === 2)!;
+    const over = marks.findIndex((m) => at(m) === spot && m.dataset.pt === "2");  // series B's point 2
+    expect(marks.map((m) => m.dataset.pt).sort()).toEqual(["0", "0", "1", "1", "2", "2"]);
+    const first = clickDot(container, over);
     expect(values(first)).toEqual(["50 kg", "4 kg"]);  // index 0's pair
     expect(first.textContent).toContain("1st of 2 here");
     closeDetail(first);
-    const second = clickDot(container, 5);
+    const second = clickDot(container, over);
     expect(values(second)).toEqual(["7 kg", "50 kg"]);  // index 2's pair
     expect(second.textContent).toContain("2nd of 2 here");
   });

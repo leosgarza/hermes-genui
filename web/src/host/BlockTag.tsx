@@ -290,7 +290,7 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
           )}
           {chrome.dialogMenu}
           <Blocks blocks={board.blocks} boardAlign={board.boardAlign} boardTextAlign={board.boardTextAlign}
-            boardAsOf={board.boardAsOf} live={board.boardLive} boardFollowUps={board.boardFollowUps}
+            boardFollowUps={board.boardFollowUps}
             boardDensity={board.boardDensity} boardPalette={board.boardPalette} boardMotion={board.boardMotion} />
           {(live.version != null || live.links) && (
             <LiveRow id={id as string} version={live.version} updatedAt={live.updatedAt}

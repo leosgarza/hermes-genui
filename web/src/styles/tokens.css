@@ -12,10 +12,15 @@
   --hb-accent-ink: color-mix(in srgb, var(--hb-accent) 85%, var(--hb-ink));
   --hb-good: var(--ui-success, #1a7f37);
   --hb-warn: #c2410c;
+  /* The one tone the theme has no variable for: a red for a value in a bad band (a load over its limit). */
+  --hb-bad: var(--ui-danger, #b42318);
   /* The page behind the blocks, for the few marks that must hide what's under them (a progress checkpoint). */
   --hb-surface: var(--background, Canvas);
   /* A raised card (a chart's hover card). */
   --hb-shadow: 0 8px 28px rgba(15, 20, 30, 0.14), 0 1px 3px rgba(15, 20, 30, 0.1);
+  /* One curve for everything that moves: transform, opacity and entrance animations. A colour or border
+     fade keeps the browser's own ease, which is right for a tint. */
+  --hb-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* Series colours in the order they are handed out, checked so neighbours stay apart for colour-blind readers:
      blue, amber, green, violet, cyan, red, lime, pink. */
   --hb-chart-1: #4f7cff;
@@ -123,6 +128,16 @@
    column still shares out nothing: the auto margins only divide leftover space, exactly as above. */
 .hb-place.hb-place-center > * { margin-inline: auto; }
 .hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* A placed kpis row (maintainer note 2): the cards are no ordinary card — the row is one grid whose auto-fill
+   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves (and
+   the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse (auto-fit) and
+   the used ones gather where the ask put them; the grid's box keeps filling the column and a card's own rects
+   stay exactly as the unplaced row measured them. A bare root is display:contents, so the shipped default row
+   keeps its own rules — every selector here sits under a real placement class. */
+.hb-place.hb-place-center > .hb-kpis,
+.hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }
+.hb-place.hb-place-center > .hb-kpis { justify-content: center; }
+.hb-place.hb-place-right > .hb-kpis { justify-content: end; }
 /* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's
    default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align
    only moves words that sit in a line box filling the available width, so where a block keeps its words in

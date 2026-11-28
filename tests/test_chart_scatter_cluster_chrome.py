@@ -42,11 +42,21 @@ CSS = BASE_CSS[:2] + [SRC / "host" / "blockTag.css"] + BASE_CSS[2:]
 WINDOW_W, WINDOW_H = 1400, 1000
 
 TWIN = {"type": "chart", "kind": "scatter", "title": "Weights", "unit": "kg",
-        "x": [1, 1], "series": [{"name": "Values", "data": [50, 50]}]}
-PAIR = {"type": "chart", "kind": "scatter", "title": "Weights", "unit": "kg", "x": [1, 2, 1],
-        "series": [{"name": "A", "data": [50, 90, 7]}, {"name": "B", "data": [4, 9, 50]}]}
+        "series": [{"name": "Values", "points": [{"x": 1, "y": 50}, {"x": 1, "y": 50}]}]}
+PAIR = {"type": "chart", "kind": "scatter", "title": "Weights", "unit": "kg",
+        "series": [{"name": "A", "points": [{"x": 1, "y": 50}, {"x": 2, "y": 90}, {"x": 1, "y": 7}]},
+                   {"name": "B", "points": [{"x": 1, "y": 4}, {"x": 2, "y": 9}, {"x": 1, "y": 50}]}]}
 LONE = {"type": "chart", "kind": "scatter", "title": "Weights", "unit": "kg",
-        "x": [1, 3], "series": [{"name": "Values", "data": [50, 20]}]}
+        "series": [{"name": "Values", "points": [{"x": 1, "y": 50}, {"x": 3, "y": 20}]}]}
+
+# A scatter's points (the shape the reader takes: [{x, y}] on each series). The drawing groups the circles by
+# pixel, so the coincident spot's topmost circle is found by shared position, never by assuming a series-major
+# draw order; data-pt stays the point's own index in its series.
+TOP_COINCIDENT = ("(() => { const m = [...document.querySelectorAll('circle.hb-chart-dot')];"
+                  " const key = (c) => c.getAttribute('cx') + ',' + c.getAttribute('cy');"
+                  " const seen = {}; m.forEach((c) => { seen[key(c)] = (seen[key(c)] || 0) + 1; });"
+                  " const spot = Object.keys(seen).find((k) => seen[k] === 2);"
+                  " return m.findIndex((c) => key(c) === spot && c.dataset.pt === '2'); })()")
 
 DRIVER = """
 import { createElement } from "react";
@@ -301,11 +311,12 @@ class TestCoincidentDotsRealPointer:
 
     def test_a_coincident_pair_across_series_opens_each_series_values(self, bundle):
         with chrome_page([PAIR], bundle) as cdp:
-            real_click(cdp, DOT.format(5))  # B2 paints last over A0 at the x=1, 50 kg pixel
+            over = cdp.js(TOP_COINCIDENT)   # series B's point 2 paints last over series A's point 0
+            real_click(cdp, DOT.format(over))
             rows = wait_js(cdp, "[...document.querySelectorAll('.hb-detail-value')].map(v => v.textContent)")
             assert rows == ["50 kg", "4 kg"], rows  # index 0's pair (A 50, B 4)
             dismiss_dialog(cdp)
-            real_click(cdp, DOT.format(5))
+            real_click(cdp, DOT.format(over))
             rows = wait_js(cdp, "[...document.querySelectorAll('.hb-detail-value')].map(v => v.textContent)")
             assert rows == ["7 kg", "50 kg"], rows  # index 2's pair — a different datum, the same pixel
 

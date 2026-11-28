@@ -1,7 +1,7 @@
 // Picking a point, bar or slice from the keyboard: every chart's drawing is focusable, the arrow keys step through
 // what it shows and Escape (or leaving it) hides the hover card. Enter (or Space) hands the picked datum to the
 // drawing's `activate` — its drill-down — when it has one. The pointer picks in each drawing's own way.
-import type { FocusEvent, KeyboardEvent } from "react";
+import type { KeyboardEvent } from "react";
 
 /**
  * Where a key moves the pick among n items: → the next, ← the one before (starting from the first or the last), held

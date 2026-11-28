@@ -213,6 +213,48 @@ function changeChip(change: unknown, unit: unknown = "%"): string {
   return `(${arrow} ${fmtNum(Math.abs(change))}${safeText(unit, 8) || "%"})`;
 }
 
+// kpis.py: a figure's chip is the CARD's print, not the chart's — one decimal always, an arrow only when it
+// moved, "pt" spaced off its number, and the number worked out from `previous` when the block gives one.
+const MAX_CHIP = 1e15;
+
+/** kpis._tenths — one decimal, half away from zero on the stored double (toFixed rounds exactly that way). */
+function tenths(v: number): string {
+  return v.toFixed(1);
+}
+
+/** kpis._written_unit: the change unit the figure asks for, or the one its kind defaults to. */
+function writtenUnit(item: Record<string, unknown>, fallback: string): string {
+  const unit = item.change_unit;
+  return unit === "%" || unit === "pt" ? unit : fallback;
+}
+
+/** kpis._chip_number: a change a chip can print, else none. */
+function chipNumber(v: unknown, unit: string): [number, string] | null {
+  return isNum(v) && Number.isFinite(v) && Math.abs(v) < MAX_CHIP ? [v, unit] : null;
+}
+
+/** kpis._change: `previous` wins over a written change; points on a "%" figure, a share elsewhere; a zero base
+ *  or an unusable side has no answer from which to draw a chip. */
+function figureChange(item: Record<string, unknown>): [number, string] | null {
+  if ("previous" in item) {
+    const unit = writtenUnit(item, item.unit === "%" ? "pt" : "%");
+    const before = item.previous, value = item.value;
+    if (!isNum(before) || !Number.isFinite(before) || !isNum(value) || !Number.isFinite(value)) return null;
+    if (unit === "pt") return chipNumber(value - before, "pt");
+    return before === 0 ? null : chipNumber(((value - before) / Math.abs(before)) * 100, "%");
+  }
+  return chipNumber(item.change, writtenUnit(item, "%"));
+}
+
+/** kpis._chip */
+function figureChip(item: Record<string, unknown>): string {
+  const found = figureChange(item);
+  if (!found) return "";
+  const [change, unit] = found;
+  const arrow = change < 0 ? "▼ " : change > 0 ? "▲ " : "";
+  return `(${arrow}${tenths(Math.abs(change))}${unit === "pt" ? " " : ""}${unit})`;
+}
+
 /** common.out_of */
 function outOf(label: string, value: unknown, goal: unknown, unit: unknown): string {
   if (!label || !isNum(value) || !isNum(goal)) return "";
@@ -410,10 +452,12 @@ function textProgress(block: Record<string, unknown>): string {
 // kpis.py (_figure serves stat and kpis alike)
 function figure(item: Record<string, unknown>): string {
   const label = firstOf(item, "label", "title");
-  const value = safeText(item.value);
-  if (!label || !value) return "";
-  const line = `${label}: ${withUnit(value, safeText(item.unit, 20))}`;
-  const chip = changeChip(item.change, pick(item, "change_unit", "%"));
+  if (!label) return "";
+  const raw = item.value;
+  const shown = raw === null || raw === undefined ? "" : safeText(raw);
+  const value = shown ? withUnit(shown, safeText(item.unit, 20)) : "no data";
+  const line = `${label}: ${value}`;
+  const chip = figureChip(item);
   return chip ? `${line} ${chip}` : line;
 }
 
@@ -439,13 +483,25 @@ export function chartKind(name: unknown): string {
   return CHART_KINDS.includes(plain) ? plain : (Object.hasOwn(KIND_ALIASES, plain) ? KIND_ALIASES[plain] : "line");
 }
 
-function seriesLine(series: Record<string, unknown>): string {
-  const data = dataOf(series).filter(isNum);
+function seriesLine(series: Record<string, unknown>, labels: unknown[]): string {
+  const raw = dataOf(series);
+  const data = raw.filter(isNum);
   if (!data.length) return "";
   const name = safeText(series.name);
   const first = data[0], last = data[data.length - 1];
   let line = `${name} ${fmtNum(first)} → ${fmtNum(last)}`.trim();
   if (first) line += " " + changeChip(roundHalfEven(((last - first) / Math.abs(first)) * 100, 1));
+  // Slots holding no value are named: the reader of the text must see the same holes the drawing breaks at.
+  const missing: string[] = [];
+  for (let i = 0; i < Math.min(labels.length, raw.length); i++) {
+    if (raw[i] === null) missing.push(safeText(labels[i], 24));
+  }
+  if (missing.length) {
+    const shown = missing.filter(Boolean).slice(0, 3);
+    let named = shown.length ? shown.join(", ") : "unlabelled";
+    if (missing.length > shown.length) named += ` and ${missing.length - shown.length} more`;
+    line += `, ${missing.length} gap${missing.length === 1 ? "" : "s"} (${named})`;
+  }
   return line;
 }
 
@@ -464,35 +520,89 @@ function slices(x: unknown[], series: Record<string, unknown>, top = 4): string 
   return shown.join(", ");
 }
 
-function pointsLine(series: Record<string, unknown>): string {
-  const data = dataOf(series).filter(isNum);
-  if (!data.length) return "";
-  const name = safeText(series.name);
-  const line = name ? `${name} ` : "";
-  return `${line}${data.length} points, y ${fmtNum(Math.min(...data))} → ${fmtNum(Math.max(...data))}`;
+/** chart._bins_line — a histogram read left to right: the count, then the bins with their counts (8 at most), or
+ *  for a long one just where the most fell. A bin with no count is not counted and isn't named. */
+function binsLine(x: unknown[], series: Record<string, unknown>): string {
+  const data = dataOf(series);
+  const pairs: [string, number][] = [];
+  for (let i = 0; i < Math.min(x.length, data.length); i++) {
+    const v = data[i];
+    if (isNum(v) && v >= 0) pairs.push([safeText(x[i]), v]);
+  }
+  if (!pairs.length) return "";
+  const total = pairs.reduce((s, [, v]) => s + v, 0);
+  const head = `${fmtNum(total)} counted in ${pairs.length} bin${pairs.length === 1 ? "" : "s"}`;
+  if (pairs.length > 8) {
+    const [name, most] = pairs.reduce((a, b) => (b[1] > a[1] ? b : a));  // Python's max keeps the FIRST on a tie
+    return `${head}, most in ${name} (${fmtNum(most)})`;
+  }
+  return `${head}: ` + pairs.map(([label, v]) => `${label} ${fmtNum(v)}`.trim()).join(", ");
 }
 
-function histogramLine(values: unknown[]): string {
-  const data = values.filter(isNum).sort((a, b) => a - b);
-  if (!data.length) return "";
-  const n = data.length;
-  const mid = n % 2 ? data[(n - 1) / 2] : (data[n / 2 - 1] + data[n / 2]) / 2;
-  return `${n} values, ${fmtNum(data[0])} → ${fmtNum(data[n - 1])}, median ${fmtNum(mid)}`;
+// chart.py: a title that puts one measure against another names a scatter's two axes.
+const AGAINST = /^(.+?)\s+(?:against|by|vs\.?)\s+(.+)$/i;
+const MAX_LABEL = 40;
+
+/** chart._axis_word */
+function axisWord(text: string): string {
+  return text.trim().toLowerCase().replace(/[\s:,.?!]+$/, "");
+}
+
+/** chart._axis_names — (bottom, side), "x"/"y" when the title names neither. */
+function axisNames(title: string): [string, string] {
+  const match = AGAINST.exec(title.trim());
+  if (!match) return ["x", "y"];
+  const across = axisWord(match[2]), up = axisWord(match[1]);
+  return across && up ? [across, up] : ["x", "y"];
+}
+
+/** chart._count */
+function count(n: number): string {
+  return `${n} point${n === 1 ? "" : "s"}`;
+}
+
+/** chart._drawn_points — a scatter series' points with a number on both scales, in the order written. */
+function drawnPoints(series: Record<string, unknown>): Record<string, unknown>[] {
+  const points = isList(series.points) ? series.points : [];
+  return points.filter((p): p is Record<string, unknown> => isDict(p) && isNum(p.x) && isNum(p.y));
+}
+
+/** chart._scatter_line — the highest point, or each group's range when there are several. */
+function scatterLine(series: Record<string, unknown>[], title: string): string {
+  const [across, up] = axisNames(title);
+  const groups = series.slice(0, 2)
+    .map((s) => [safeText(s.name, MAX_LABEL), drawnPoints(s)] as const)
+    .filter(([, points]) => points.length > 0);
+  if (!groups.length) return "";
+  if (groups.length > 1) {
+    return groups.map(([name, points]) => {
+      const xs = points.map((p) => p.x as number);
+      return `${name || "Series"} ${count(points.length)}, ${across} ${fmtNum(Math.min(...xs))} to ${fmtNum(Math.max(...xs))}`;
+    }).join("; ");
+  }
+  const points = groups[0][1];
+  const xs = points.map((p) => p.x as number), ys = points.map((p) => p.y as number);
+  const top = points.reduce((a, b) => (b.y! > a.y! || (b.y === a.y && (b.x as number) < (a.x as number)) ? b : a));
+  const line = `${count(points.length)}; ${across} ${fmtNum(Math.min(...xs))} to ${fmtNum(Math.max(...xs))}, ` +
+    `${up} ${fmtNum(Math.min(...ys))} to ${fmtNum(Math.max(...ys))}; highest ${fmtNum(top.y as number)} at ${fmtNum(top.x as number)}`;
+  const label = safeText(top.label, MAX_LABEL);
+  return label ? `${line} (${label})` : line;
 }
 
 function textChart(block: Record<string, unknown>): string {
   const series = (isList(block.series) ? block.series : []).filter(isDict);
   if (!series.length) return "";
   const kind = chartKind(block.kind);
+  const labels = isList(block.x) ? block.x : [];
   let body = "";
   if (kind === "histogram") {
-    body = histogramLine(dataOf(series[0]));
+    body = binsLine(labels, series[0]);
   } else if (kind === "scatter") {
-    body = series.slice(0, 3).map(pointsLine).filter(Boolean).join("; ");
+    body = scatterLine(series, safeText(block.title, 80));
   } else if (kind === "pie" || kind === "donut") {
-    body = slices(isList(block.x) ? block.x : [], series[0]);
+    body = slices(labels, series[0]);
   } else {
-    body = series.slice(0, 6).map(seriesLine).filter(Boolean).join("; ");
+    body = series.slice(0, 6).map((s) => seriesLine(s, labels)).filter(Boolean).join("; ");
   }
   if (!body) return "";
   const unit = safeText(block.unit, 20);

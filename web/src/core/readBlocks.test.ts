@@ -24,7 +24,7 @@ describe("readBlocks", () => {
   it("notes what it dropped and why", () => {
     const r = readBlocksNoted([{ type: "weather" }, "x"]);
     expect(r.blocks).toEqual([]);
-    expect(r.dropped).toEqual([{ path: "0", why: 'unknown type "weather"' }, { path: "1", why: "not a block object" }]);
+    expect(r.dropped).toEqual([{ path: "0", why: "weather needs a temp and a place" }, { path: "1", why: "not a block object" }]);
   });
 });
 

@@ -65,7 +65,7 @@ from test_chart_scatter_cluster_chrome import (  # noqa: E402
 from test_layout_alignment import CHROME  # noqa: E402
 
 WINDOW_W, WINDOW_H = 1100, 820
-BUNDLE_SHA256 = "8d252407e9a9cf3842f164aac6864c4145e3b0958ed916d7ff5ae521f33abc57"  # #9 round-7 rebuild —
+BUNDLE_SHA256 = "3883e550b7bc3871a081a7c50d0ef420f277dd5f76653e6565b8f4b9fb6df18d"  # #9 round-7 rebuild —
 # edit-time identity filing (blockState door "identity" + forgetBlock that destroys nothing) changed the
 # host bundle; the mirror loads THE frozen bundle of this tree (round-6's 6a2efc63… predates the unification;
 # round-5's 0e37f819… predates the headless-update walk; #8's 22cec44c… predates the adaptive renderer)

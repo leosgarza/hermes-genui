@@ -135,7 +135,7 @@ export function useExportChrome(args: {
         walk(container.children ?? [], cells.map((c) => c.firstElementChild).filter((c): c is Element => !!c));
       });
     };
-    walk(provenance.list, [...board.children]);
+    walk(blocks, [...board.children]);
     commit(out);
   }
 

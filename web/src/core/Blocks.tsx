@@ -102,21 +102,23 @@ function drawAll(blocks: Block[]): ReactNode[] {
   });
 }
 
-/** One block wherever it sits: wrapped in its place when it sits away from left, and marked with its text voice
- *  when it carries words and they are asked to read other than left. Either ask grows the one wrapper; nothing
- *  asked for, nothing added — the board draws exactly the DOM it always drew. */
+/** One block wherever it sits: its root is ALWAYS the one .hb-place element, asked for or not. Where the model
+ *  asked for a place (away from left) or a text voice, the wrapper carries the variant class and box; where it
+ *  asked for nothing the wrapper carries .hb-bare and generates no box (display: contents), so an unsaid board
+ *  lays out and measures exactly as it always drew. Placement is a class on the stable root — never a re-wrap —
+ *  so a living flip to or from left keeps the mounted block's live subtree (a half-dragged slider, an unsent
+ *  form) instead of remounting it (review round 3, defect 1). */
 function Placed({ block }: { block: Block }) {
   const { board, text } = useContext(AlignScope);
   const at = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
-  const view = <BlockView block={block} />;
-  if (at === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at !== "left") cls.push(`hb-place-${at}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
+  if (at === "left" && ta === "left") cls.push("hb-bare");
   return (
     <div className={cls.join(" ")} {...(at !== "left" ? { "data-align": at } : {})}
-      {...(ta !== "left" ? { "data-text-align": ta } : {})}>{view}</div>
+      {...(ta !== "left" ? { "data-text-align": ta } : {})}><BlockView block={block} /></div>
   );
 }
 

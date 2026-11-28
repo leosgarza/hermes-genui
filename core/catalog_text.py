@@ -27,7 +27,8 @@ def spec(kind: str) -> str | None:
     entry = next((e for e in catalog["blocks"] if e["kind"] == kind), None)
     if entry is None:
         return None
-    return f'{kind}: write {{"type": "{kind}", ...}}. Fields: {entry['fields']}\nExample: {_example(entry)}'
+    fields = entry["fields"]
+    return f'{kind}: write {{"type": "{kind}", ...}}. Fields: {fields}\nExample: {_example(entry)}'
 
 
 def icons_line() -> str:

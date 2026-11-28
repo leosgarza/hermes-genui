@@ -322,11 +322,14 @@ describe("BlockTag expand / full-screen", () => {
     expect(document.querySelectorAll(".hb-place").length).toBe(2);       // both asks — and one instance, not two draws
   });
 
-  it("a declaring board keeps its provenance footer in the expanded view", async () => {
+  it("an expanded board keeps the no-echo rule and the withdrawn envelope words stay silent", async () => {
     await openExpanded([{ type: "source", text: "BLS series" }, { type: "heading", text: "Jobs" }],
       { as_of: "2026-11-18", live: false });
-    expect(document.querySelectorAll(".hb-provenance").length).toBe(1);  // the footer travels with the board
-    expect(document.querySelector(".hb-board-overlay .hb-provenance-badge[data-live='snapshot']")).toBeTruthy();
+    // The shown source draws in the flow, once; the withdrawn envelope words add no footer and no badge.
+    expect(document.querySelectorAll(".hb-provenance").length).toBe(0);
+    expect(document.querySelectorAll(".hb-board-overlay .hb-source").length).toBe(1);
+    expect(document.body.textContent!.split("BLS series").length - 1).toBe(1);
+    expect(document.querySelector(".hb-provenance-badge")).toBeNull();
   });
 
   it("Escape answers the photo layer first while the board stays expanded", async () => {
