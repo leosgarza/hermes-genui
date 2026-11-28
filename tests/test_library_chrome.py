@@ -134,6 +134,8 @@ window.__ready = true;
 def bundle():
     if CHROME is None:
         pytest.skip("no Chrome/Chromium binary on this machine")
+    if not ESBUILD.exists():
+        pytest.skip("web/node_modules not installed — cannot bundle the real components")
     proc = subprocess.run(
         [str(ESBUILD), "--bundle", "--format=iife", "--jsx=automatic", "--loader=tsx",
          "--log-level=warning"],
@@ -597,6 +599,8 @@ def shelf_bundle():
     the real registration code, the real chrome seam, the real dialog, run outside any transcript."""
     if CHROME is None:
         pytest.skip("no Chrome/Chromium binary on this machine")
+    if not ESBUILD.exists():
+        pytest.skip("web/node_modules not installed — cannot bundle the real components")
     with tempfile.TemporaryDirectory(prefix="shelf-sdk-") as work:
         stub = Path(work) / "sdk-stub.js"
         stub.write_text(SDK_STUB)

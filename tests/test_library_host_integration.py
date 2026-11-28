@@ -111,6 +111,8 @@ def harness_js():
     NU/FU)."""
     if CHROME is None:
         pytest.skip("no Chrome/Chromium binary on this machine")
+    if not ESBUILD.exists():
+        pytest.skip("web/node_modules not installed — cannot bundle the real components")
     src = (ROOT / "tests" / "host_harness_r3.tsx").read_text()
     with tempfile.TemporaryDirectory(prefix="r3-harness-", dir=str(ROOT / "web")) as work:
         entry = Path(work) / "harness.tsx"

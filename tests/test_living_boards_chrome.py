@@ -131,6 +131,8 @@ window.__ready = true;
 def bundle():
     if CHROME is None:
         pytest.skip("no Chrome/Chromium binary on this machine")
+    if not ESBUILD.exists():
+        pytest.skip("web/node_modules not installed — cannot bundle the real components")
     proc = subprocess.run(
         [str(ESBUILD), "--bundle", "--format=iife", "--jsx=automatic", "--loader=tsx",
          "--log-level=warning"],
