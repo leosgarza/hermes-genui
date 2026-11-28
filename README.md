@@ -29,9 +29,6 @@ for an executive dashboard and keep it in the sidebar. **[▶ Also on YouTube](h
 [Dashboards](#-dashboards-from-your-own-data) · [The blocks](#-the-blocks) · [What you can ask](#-what-you-can-ask) ·
 [How it works](#-how-it-works) · [Privacy](#-privacy-network-and-security) · [Troubleshooting](#%EF%B8%8F-troubleshooting)
 
-> 🗺️ **Fork roadmap:** this is a friendly fork that builds enhancements and offers them upstream.
-> See **[ROADMAP.md](ROADMAP.md)** for what we're working on, why, and what's already merged or offered.
-
 ---
 
 ## ✨ What it looks like
@@ -398,9 +395,8 @@ flowchart LR
 
 **What stays local**, in your profile under `plugin-data/hermes-genui/`:
 - **Boards** are saved as JSON, with checklist ticks next to them.
-- **Photo URLs** (`photo-urls.txt`): the last 500 image references tools returned — the URLs `find_photos`
-  returned, plus https image URLs returned by Hermes's own `image_generate` and the local paths it saved. These are
-  the only images a block may draw.
+- **Photo URLs** (`photo-urls.txt`): the URLs `find_photos` returned, plus https image URLs returned by Hermes's own
+  `image_generate`. Local file paths are never recorded. These are the only images a block may draw.
 - **The stand-in photo tool** is off by default. Switching `photo_test_tool` on registers `standin_photos`, which
   returns a fixed https link, a local path or a dead link so the photo path can be tried without an image key.
 - **The assistant's memory** (`assistant/`): its settings, the items it tracks (title, dates, amount, the sender,
@@ -458,9 +454,6 @@ dashboard's refresh schedule, the model asks you before putting any of them back
   - DNS is pinned against rebinding.
   - Each redirect is checked again, up to 3.
   - Size and time limits apply.
-- **A generated image drawn from disk is one a Hermes tool made.** `show_blocks` only accepts a local path its
-  provenance list saw a tool return, and Desktop reads that path through the app's own file reader. The plugin never
-  reads or fetches the file itself; a path the host refuses or cannot read simply hides the photo.
 - **A kept dashboard repeats read-only calls only**, on the servers it was built from.
 - **Calculator formulas** are read by a small parser with no `eval` and with operation budgets.
 - **Board size, depth, text length and counts are all capped.**

@@ -146,7 +146,6 @@ def _board_text(block_id: str, load) -> str:
                                                   # placement is a drawing concern, and text is just blocks
     except Exception:  # an unreadable file must not stop the reply
         return NOT_SHOWN
-    # placement, text alignment and provenance are drawing concerns; text is just blocks
     return blocks_as_text(blocks) or NOT_SHOWN
 
 

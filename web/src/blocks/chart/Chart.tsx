@@ -1,23 +1,17 @@
 // Charts that go up and down: line, bar, area, stacked, combo, histogram and range. Pies and donuts, and horizontal
 // bars, have files of their own. Hand-drawn SVG at the width the chart has on screen (chart.css sets how wide that may
 // be): the sums behind it are in chartData.ts, where things go in layout.ts, the marks in *Marks.tsx.
-// A click (or Enter) on the picked column, point or band drills into that datum — one detail dialog, mounted beside
-// the drawing, which is never re-instantiated and keeps its pick through open, close and reopen.
 import { useId, useMemo, useRef, useState, type PointerEvent } from "react";
-import { binTotals, changePct, chartLabel, chartScales, fmt, fmtSpan, kindToDraw, sharePct, stackSeries, totalAt, type ChartSpec } from "./chartData";
+import { binTotals, changePct, chartLabel, chartScales, fmt, fmtSpan, kindToDraw, stackSeries, totalAt, type ChartSpec } from "./chartData";
 import { seriesEnds, xyLayout, xyTip, type XYLayout } from "./layout";
 import { useWidth } from "./useWidth";
-import { keepsPick, pickKeys } from "./pick";
+import { pickKeys } from "./pick";
 import { ChartTip } from "./ChartTip";
-import { ChartDetail, KIND_WORDS, type Detail } from "./ChartDetail";
 import { ChartLegend } from "./Legend";
 import { LineMarks, Crosshair, Gridlines } from "./LineMarks";
 import { BarMarks, ComboMarks, HistogramMarks, RangeMarks, StackMarks } from "./ColumnMarks";
 import { AreaMarks } from "./AreaMarks";
 import { HBarChart } from "./HBarChart";
-import { PieChart } from "./PieChart";
-import { ScatterChart } from "./ScatterChart";
-import { WaterfallChart } from "./WaterfallChart";
 import { Gauge } from "./Gauge";
 import { Bullet } from "./Bullet";
 import { Funnel } from "./Funnel";
@@ -27,12 +21,15 @@ import { Control } from "./Control";
 import { Bubble } from "./Bubble";
 import { Box } from "./Box";
 import { Treemap } from "./Treemap";
+import { PieChart } from "./PieChart";
+import { ScatterChart } from "./ScatterChart";
+import { WaterfallChart } from "./WaterfallChart";
 
 const WIDE_FROM = 60;  // a line with this many points may be drawn wider than the usual cap
 
-/** A chart of any kind: the pack's own drawings (a gauge, a bullet, a funnel, a pareto, a radar, a control, a
- *  bubble, a box, a treemap) first, then pies and donuts, a scatter, a waterfall, and horizontal bars (asked for,
- *  or bars that read better as rows: see kindToDraw); the rest go up and down. */
+/** A chart of any kind: the portfolio pack's own drawings (a gauge, a bullet, a funnel, a pareto, a radar, a
+ *  control, a bubble, a box, a treemap) first, then pies and donuts, a scatter, a waterfall, and horizontal bars
+ *  (asked for, or bars that read better as rows: see kindToDraw); the rest go up and down. */
 export function Chart({ spec }: { spec: ChartSpec }) {
   if (spec.type === "gauge") return <Gauge spec={spec} />;
   if (spec.type === "bullet") return <Bullet spec={spec} />;
@@ -50,15 +47,12 @@ export function Chart({ spec }: { spec: ChartSpec }) {
   return <XYChart spec={spec} />;
 }
 
-/** Line, bar, area, stacked, combo, histogram and range: x labels along the bottom, values up the side. */
+/** Line, bar, area, stacked and combo: x labels along the bottom, values up the side. */
 function XYChart({ spec }: { spec: ChartSpec }) {
   const plot = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
   const width = useWidth(plot);
   const [hover, setHover] = useState<number | null>(null);
-  const [drill, setDrill] = useState<{ at: number; detail: Detail } | null>(null);
-  const down = useRef<{ x: number; y: number } | null>(null);
-  const closed = useRef(0);  // when the detail last closed: a stale blur right after it is not the reader leaving
   const gid = useId().replace(/[^a-zA-Z0-9]/g, "");
   const n = spec.x.length;
   const piled = spec.type === "stacked" || spec.type === "area";  // the series pile on each other
@@ -72,68 +66,41 @@ function XYChart({ spec }: { spec: ChartSpec }) {
     const r = svg.current?.getBoundingClientRect();
     if (!r || !r.width) return;
     const x = ((e.clientX - r.left) / r.width) * layout.W;
-    setHover(nearestXIndex(layout.xAt, n, x));
+    let best = 0;
+    for (let i = 1; i < n; i++) if (Math.abs(layout.xAt(i) - x) < Math.abs(layout.xAt(best) - x)) best = i;
+    setHover(best);
   }
-
-  /** One datum, read closely: the same full values the hover card says, plus a histogram bin's share of its
-   *  values. */
-  function detailAt(i: number): Detail {
-    const t = xyTip(spec, i, layout);
-    let note = t.note;
-    if (!note && spec.type === "histogram") {
-      const total = spec.series[0].data.reduce<number>((sum, v) => sum + (v ?? 0), 0);
-      const inBin = spec.series[0].data[i] ?? 0;
-      note = total > 0 ? `${inBin} of ${total} values (${sharePct(inBin / total)})` : undefined;
-    }
-    return { datum: t.title, chartTitle: spec.title, kind: KIND_WORDS[spec.type], rows: t.rows, note, source: spec.source };
-  }
-  const open = (i: number | null) => i !== null && setDrill({ at: i, detail: detailAt(i) });
-  const close = () => {
-    setDrill(null);
-    closed.current = Date.now();
-    svg.current?.focus();  // the dialog hands the keyboard back to the drawing it opened from
-  };
-  // Losing focus to the dialog is not leaving the chart: the pick must survive open and close.
-  const pick = keepsPick(setHover, () => drill !== null, closed);
 
   const multiLegend = spec.type === "combo" || (spec.type === "bar" && spec.series.length > 1)
     || (spec.type === "line" && spec.series.length > 1);
   const wide = spec.type === "line" && n >= WIDE_FROM;
   return (
-    <>
-      <figure className={`hb-card hb-chart${wide ? " hb-chart-wide" : ""}`}>
-        <Headline spec={spec} hover={hover} />
-        <div ref={plot} className="hb-chart-plot">
-          <svg ref={svg} width="100%" height={layout.H} viewBox={`0 0 ${layout.W} ${layout.H}`} className="hb-chart-svg"
-            role="img" aria-label={chartLabel(spec)} {...pickKeys(n, hover, pick, false, () => open(hover))}
-            onPointerDown={(e) => { down.current = { x: e.clientX, y: e.clientY }; pickAt(e); }}
-            onPointerMove={(e) => (e.buttons || e.pointerType === "mouse") && pickAt(e)}
-            onPointerLeave={() => pick(null)}
-            onClick={(e) => {
-              const d = down.current;  // a click that never moved off its column drills into it; a scrub does not
-              if (d && Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y) < 8) open(hover);
-            }}>
-            <XLabels spec={spec} layout={layout} />
-            <AxisTitles spec={spec} layout={layout} />
-            {spec.type === "range" && layout.ticks.length > 0 && <Gridlines spec={spec} layout={layout} />}
-            {spec.type === "line" && <LineMarks spec={spec} layout={layout} gid={gid} hover={hover} />}
-            {spec.type === "bar" && <BarMarks spec={spec} layout={layout} hover={hover} />}
-            {spec.type === "stacked" && bands && <StackMarks bands={bands} layout={layout} hover={hover} />}
-            {spec.type === "area" && bands && <AreaMarks bands={bands} layout={layout} />}
-            {spec.type === "combo" && <ComboMarks spec={spec} layout={layout} hover={hover} />}
-            {spec.type === "histogram" && <HistogramMarks spec={spec} layout={layout} hover={hover} />}
-            {spec.type === "range" && <RangeMarks spec={spec} layout={layout} hover={hover} />}
-            {(spec.type === "area" || spec.type === "combo") && hover !== null && <Crosshair layout={layout} at={hover} />}
-          </svg>
-          <ChartTip tip={tip} />
-        </div>
-        {multiLegend && <ChartLegend series={spec.series} />}
-        {piled && spec.series.length > 1 && <ChartLegend series={spec.series} at={hover ?? lastIndex(spec)} unit={spec.unit} />}
-        {spec.caveat && <div className="hb-chart-caveat">{spec.caveat}</div>}
-        {spec.source && <div className="hb-chart-source">{spec.source}</div>}
-      </figure>
-      {drill && <ChartDetail detail={drill.detail} onClose={close} />}
-    </>
+    <figure className={`hb-card hb-chart${wide ? " hb-chart-wide" : ""}`}>
+      <Headline spec={spec} hover={hover} />
+      <div ref={plot} className="hb-chart-plot">
+        <svg ref={svg} width="100%" height={layout.H} viewBox={`0 0 ${layout.W} ${layout.H}`} className="hb-chart-svg"
+          role="img" aria-label={chartLabel(spec)} {...pickKeys(n, hover, setHover)}
+          onPointerDown={pickAt} onPointerMove={(e) => (e.buttons || e.pointerType === "mouse") && pickAt(e)}
+          onPointerLeave={() => setHover(null)}>
+          <XLabels spec={spec} layout={layout} />
+          <AxisTitles spec={spec} layout={layout} />
+          {spec.type === "range" && layout.ticks.length > 0 && <Gridlines spec={spec} layout={layout} />}
+          {spec.type === "line" && <LineMarks spec={spec} layout={layout} gid={gid} hover={hover} />}
+          {spec.type === "bar" && <BarMarks spec={spec} layout={layout} hover={hover} />}
+          {spec.type === "stacked" && bands && <StackMarks bands={bands} layout={layout} hover={hover} />}
+          {spec.type === "area" && bands && <AreaMarks bands={bands} layout={layout} />}
+          {spec.type === "combo" && <ComboMarks spec={spec} layout={layout} hover={hover} />}
+          {spec.type === "histogram" && <HistogramMarks spec={spec} layout={layout} hover={hover} />}
+          {spec.type === "range" && <RangeMarks spec={spec} layout={layout} hover={hover} />}
+          {(spec.type === "area" || spec.type === "combo") && hover !== null && <Crosshair layout={layout} at={hover} />}
+        </svg>
+        <ChartTip tip={tip} />
+      </div>
+      {multiLegend && <ChartLegend series={spec.series} />}
+      {piled && spec.series.length > 1 && <ChartLegend series={spec.series} at={hover ?? lastIndex(spec)} unit={spec.unit} />}
+      {spec.caveat && <div className="hb-chart-caveat">{spec.caveat}</div>}
+      {spec.source && <div className="hb-chart-source">{spec.source}</div>}
+    </figure>
   );
 }
 
@@ -142,15 +109,6 @@ function XYChart({ spec }: { spec: ChartSpec }) {
 function lastIndex(spec: ChartSpec): number {
   const { last } = seriesEnds(spec.series[0].data);
   return last < 0 ? spec.x.length - 1 : last;
-}
-
-/** The x label nearest to `px`, in drawing units. A tie keeps the LOWEST index — which is exactly why a scatter
- *  does not pick this way: two points sharing an x sit at the same px and the pointer knows which one it is on.
- *  Exported for the test that pins that wrongness (a negative control the scatter's dot picking corrects). */
-export function nearestXIndex(xAt: (i: number) => number, n: number, px: number): number {
-  let best = 0;
-  for (let i = 1; i < n; i++) if (Math.abs(xAt(i) - px) < Math.abs(xAt(best) - px)) best = i;
-  return best;
 }
 
 /** Where the big number is read when nothing is picked: a histogram's tallest bin, anything else's latest value. */

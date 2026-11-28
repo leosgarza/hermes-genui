@@ -50,8 +50,11 @@ def _check_card(item: object, path: str) -> list[tuple[str, str]]:
             problems.append((f"{path}.metrics", f"metrics must be 0-{METRIC_MAX} items"))
         else:
             for j, metric in enumerate(metrics):
+                # The reader keeps a value only when it is text or a number (readMetrics drops the rest), so
+                # an object/array value must not pass here and then vanish from the drawing.
+                value = metric.get("value") if isinstance(metric, dict) else None
                 ok = (isinstance(metric, dict) and has_text(metric.get("label"))
-                      and metric.get("value") not in (None, ""))
+                      and (has_text(value) or (isinstance(value, (int, float)) and not isinstance(value, bool))))
                 if not ok:
                     problems.append((f"{path}.metrics.{j}", "metric needs a label and a value"))
     needs = item.get("needs")
@@ -110,7 +113,7 @@ def text_cards(block: dict) -> str:
         title = safe_text(item.get("title"), 80)
         if not title:
             continue
-        lines = [_head(title, item.get("status"))]
+        lines = [_head(title, item.get("status"), item.get("id"))]
         ring = item.get("ring")
         if isinstance(ring, dict):
             line = _ring_line(ring)
@@ -148,9 +151,14 @@ def _action_line(action: dict) -> str:
     return md_link(label, url) if url else f"[{label}]"
 
 
-def _head(title: str, status: object) -> str:
-    status_text = safe_text(status, 20) if has_text(status) else ""
-    return f"**{title}** — {status_text}" if status_text else f"**{title}**"
+def _head(title: str, status: object, card_id: object = None) -> str:
+    """The card's first line: its title, then its status chip and its id when it has them.
+
+    ("Mission Control", "active", "MC-12") → "**Mission Control** — active · MC-12"
+    ("Quiet", None, None) → "**Quiet**"
+    """
+    marks = [safe_text(v, 40) for v in (status, card_id) if has_text(v)]
+    return f"**{title}** — {' · '.join(marks)}" if marks else f"**{title}**"
 
 
 def _ring_line(ring: dict) -> str:

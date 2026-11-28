@@ -4,20 +4,7 @@ import json
 import math
 
 from ..blocks.chart import CHART_KINDS
-from ..blocks.common import (
-    DENSITY,
-    MOTION,
-    PALETTE,
-    align_word,
-    as_of_line,
-    board_address,
-    choice_word,
-    follow_up_problems,
-    follow_up_words,
-    link_problems,
-    link_words,
-    live_flag,
-)
+from ..blocks.common import align_word, board_address, follow_up_problems, follow_up_words, link_problems, link_words
 from ..core import drawn, store, surface
 from ..core.catalog_text import describe, icons_line, spec
 from ..core.catalog_text import menu as core_menu
@@ -306,16 +293,6 @@ def show_blocks(params: dict, **kwargs) -> str:
         envelope["align"] = word
     if text_word is not None:
         envelope["text_align"] = text_word
-    if (word := choice_word(params.get("density"), DENSITY)) is not None:  # how the board packs its space
-        envelope["density"] = word
-    if (word := choice_word(params.get("palette"), PALETTE)) is not None:  # which chart colours it draws from
-        envelope["palette"] = word
-    if (word := choice_word(params.get("motion"), MOTION)) is not None:  # how much it moves when it can
-        envelope["motion"] = word
-    if (as_of := as_of_line(params.get("as_of"))) is not None:  # when its data is from, one quiet footer line
-        envelope["as_of"] = as_of
-    if (live := live_flag(params.get("live"))) is not None:  # its figures update: Live, or a Snapshot
-        envelope["live"] = live
     if links:
         envelope["links"] = links
     ups = follow_up_words(params.get("follow_ups"))  # its shape was answered by follow_up_problems above
@@ -403,40 +380,6 @@ def schema(guide: str = "full") -> dict:
                     "doesn't ask for itself: left (the default) | center | right. A board word: it moves the whole "
                     "board — to re-read one block, give that block its own text_align. It changes how words read, "
                     "never where cards sit.",
-                },
-                "density": {
-                    "type": "string",
-                    "description": "Optional. How much air this whole board keeps: comfortable (the default) | "
-                    "compact (tighter spacing between and inside cards, for fitting a lot of figures on one screen). "
-                    "Yours to decide from the content and who reads it — a data-dense dashboard or tracker usually "
-                    "reads better compact; a story, plan or first-glance answer better comfortable. The reader has no "
-                    "control.",
-                },
-                "palette": {
-                    "type": "string",
-                    "description": "Optional. Which colours this board's charts draw from: default (the house set) | "
-                    "cool (blues, teals, violets) | warm (reds, ambers, pinks). Yours to decide from the subject — "
-                    "cool suits money and operations, warm suits alerts and energy; keep default when a colour must "
-                    "carry meaning on its own or nothing special fits. Only chart series recolour: themes and the "
-                    "app's accent stay as they are. The reader has no control.",
-                },
-                "motion": {
-                    "type": "string",
-                    "description": "Optional. How much this board moves: full (the default) | reduced (animations "
-                    "settle at once). Yours to decide — reduced suits a quiet dashboard or a board meant for reading; "
-                    "full suits an explainer that animates to make a point. It never overrides the reader's system: "
-                    "a device that asks for less motion always gets less, whatever you say.",
-                },
-                "as_of": {
-                    "type": "string",
-                    "description": "Optional. When the board's data is from, as one line people read rather than a "
-                    "format you must get exactly right: \"2026-11-18\", \"Nov 18, 14:05 UTC\". The footer shows "
-                    "it beside its source line.",
-                },
-                "live": {
-                    "type": "boolean",
-                    "description": "Optional. true: the figures update live; false: this is a snapshot taken at as_of. "
-                    "The board's footer shows the word Live or Snapshot. Only give it when you really know.",
                 },
                 "follow_ups": {
                     "type": "array",

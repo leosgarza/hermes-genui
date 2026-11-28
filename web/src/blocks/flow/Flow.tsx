@@ -8,7 +8,7 @@
 import { Fragment, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../lib/Icon";
 import { InlineText } from "../../lib/InlineText";
-import { useLessMotion } from "../../lib/motion";
+import { lessMotion } from "../../lib/motion";
 import { useWidth } from "../chart/useWidth";
 import type { FlowMove } from "../steps/read";
 import { useWalk, type Walk } from "./highlight";
@@ -124,11 +124,10 @@ function useTravel(walk: Walk | undefined, nodes: FlowNode[], groups: FlowGroup[
   packet: { current: HTMLDivElement | null }, boxes: { current: (HTMLElement | null)[] },
   frame: { current: HTMLDivElement | null }): FlowState | null {
   const [travelling, setTravelling] = useState<FlowState | null>(null);
-  const less = useLessMotion();  // the reader's system ask, or this board's own `motion: reduced` word
   useLayoutEffect(() => {
     const step = walk && walk.from !== null && walk.at === walk.from + 1 ? walk.steps[walk.at] : undefined;
     const dot = packet.current;
-    if (!walk || !step || !(step.send || step.tick) || !dot || typeof dot.animate !== "function" || less) {
+    if (!walk || !step || !(step.send || step.tick) || !dot || typeof dot.animate !== "function" || lessMotion()) {
       setTravelling(null);
       return;
     }

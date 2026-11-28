@@ -39,3 +39,18 @@ def test_the_five_facts_survive_the_text_fallback():
         {"title": "P", "owner": "Leo", "milestone": "M3", "trend": "+12%", "budget": "$40k", "arr": "$1.2M"}]}])
     for needle in ("Leo", "M3", "+12%", "$40k", "$1.2M"):
         assert needle in text
+
+
+def test_a_cards_id_survives_the_text_fallback():
+    # The card draws its id (Cards.tsx, .hb-card-id); a chat that can't draw must keep the same identifier.
+    text = tf.blocks_as_text([{"type": "cards", "items": [
+        {"title": "Mission Control", "id": "MC-12", "status": "active"}]}])
+    assert "MC-12" in text
+
+
+def test_a_metric_value_the_reader_cannot_show_is_refused():
+    # The Desktop reader keeps a metric only when its value is text or a number, so the checker refuses the rest
+    # (an object value used to pass here and then vanish from the drawing).
+    assert check_blocks([{"type": "cards", "items": [
+        {"title": "P", "metrics": [{"label": "velocity", "value": {}}]}]}]) == [
+        "0.items.0.metrics.0: metric needs a label and a value"]

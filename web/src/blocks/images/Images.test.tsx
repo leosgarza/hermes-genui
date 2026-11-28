@@ -1,28 +1,16 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { withStyles } from "../../core/testing";
 import type { ImagesBlock } from "./read";
 import { Images } from "./Images";
-import { clearGeneratedImageCache } from "./localImage";
+import imagesCss from "./images.css?raw";
 
-afterEach(() => {
-  cleanup();
-  clearGeneratedImageCache();
-  delete (window as unknown as { hermesDesktop?: unknown }).hermesDesktop;
-});
+afterEach(cleanup);
 
 const block: ImagesBlock = { type: "images", title: "Lisbon", images: [
   { url: "https://a.example/alfama.jpg", caption: "Alfama rooftops", source: "a.example" },
   { url: "https://b.example/tram.jpg", caption: "Tram 28", source: "b.example" },
 ] };
-
-const GEN_PATH = "/Users/me/.hermes/cache/generated/images/fox-gate.png";
-const GEN_DATA = "data:image/png;base64,Rk9Y";
-
-const hostWithFileRead = (readFileDataUrl: (path: string) => Promise<unknown>) => {
-  (window as unknown as { hermesDesktop: unknown }).hermesDesktop = { readFileDataUrl: vi.fn(readFileDataUrl) };
-};
-
-const genBlock: ImagesBlock = { type: "images", images: [{ url: GEN_PATH, caption: "Fox gate" }] };
 
 describe("Images", () => {
   it("shows each photo with its caption and credit", () => {
@@ -55,51 +43,34 @@ describe("Images", () => {
     expect(document.querySelector(".hb-photo-overlay")).toBeNull();
   });
 
-  // --- generated local images (the host reads the file; nothing renders until it answers) ------------------------
-
-  it("draws a generated photo through the host's data url", async () => {
-    hostWithFileRead(async () => GEN_DATA);
-    render(<Images block={genBlock} />);
-    const img = await screen.findByAltText("Fox gate");
-    expect(img.getAttribute("src")).toBe(GEN_DATA);
-    expect(screen.getByText("Fox gate")).toBeTruthy();
+  it("offers a download link on each photo without opening the overlay", () => {
+    const { container } = render(<Images block={block} />);
+    const link = screen.getByRole("link", { name: "Download Tram 28" }) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://b.example/tram.jpg");
+    expect(link.hasAttribute("download")).toBe(true);
+    fireEvent.click(link);
+    expect(container.querySelector(".hb-photo-overlay")).toBeNull();
   });
 
-  it("shows nothing while the generated photo is still being read", () => {
-    hostWithFileRead(() => new Promise(() => {})); // never settles
-    const { container } = render(<Images block={genBlock} />);
-    expect(container.innerHTML).toBe("");
-  });
-
-  it("hides a generated photo the host cannot read and keeps https photos", async () => {
-    hostWithFileRead(async (p) => (p === GEN_PATH ? { ok: false, error: "ENOENT" } : GEN_DATA));
-    render(<Images block={{ ...block, images: [...block.images, { url: GEN_PATH, caption: "Fox gate" }] }} />);
-    expect(screen.getByText("Tram 28")).toBeTruthy(); // https photos never wait for the file read
-    await waitFor(() => expect(screen.queryByText("Fox gate")).toBeNull());
-    expect(screen.getByText("Alfama rooftops")).toBeTruthy();
-  });
-
-  it("hides generated photos when no desktop bridge is there", async () => {
-    const { container } = render(<Images block={genBlock} />);
-    await waitFor(() => expect(container.innerHTML).toBe(""));
-  });
-
-  it("opens a generated photo full size with its data url", async () => {
-    hostWithFileRead(async () => GEN_DATA);
-    render(<Images block={genBlock} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Fox gate" }));
-    const big = document.querySelector(".hb-photo-overlay img") as HTMLImageElement;
-    expect(big.getAttribute("src")).toBe(GEN_DATA);
-  });
-
-  it("reads each generated path once even across remounts", async () => {
-    const read = vi.fn(async () => GEN_DATA);
-    (window as unknown as { hermesDesktop: unknown }).hermesDesktop = { readFileDataUrl: read };
-    const first = render(<Images block={genBlock} />);
-    await screen.findByAltText("Fox gate");
-    first.unmount();
-    render(<Images block={genBlock} />);
-    await screen.findByAltText("Fox gate");
-    expect(read).toHaveBeenCalledTimes(1);
+  it("keeps a strip up to three photos and opens a two-column grid at four", () => {
+    const unstyle = withStyles(imagesCss);
+    try {
+      const three: ImagesBlock = { ...block, images: [...block.images, { url: "https://c.example/third.jpg" }] };
+      const small = render(<Images block={three} />).container;
+      expect(small.querySelector(".hb-photos")!.className).not.toContain("hb-photos-grid");
+      expect(small.querySelector(".hb-photo-strip")!.firstElementChild!.querySelector(".hb-photo-download")!.parentElement!.className).not.toContain("hb-photo-text");
+      expect(getComputedStyle(small.querySelector(".hb-photo-strip")!).display).toBe("flex");
+      cleanup();
+      const four: ImagesBlock = { ...three, images: [...three.images, { url: "https://d.example/fourth.jpg" }] };
+      const big = render(<Images block={four} />).container;
+      expect(big.querySelector(".hb-photos")!.className).toContain("hb-photos-grid");
+      expect(big.querySelector(".hb-photo-strip")!.firstElementChild!.querySelector(".hb-photo-download")!.parentElement!.className).toContain("hb-photo-text");
+      expect(getComputedStyle(big.querySelector(".hb-photo-strip")!).display).toBe("grid");
+      expect(getComputedStyle(big.querySelector(".hb-photo-download")!).position).toBe("static");
+      expect(getComputedStyle(big.querySelector(".hb-photo-strip")!).overflow).toBe("visible");
+      expect(screen.getAllByRole("link", { name: /^Download / }).length).toBe(4);
+    } finally {
+      unstyle();
+    }
   });
 });

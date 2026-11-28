@@ -1,10 +1,10 @@
 // A form in a reply: the user changes the model's prefilled answers and presses Send, which sends one plain message
 // (formMessage.ts) as the user. A form is sent once; then it greys out with the choices still showing and "✓ Sent".
 // Inside a `::blocks` tag the sent state is saved with the board (sentForm.ts), so it stays sent after a reload.
-// Round 5 (Sol's disposition): both answers live on the BOARD, keyed by the form's identity — the unsent draft the
-// reader is typing (filed once the board is living) and the sent record (positionally until then, exactly as #8
-// accepted). An update that moves the form, a reopen of the board, a reload: the form comes back as the reader
-// left it, and a different form wearing the vacated position reads nothing of it.
+// Both answers live on the BOARD, keyed by the form's identity — the unsent draft the reader is typing (filed from
+// the keystroke) and the sent record (positionally until an update makes the board living). An update that moves the
+// form, a reopen of the board, a reload: the form comes back as the reader left it, and a different form wearing the
+// vacated position reads nothing of it.
 import { useContext } from "react";
 import { BlockActions } from "../../host/actions";
 import { useStoredValue } from "../../core/blockState";

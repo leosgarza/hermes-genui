@@ -30,9 +30,7 @@ def test_each_blocks_spec_stays_readable():
 
 
 def test_the_menu_is_a_fraction_of_the_full_guide():
-    # The menu is the model's one-screen index. The portfolio pack (cards, tasks, result, suggestions + nine chart
-    # kinds) added its lines, so the budget grew by what that content needs; the fraction rule below still holds.
-    assert len(catalog_text.menu()) <= 3500
+    assert len(catalog_text.menu()) <= 3000
     assert len(catalog_text.menu()) * 4 < len(catalog_text.describe())
 
 

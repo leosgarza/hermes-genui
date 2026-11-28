@@ -34,15 +34,8 @@
 
   display: flex;
   flex-direction: column;
-  /* The board's rhythm, kept as tokens so the model's `density` word can retighten them (enhancement #7).
-     comfortable draws exactly what boards have always drawn: 10px between blocks, 8px above and below, and
-     card padding 14/16 (shared.css reads the padding pair). */
-  --hb-gap: 10px;
-  --hb-margin: 8px;
-  --hb-card-pad-y: 14px;
-  --hb-card-pad-x: 16px;
-  gap: var(--hb-gap, 10px);
-  margin: var(--hb-margin, 8px) 0;
+  gap: 10px;
+  margin: 8px 0;
   /* A board stops at a comfortable reading width on a wide screen. */
   max-width: 1100px;
   color: var(--hb-ink);
@@ -54,49 +47,8 @@
    shadow. */
 .dark .hb-blocks {
   --hb-warn: #f0883e;
+  --hb-bad: var(--ui-danger, #f0796c);
   --hb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
-}
-/* The model's look words (enhancement #7): core/Blocks.tsx grows these attributes from the stored envelope's
-   density, palette and motion — and only for a word that isn't the default, so a board that never spoke them
-   draws exactly what it always drew. There is no reader control that sets these; like alignment, the model's
-   ask is the whole rule. */
-/* compact: less air between cards, tighter margins, and less padding inside every card. Still semantic — the
-   pixels live here in the renderer, never in the spec. */
-.hb-blocks[data-density="compact"] {
-  --hb-gap: 5px;
-  --hb-margin: 4px;
-  --hb-card-pad-y: 9px;
-  --hb-card-pad-x: 12px;
-}
-/* cool: blues, teals and violets — neighbours stay apart the way the house set's do. */
-.hb-blocks[data-palette="cool"] {
-  --hb-chart-1: #4f7cff;
-  --hb-chart-2: #0d9488;
-  --hb-chart-3: #6366f1;
-  --hb-chart-4: #06b6d4;
-  --hb-chart-5: #8b5cf6;
-  --hb-chart-6: #14b8a6;
-  --hb-chart-7: #a5b4fc;
-  --hb-chart-8: #38bdf8;
-}
-/* warm: reds, ambers and pinks, likewise. */
-.hb-blocks[data-palette="warm"] {
-  --hb-chart-1: #ef4444;
-  --hb-chart-2: #f59e0b;
-  --hb-chart-3: #ec4899;
-  --hb-chart-4: #f97316;
-  --hb-chart-5: #d946ef;
-  --hb-chart-6: #ca8a04;
-  --hb-chart-7: #fb7185;
-  --hb-chart-8: #b45309;
-}
-/* reduced: this board settles every CSS animation and glide at once. The word only ADDS stillness — every
-   prefers-reduced-motion media block in the stylesheets stays exactly as it was, so a reader whose system asks
-   for less motion always gets less, whatever the model said. */
-.hb-blocks[data-motion="reduced"] *,
-.hb-blocks[data-motion="reduced"] {
-  animation: none !important;
-  transition: none !important;
 }
 /* A stronger line, for chart axes, checkboxes and inputs. */
 .hb-blocks { --hb-line-strong: color-mix(in srgb, var(--hb-ink) 18%, transparent); }
@@ -112,72 +64,94 @@
    the auto margin then shares out only the space the block left over. A block that fills the width (a long line, a
    table card, prose) shifts by nothing. Never auto-margin a block in a flex column: the margin stops the stretch
    and the block collapses to its content. Left is how blocks sit already, so a board with no ask anywhere grows no
-   .hb-place at all. */
+   .hb-place at all.
+   The two classes compound on purpose: a block's own root reset (.hb-chart { margin: 0 } in chart.css, the host's
+   figure margin in the line above) ties a single placement class on specificity and wins on load order alone —
+   block css is joined after tokens. Compounded, the ask (0,2,0) outranks every root reset (0,1,0 and 0,1,1), so a
+   chart asked to center centers like every other card (measured in real Chrome: symmetric margins, never flush
+   left). Placed cards keep the width caps their own rules give them; those are duplicated through the wrapper in
+   each block's css. */
 .hb-place { display: flow-root; }
-/* Round 4 (living updates, review defect 1): placement is a class change, never a re-wrap. Every block
-   sits in ONE stable .hb-place root; when nothing was asked the root carries .hb-bare and generates no
-   box at all — its block lays out, measures and exports exactly where an unwrapped block has always
-   sat, so an unsaid board renders byte-identically while a flip to or from center cannot remount the
-   live subtree. */
-.hb-place.hb-bare { display: contents; }
-/* Round 6 (t_64a23a22): placement outranks a block's own margin reset. chart (and the image/photos roots)
-   reset their root margin to 0 — the host's prose styles give a figure one — and at EQUAL specificity that
-   reset, loaded after tokens, silently vetoed the auto-margin by load order alone: a centered chart sat
-   flush left while a calculator centered fine. The compound class raises placement above every root reset
-   at once, so the one shared rule keeps sole authority over where a block sits. A block that fills its
-   column still shares out nothing: the auto margins only divide leftover space, exactly as above. */
 .hb-place.hb-place-center > * { margin-inline: auto; }
 .hb-place.hb-place-right > * { margin-inline-start: auto; margin-inline-end: 0; }
+/* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's
+   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align only
+   moves words that sit in a line box filling the available width, so where a block keeps its words in a
+   shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put it, and
+   only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words read anyway,
+   so a board with no ask grows no class and no wrapper. */
+.hb-ta-center { text-align: center; }
+.hb-ta-right { text-align: right; }
+/* The line width a voice needs: text-align is no property of a shrink-wrapped flex item — a body that hugs its
+   words has no free line for the words to travel on. heading and text are block boxes that already fill their
+   column; a lone stat card fills its column and its label, value and change lines stretch across the card; only
+   the callout sets its words in a non-growing body beside the fixed icon, so where a voice asks, that body is
+   opened to the row beside the icon. Scoped to the voice classes on purpose: a callout nobody asked about keeps
+   every rect it always had. A new text-bearing kind joins TEXT_BEARING (core/Blocks.tsx) only once its words
+   measure at their voice in the Chrome probe (tests/test_layout_alignment.py). */
+.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }
 /* A placed kpis row (maintainer note 2): the cards are no ordinary card — the row is one grid whose auto-fill
-   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves (and
-   the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse (auto-fit) and
-   the used ones gather where the ask put them; the grid's box keeps filling the column and a card's own rects
-   stay exactly as the unplaced row measured them. A bare root is display:contents, so the shipped default row
-   keeps its own rules — every selector here sits under a real placement class. */
+   tracks eat the whole column and park the cards left, so an auto margin on a box that wide never moves
+   (and the wrapper, display:flow-root, fills the width by design). Placed, the empty tracks collapse
+   (auto-fit) and the used ones gather where the ask put them; the grid's box keeps filling the column and a
+   card's own rects stay exactly as the unplaced row measured them. Left asks grow no wrapper at all, so the
+   shipped default row is untouched by these rules — every selector here sits under a placement class. */
 .hb-place.hb-place-center > .hb-kpis,
 .hb-place.hb-place-right > .hb-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 200px)); }
 .hb-place.hb-place-center > .hb-kpis { justify-content: center; }
 .hb-place.hb-place-right > .hb-kpis { justify-content: end; }
-/* Text voice: how the words inside a block read (the model's `text_align`, the block's word or the board's
-   default). The voice is a class on the block's wrapper and reaches the words by inheritance; a text-align
-   only moves words that sit in a line box filling the available width, so where a block keeps its words in
-   a shrink-wrapped box, the voice first opens that box (below). The box stays exactly where placement put
-   it, and only blocks whose draw is words (heading, text, stat, callout) ever carry it. Left is how words
-   read anyway, so a board with no ask grows no class and no wrapper. */
-.hb-ta-center { text-align: center; }
-.hb-ta-right { text-align: right; }
-/* The line width a voice needs (round 5 of the review): text-align is no property of a shrink-wrapped flex
-   item — a body that hugs its words has no free line for the words to travel on. Every text-bearing kind is
-   audited against that rule, and Chrome measures it (tests/test_layout_alignment.py): heading and text are
-   block boxes that already fill their column; a lone stat card fills its column and its label, value and
-   change lines stretch across the card; only the callout sets its words in a non-growing body beside the
-   fixed icon, so where a voice asks, that body is opened to the row beside the icon. Scoped to the voice
-   classes on purpose: a callout nobody asked about keeps every rect it always had. A new text-bearing kind
-   joins TEXT_BEARING only once its words measure at their voice in the same Chrome probe. */
-.hb-ta-center .hb-callout-body, .hb-ta-right .hb-callout-body { flex: 1 1 auto; min-width: 0; }
-/* The provenance footer: the quiet lines a board grows when its envelope says as_of or live — the source on its
-   own row, then the joined line: each chart's own source, the date · the word Live or Snapshot. The source row is
-   a block column on purpose: placement through a .hb-place only shares out space a block context left over, and a
-   place inside the join line's flex row would shrink-wrap to its content, parking every word back at the left
-   edge (measured in Chrome: 29px where the board puts 800). As its own row it fills the footer's width exactly
-   like a board's own column fills the board, so the placement machinery is the same one, untouched. The joins on
-   the line are plain text (.hb-provenance-source needs no rule of its own — the line's voice already fits them).
-   The badge always carries its word; colour (the existing good green for Live) only sits beside it. */
-.hb-provenance {
+/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers
+   follow-ups. The row is width:0 + min-width:100% on purpose — the same trick a shipped tools row uses:
+   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can
+   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the
+   point of the tap, so no board is too narrow to read one — height may grow, width never, nothing clips, no
+   nowrap and no ellipsis. Pinned in real Chrome by tests/test_follow_ups_chrome.py. */
+.hb-followups {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-  font-size: 11.5px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 2px 0 0;
+}
+.hb-followups .hb-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+/* The word the strip says is only ever the host's own answer to the LAST tap (core/FollowUps.tsx), and it
+   follows the row's rule: WRAP, never clip — height may grow, width never. At rest it carries no text and
+   costs the board nothing. */
+.hb-followups-said {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
   color: var(--hb-muted);
 }
-.hb-provenance-line {
+
+/* The provenance footer: one quiet line a board grows under itself. It speaks only the board's own source
+   data that the flow has not already shown — a board drawing a source block says its sources there, once,
+   and the line echoes nothing (maintainer note 2026-11-25) — plus, when and only when the plugin host itself
+   knows this view keeps refreshing (a kept dashboard), the word Live, which stands alone when the page has
+   no source block at all (Today's shape). Nothing new is asked of the model; the parts are plain spans of
+   the line's own voice. The badge always carries its word; colour (the existing good green for Live) only
+   sits beside it. A board with nothing to say and no live host never grows this node at all. */
+.hb-provenance {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 6px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--hb-muted);
 }
-.hb-provenance .hb-source { font-size: inherit; }
 .hb-provenance-dot { opacity: 0.7; }
 .hb-provenance-badge {
   padding: 0 7px;
@@ -189,39 +163,4 @@
 .hb-provenance-badge[data-live="live"] {
   color: var(--hb-good);
   border-color: color-mix(in srgb, var(--hb-good) 45%, transparent);
-}
-/* The follow-up strip: the quiet line of taps (core/FollowUps.tsx) a board grows when its envelope offers
-   follow-ups. The row is width:0 + min-width:100% on purpose — the interactive-table tools row's shipped trick:
-   it fills the board's column without ever contributing its own width to a fit-content hug, so the strip can
-   never widen a board that hugs. Pills WRAP their labels and the row WRAPS its pills: the whole message is the
-   point of the tap, so no board is too narrow to read one — height may grow, width never, nothing clips, no
-   nowrap and no ellipsis (the review round-3 lesson, pinned in Chrome by tests/test_follow_ups_chrome.py).
-   The word the strip says is only ever the host's own answer, and it follows the same rule. */
-.hb-followups {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 8px;
-  width: 0;
-  min-width: 100%;
-  box-sizing: border-box;
-  padding: 2px 0 0;
-}
-.hb-followups-center { justify-content: center; }
-.hb-followups-right { justify-content: flex-end; }
-.hb-followups .hb-pill {
-  flex: 0 1 auto;
-  min-width: 0;
-  min-height: 28px;
-  padding: 4px 12px;
-  font-size: 12px;
-}
-.hb-followups .hb-followup-label { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
-.hb-followups-said {
-  flex: 0 1 auto;
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  color: var(--hb-muted);
 }

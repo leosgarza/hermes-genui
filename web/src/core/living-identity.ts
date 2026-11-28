@@ -28,10 +28,6 @@ import type { Block } from "../registry";
  *  move. It stays on the block for the door to file saved ticks under; it stays out of the identity. */
 const POSITIONAL_PATH = /^\d+(?:\.[A-Za-z_]+(?:\.\d+)*)*$/;
 
-/** The wrapper words of enhancement #6: placement, not content. A living update that only flips where a
- *  block sits (or how its words read) must not change WHO it is — the mounted subtree rides the flip. */
-const PRESENTATION_KEYS: ReadonlySet<string> = new Set(["align", "text_align"]);
-
 /** One constant for every value that holds descendant blocks, at any depth: a child list is not
  *  part of the parent's identity — the children are keyed themselves, wherever they are drawn. */
 const DESCENDANTS = "◇";
@@ -49,9 +45,7 @@ export function canonicalize(v: unknown, root: boolean): string {
   if (Array.isArray(v)) return `[${v.map((e) => canonicalize(e, false)).join(",")}]`;
   const o = v as Record<string, unknown>;
   const positional = typeof o.type === "string" && typeof o.path === "string" && POSITIONAL_PATH.test(o.path);
-  const keys = Object.keys(o)
-    .filter((k) => !((positional && k === "path") || (root && PRESENTATION_KEYS.has(k))))
-    .sort();
+  const keys = Object.keys(o).filter((k) => !(positional && k === "path")).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalize(o[k], false)}`).join(",")}}`;
 }
 

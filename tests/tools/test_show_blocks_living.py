@@ -197,8 +197,9 @@ def test_schema_carries_target_and_links():
 
 
 def test_describe_budget_untouched():
-    # the catalog's describe() is the pinned text: living boards must not grow it. (A gauge's own `target` field is
-    # a chart word, so the guard names the living-board phrasing itself, not the bare word.)
+    # the catalog's describe() is the pinned text: living boards must not grow it. (The portfolio pack's gauge does
+    # name a numeric "target" field of its own — that word is the pack's, not a living-board word, so only the
+    # living vocabulary is pinned here.)
     from hermes_genui.core.catalog_text import describe
-    text = describe()
-    assert "Living" not in text and "update THAT board" not in text and "links instead of redrawing" not in text
+    assert "Living" not in describe() and "board address" not in describe()
+

@@ -1,6 +1,5 @@
 // Picking a point, bar or slice from the keyboard: every chart's drawing is focusable, the arrow keys step through
-// what it shows and Escape (or leaving it) hides the hover card. Enter (or Space) hands the picked datum to the
-// drawing's `activate` — its drill-down — when it has one. The pointer picks in each drawing's own way.
+// what it shows and Escape (or leaving it) hides the hover card. The pointer picks in each drawing's own way.
 import type { KeyboardEvent } from "react";
 
 /**
@@ -19,35 +18,15 @@ export function stepPick(at: number | null, key: string, n: number, rows = false
 }
 
 /** The props that make a drawing focusable and steerable from the keyboard: spread them on its svg (or grid). */
-export function pickKeys(n: number, at: number | null, pick: (i: number | null) => void, rows = false, activate?: () => void) {
+export function pickKeys(n: number, at: number | null, pick: (i: number | null) => void, rows = false) {
   return {
     tabIndex: 0,
-    "aria-haspopup": "dialog" as const,
     onKeyDown: (e: KeyboardEvent) => {
-      if (activate && (e.key === "Enter" || e.key === " ")) {
-        e.preventDefault();
-        activate();
-        return;
-      }
       const next = stepPick(at, e.key, n, rows);
       if (next === undefined) return;
       e.preventDefault();
       pick(next);
     },
     onBlur: () => pick(null),
-  };
-}
-
-/**
- * A drawing's own pick setter, for charts that drill down. A blur is not always the reader leaving: when the
- * drill-down dialog we opened is removed, real Chrome makes the drawing pass through a blur a beat AFTER it
- * handed the keyboard back (a delayed stale-focus cleanup for the removed dialog). That blur must not erase the
- * pick the round trip exists to preserve. `open` says whether a detail is up, `closedAt` when the last one
- * closed; a null pick inside that window is stale, not a reader leaving (Escape and Tab still clear).
- */
-export function keepsPick(setPick: (i: number | null) => void, open: () => boolean, closedAt: { current: number }) {
-  return (i: number | null) => {
-    if (i === null && (open() || Date.now() - closedAt.current < 250)) return;
-    setPick(i);
   };
 }

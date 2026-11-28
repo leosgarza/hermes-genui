@@ -102,20 +102,6 @@ describe("xyTip", () => {
   });
 });
 
-describe("histogram layout", () => {
-  const hist: ChartSpec = { type: "histogram", x: ["0–2", "2–4", "4–6"], series: [{ data: [3, 7, 2] }] };
-
-  it("stands its bars on a zero baseline", () => {
-    const l = layoutOf(hist);
-    expect(l.slotted).toBe(true);
-    expect(l.H).toBe(210);
-    expect(chartScales(hist, null).left.min).toBe(0);
-  });
-  it("writes the counts over the bars when they fit", () => {
-    expect(layoutOf(hist).valueLabels).toBe(true);
-  });
-});
-
 describe("startLabelY (the Start label beside a change line's dashed start)", () => {
   // The label spans x 10-80; the dashed line is at y 100; the plot's bottom is at 194.
   const place = (points: [number, number][], y = 100) => startLabelY(points, 10, 80, y, 194);

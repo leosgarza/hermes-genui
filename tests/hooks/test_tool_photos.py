@@ -31,16 +31,11 @@ def test_other_tools_never_approve_their_own_images(tmp_path, monkeypatch):
     assert tool_photos.store.known_photo_urls(root=tmp_path) == set()
 
 
-def test_a_generated_local_path_is_remembered_and_junk_is_ignored(tmp_path, monkeypatch):
+def test_local_paths_and_malformed_results_are_ignored(tmp_path, monkeypatch):
     monkeypatch.setattr(tool_photos.store, "default_root", lambda: tmp_path)
-    # An absolute path image_generate saved is drawable (Desktop reads it through the host's file reader)…
-    tool_photos.note_tool_photos(tool_name="image_generate", result={"success": True, "image": LOCAL})
-    assert tool_photos.store.known_photo_urls(root=tmp_path) == {LOCAL}
-    # …while malformed results, relative names and insecure spellings still approve nothing.
-    for result in ("not json", None, 42, {"image": "http://insecure.example/x.png"},
-                   {"image": "a.png"}, {"image": "file:///Users/me/a.png"}, {"success": False, "image": LOCAL}):
+    for result in ({"image": LOCAL}, "not json", None, 42, {"image": "http://insecure.example/x.png"}):
         tool_photos.note_tool_photos(tool_name="image_generate", result=result)
-    assert tool_photos.store.known_photo_urls(root=tmp_path) == {LOCAL}
+    assert tool_photos.store.known_photo_urls(root=tmp_path) == set()
 
 
 def test_the_standin_is_recorded_only_while_its_setting_is_on(tmp_path, monkeypatch):

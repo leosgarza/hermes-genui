@@ -3,7 +3,7 @@
 // grow in while playing (at once with less motion).
 import { useEffect, useRef } from "react";
 import { colourOf, fitCanvas, useTheme } from "../../lib/canvas";
-import { useLessMotion } from "../../lib/motion";
+import { lessMotion } from "../../lib/motion";
 import { fmt, partColour } from "../chart/chartData";
 import { useWidth } from "../chart/useWidth";
 import type { SimPile } from "./read";
@@ -51,7 +51,6 @@ function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }: Pi
   const born = useRef<number[]>([]);
   const width = useWidth(canvas);
   const theme = useTheme();
-  const less = useLessMotion();  // the reader's system ask, or this board's own `motion: reduced` word
   const count = counts[k];
   const cols = Math.max(20, Math.floor(width / DOT));
   const size = width / cols;
@@ -61,7 +60,7 @@ function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }: Pi
   useEffect(() => {
     const el = canvas.current;
     if (!el) return;
-    const grow = playing && !less;
+    const grow = playing && !lessMotion();
     let frame = 0;
     const draw = () => {
       const fit = fitCanvas(el, height);
@@ -84,7 +83,7 @@ function Pile({ k, name, amount, counts, startDots, tallest, playing, unit }: Pi
     };
     draw();
     return () => cancelAnimationFrame(frame);
-  }, [count, counts.join(), startDots, width, height, theme, less]);
+  }, [count, counts.join(), startDots, width, height, theme]);
 
   return (
     <div className="hb-sim-pile">

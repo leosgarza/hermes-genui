@@ -540,9 +540,7 @@ def text_chart(block: dict) -> str:
     elif kind == "treemap":
         body = _treemap_line(block, series[0])
     else:
-        # x (not block["x"]): a sorted bar chart's labels were reordered with its values, so a gap is named by the
-        # label that now sits on it.
-        body = "; ".join(line for line in (_series_line(s, x) for s in series[:6]) if line)
+        body = "; ".join(line for line in (_series_line(s, block.get("x") or []) for s in series[:6]) if line)
     if not body:
         return ""
     unit = safe_text(block.get("unit"), 20)
@@ -585,6 +583,10 @@ def _gauge_line(block: dict, series: dict) -> str:
         return ""
     unit = safe_text(block.get("unit"), 20)
     reading = fmt_num(value) + ("%" if unit == "%" else (f" {unit}" if unit else ""))
+    # The scale the reading sits on: the same number read on 0-100 and on 90-100 means different things.
+    lo, hi = block.get("min"), block.get("max")
+    if is_number(lo) and is_number(hi) and hi > lo:
+        reading += f" of {fmt_num(lo)}-{fmt_num(hi)}"
     target = block.get("target")
     if is_number(target):
         reading += f" (target {fmt_num(target)})"

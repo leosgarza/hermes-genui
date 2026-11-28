@@ -1,85 +1,70 @@
 // A strip of real photos, each with its caption and credit. A photo that fails to load (a dead link, a hotlink
-// block) hides itself; when none load the strip disappears. Clicking one opens it full size. A photo whose url is a
-// generated local path asks the desktop host to read the file (blocks/images/localImage.ts) and shows nothing until
-// that answers; a failed read hides it, like a dead link.
-import { useEffect, useRef, useState } from "react";
-import { isTopLayer, popLayer, pushLayer } from "../../core/overlays";
+// block) hides itself; when none load the strip disappears. Clicking one opens it full size.
+import { useEffect, useState } from "react";
 import type { ImagesBlock, Photo } from "./read";
-import { isGeneratedImagePath, readGeneratedImageDataUrl } from "./localImage";
 
-/** One photo as drawn: its url, or the file's data url once the host reads it. */
-type Shown = { photo: Photo; src: string };
+const GRID_FROM = 4; // four or more pictures open a compact grid; no layout field for the model to write
 
 export function Images({ block }: { block: ImagesBlock }) {
   const [failed, setFailed] = useState<Set<string>>(new Set());
-  const [dataUrls, setDataUrls] = useState<Record<string, string>>({});
-  const [open, setOpen] = useState<Shown | null>(null);
-  const fail = (url: string) => setFailed((before) => new Set(before).add(url));
-  // A local path has no src until its read answers; an https photo has one the moment the block is read.
-  const srcOf = (p: Photo) => (isGeneratedImagePath(p.url) ? dataUrls[p.url] : p.url);
-
-  // Ask the host once per path (the module also caches across remounts); a rejection hides that photo.
-  const asked = useRef(new Set<string>());
-  useEffect(() => {
-    for (const p of block.images) {
-      if (!isGeneratedImagePath(p.url) || asked.current.has(p.url)) continue;
-      asked.current.add(p.url);
-      readGeneratedImageDataUrl(p.url).then(
-        (url) => setDataUrls((before) => (before[p.url] ? before : { ...before, [p.url]: url })),
-        () => fail(p.url),
-      );
-    }
-  }, [block]);
-
-  const shown = block.images
-    .map((photo): Shown | null => {
-      const src = failed.has(photo.url) ? undefined : srcOf(photo);
-      return src === undefined ? null : { photo, src };
-    })
-    .filter((s): s is Shown => s !== null);
+  const [open, setOpen] = useState<Photo | null>(null);
+  const shown = block.images.filter((p) => !failed.has(p.url));
   if (!shown.length) return null;
+  const fail = (url: string) => setFailed((before) => new Set(before).add(url));
+  const grid = shown.length >= GRID_FROM;
+  const download = (p: Photo) => (
+    <a className="hb-photo-download" href={p.url} download={p.caption || "photo"} aria-label={`Download ${p.caption ?? "photo"}`}
+       onClick={(e) => e.stopPropagation()}><span aria-hidden="true">↓</span></a>
+  );
 
   return (
-    <figure className="hb-photos">
+    <figure className={grid ? "hb-photos hb-photos-grid" : "hb-photos"}>
       {block.title && <figcaption className="hb-chart-title">{block.title}</figcaption>}
       <div className="hb-photo-strip">
-        {shown.map(({ photo, src }) => (
-          <button key={photo.url} type="button" className="hb-photo" onClick={() => setOpen({ photo, src })} aria-label={photo.caption ?? "Open photo"}>
-            <img src={src} alt={photo.caption ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => fail(photo.url)} />
-            {(photo.caption || photo.source) && (
-              <span className="hb-photo-text">
-                {photo.caption && <span className="hb-photo-caption">{photo.caption}</span>}
-                {photo.source && <span className="hb-photo-source">{photo.source}</span>}
-              </span>
-            )}
-          </button>
+        {shown.map((p) => grid ? (
+          <div key={p.url} className="hb-photo">
+            <button type="button" className="hb-photo-open" onClick={() => setOpen(p)} aria-label={p.caption ?? "Open photo"}>
+              <img src={p.url} alt={p.caption ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => fail(p.url)} />
+            </button>
+            <div className="hb-photo-text">
+              <button type="button" className="hb-photo-label" onClick={() => setOpen(p)}>
+                {p.caption && <span className="hb-photo-caption">{p.caption}</span>}
+                {p.source && <span className="hb-photo-source">{p.source}</span>}
+              </button>
+              {download(p)}
+            </div>
+          </div>
+        ) : (
+          <div key={p.url} className="hb-photo">
+            <button type="button" className="hb-photo-open" onClick={() => setOpen(p)} aria-label={p.caption ?? "Open photo"}>
+              <img src={p.url} alt={p.caption ?? ""} loading="lazy" referrerPolicy="no-referrer" onError={() => fail(p.url)} />
+              {(p.caption || p.source) && (
+                <span className="hb-photo-text">
+                  {p.caption && <span className="hb-photo-caption">{p.caption}</span>}
+                  {p.source && <span className="hb-photo-source">{p.source}</span>}
+                </span>
+              )}
+            </button>
+            {download(p)}
+          </div>
         ))}
       </div>
-      {open && <Overlay shown={open} onClose={() => setOpen(null)} />}
+      {open && <Overlay photo={open} onClose={() => setOpen(null)} />}
     </figure>
   );
 }
 
 /** The photo full size, fixed over the window (plugins get no react-dom, so no portal); a click anywhere
  *  or Escape closes it. */
-function Overlay({ shown, onClose }: { shown: Shown; onClose: () => void }) {
+function Overlay({ photo, onClose }: { photo: Photo; onClose: () => void }) {
   useEffect(() => {
-    const layer = pushLayer();  // the photo is the topmost thing a key can answer while it is up
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || !isTopLayer(layer)) return;  // (core/overlays.ts)
-      e.stopImmediatePropagation();  // one keypress steps down exactly one layer
-      onClose();
-    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popLayer(layer);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  const { photo, src } = shown;
   return (
     <div className="hb-photo-overlay" role="dialog" aria-label={photo.caption ?? "Photo"} onClick={onClose}>
-      <img src={src} alt={photo.caption ?? ""} referrerPolicy="no-referrer" />
+      <img src={photo.url} alt={photo.caption ?? ""} referrerPolicy="no-referrer" />
       {(photo.caption || photo.source) && (
         <div className="hb-photo-overlay-text">
           {photo.caption}

@@ -39,7 +39,7 @@ def test_a_bullet_passes_and_caps_at_two_series():
 def test_gauge_and_bullet_read_as_text():
     gauge = tf.blocks_as_text([{"type": "chart", "kind": "gauge", "title": "Uptime", "unit": "%",
                                 "series": [{"data": [68]}], "min": 0, "max": 100, "target": 75}])
-    assert "Uptime" in gauge and "68" in gauge and "target 75" in gauge
+    assert "Uptime" in gauge and "68" in gauge and "0-100" in gauge and "target 75" in gauge
     bullet = tf.blocks_as_text([{"type": "chart", "kind": "bullet", "title": "Load", "x": ["CPU", "RAM"],
                                  "series": [{"data": [68, 40]}, {"data": [80, 80]}]}])
     assert "CPU 68/80" in bullet and "RAM 40/80" in bullet

@@ -3,8 +3,7 @@
 // drop what doesn't fit and note why; never show broken data.
 import { REGISTRY, type Block } from "../registry";
 import {
-  actsBeforeTheModel, align, boardId, density, firstText, keepFirst, motion, NO_SEND, palette, str, Trail, version,
-  type Align, type Density, type Diagnostic, type Motion, type Palette,
+  actsBeforeTheModel, align, boardId, firstText, keepFirst, NO_SEND, str, Trail, version, type Align, type Diagnostic,
 } from "./fields";
 
 /** Every block type that can be drawn, containers included. */
@@ -32,7 +31,6 @@ export function readBlocksNoted(data: unknown): {
   blocks: Block[]; dropped: Diagnostic[];
   version?: number; updatedAt?: string; links?: BoardLink[]; followUps?: FollowUp[];
   align?: Align; textAlign?: Align;
-  asOf?: string; live?: boolean; density?: Density; palette?: Palette; motion?: Motion;
 } {
   let list: unknown = data;
   let boardVersion: number | undefined;
@@ -41,11 +39,6 @@ export function readBlocksNoted(data: unknown): {
   let boardAlign: Align | undefined;
   let boardTextAlign: Align | undefined;
   let boardFollowUps: FollowUp[] | undefined;
-  let boardAsOf: string | undefined;
-  let boardLive: boolean | undefined;
-  let boardDensity: Density | undefined;
-  let boardPalette: Palette | undefined;
-  let boardMotion: Motion | undefined;
   const top = new Trail();
   if (isObject(list) && Array.isArray((list as any).blocks)) {
     if (typeof (list as any).type !== "string") {
@@ -59,14 +52,6 @@ export function readBlocksNoted(data: unknown): {
       boardAlign = align((list as any).align);
       boardTextAlign = align((list as any).text_align);
       boardFollowUps = readFollowUps((list as any).follow_ups, top.at("follow_ups"));
-      // The look and provenance words: how the board packs, colours and moves, and when its data is from. The
-      // DRAWING never speaks the provenance words (the chat footer answers to the host alone — maintainer ruling
-      // 2026-11-25), but a board's own file export does serialize what the board said, so they are still read here.
-      boardAsOf = str((list as any).as_of, 80);
-      boardLive = typeof (list as any).live === "boolean" ? (list as any).live : undefined;
-      boardDensity = density((list as any).density);
-      boardPalette = palette((list as any).palette);
-      boardMotion = motion((list as any).motion);
     }
     list = (list as any).blocks;
   }
@@ -78,8 +63,7 @@ export function readBlocksNoted(data: unknown): {
     });
   }
   const noted: {
-    blocks: Block[]; dropped: Diagnostic[]; asOf?: string; live?: boolean;
-    density?: Density; palette?: Palette; motion?: Motion;
+    blocks: Block[]; dropped: Diagnostic[];
     version?: number; updatedAt?: string; links?: BoardLink[]; align?: Align; textAlign?: Align;
     followUps?: FollowUp[];
   } = { blocks, dropped: top.dropped };
@@ -89,11 +73,6 @@ export function readBlocksNoted(data: unknown): {
   if (boardAlign !== undefined) noted.align = boardAlign;
   if (boardTextAlign !== undefined) noted.textAlign = boardTextAlign;
   if (boardFollowUps !== undefined) noted.followUps = boardFollowUps;
-  if (boardAsOf !== undefined) noted.asOf = boardAsOf;
-  if (boardLive !== undefined) noted.live = boardLive;
-  if (boardDensity !== undefined) noted.density = boardDensity;
-  if (boardPalette !== undefined) noted.palette = boardPalette;
-  if (boardMotion !== undefined) noted.motion = boardMotion;
   return noted;
 }
 

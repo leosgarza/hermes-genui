@@ -1,7 +1,7 @@
-// What-if numbers: a slider per input, and results worked out again on every move. Nothing is sent;
-// since round 7 every moved line is the BOARD's answer from the edit itself (core/blockState.ts) —
-// a never-updated, a living update, a move into another container or a reopen all find every slider
-// where the reader left it, over the state door and across an unmounted first update alike.
+// What-if numbers: a slider per input, and results worked out again on every move. Nothing is sent; every moved
+// line is the BOARD's answer from the edit itself (core/blockState.ts) — a never-updated board, a living update,
+// a move into another container or a reopen all find every slider where the reader left it, over the state door
+// and across an unmounted first update alike.
 import { useMemo } from "react";
 import { useStoredValue } from "../../core/blockState";
 import type { CalcInput, CalcOutput } from "./read";

@@ -447,177 +447,6 @@ def test_including_a_board_takes_its_blocks_and_not_its_follow_ups(store_dir):
     assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
 
 
-def test_the_interactive_word_is_documented_where_the_model_reads_the_blocks(store_dir):
-    # The model reads a block's fields through block_guide's spec (and sees that same spec beside a refusal).
-    prompts = importlib.import_module("hermes_genui.core.catalog_text")
-    assert "interactive true" in (prompts.spec("table") or "")
-
-
-def test_the_new_chart_kinds_are_documented_where_the_model_reads_the_blocks(store_dir):
-    # Same seam as the interactive word: the menu names the kinds, and the chart spec repeats them.
-    prompts = importlib.import_module("hermes_genui.core.catalog_text")
-    menu = prompts.menu()
-    for kind in ("gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble", "box", "treemap"):
-        assert kind in menu, kind
-    # describe() repeats each kind's use words, so a refusal's guide names them too.
-    for kind in ("gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble", "box", "treemap"):
-        assert kind in prompts.describe(), kind
-
-
-def test_the_interactive_word_is_stored_verbatim(store_dir):
-    table = {"type": "table", "caption": "Phones", "columns": ["A"], "rows": [["x"]], "interactive": True}
-    result = tools.show_blocks({"blocks": [table]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [table]
-
-
-def test_board_align_is_stored_beside_the_blocks(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "blocks": [TIMELINE]}
-
-
-def test_an_unknown_align_word_is_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "align": "middle"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_a_block_may_ask_for_its_own_align(store_dir):
-    block = {"type": "text", "text": "Look here", "align": "right"}
-    result = tools.show_blocks({"blocks": [block]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
-
-
-def test_including_a_board_keeps_its_blocks_and_not_its_align(store_dir):
-    board_id = plugin_store.save({"align": "right", "blocks": [TIMELINE]}, root=store_dir)
-    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_board_text_align_is_stored_beside_the_blocks(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "center"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"text_align": "center", "blocks": [TIMELINE]}
-
-
-def test_an_unknown_text_align_word_is_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "text_align": "justify"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_a_block_may_ask_for_its_own_text_align(store_dir):
-    block = {"type": "heading", "text": "Big number", "text_align": "center"}
-    result = tools.show_blocks({"blocks": [block]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [block]
-
-
-def test_board_density_is_stored_beside_the_blocks(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "density": " Compact "})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"density": "compact", "blocks": [TIMELINE]}
-
-
-def test_board_palette_and_motion_are_stored_beside_the_blocks(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "palette": "Cool", "motion": "REDUCED"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"palette": "cool", "motion": "reduced",
-                                                                    "blocks": [TIMELINE]}
-
-
-def test_unknown_look_words_are_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "density": "tight", "palette": "neon", "motion": "off"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_non_text_look_words_are_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "density": 1, "palette": ["cool"], "motion": {"less": True}})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_look_words_share_the_envelope_with_align_and_provenance(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "density": "compact",
-                                "palette": "warm", "motion": "reduced", "as_of": "2026-11-19"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "density": "compact",
-                                                                    "palette": "warm", "motion": "reduced",
-                                                                    "as_of": "2026-11-19", "blocks": [TIMELINE]}
-
-
-def test_including_a_board_keeps_its_blocks_and_not_its_look_words(store_dir):
-    board_id = plugin_store.save({"density": "compact", "palette": "cool", "blocks": [TIMELINE]}, root=store_dir)
-    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_the_schema_teaches_the_look_words():
-    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
-    density = props["density"]["description"]
-    palette = props["palette"]["description"]
-    motion = props["motion"]["description"]
-    for word in ("comfortable", "compact", "Yours to decide"):
-        assert word in density
-    assert "dashboard" in density and "story" in density  # the content cues the model picks from
-    for word in ("default", "cool", "warm", "Yours to decide"):
-        assert word in palette
-    for word in ("full", "reduced"):
-        assert word in motion
-    assert "never overrides" in motion and "less motion always gets less" in motion  # the accessibility floor
-    for word in (density, palette, motion):
-        assert "reader has no control" in word or "reader's system" in word  # model-decided, never a panel
-
-
-def test_the_look_words_stay_semantic_not_pixels():
-    import re
-    props = tools.SHOW_BLOCKS_SCHEMA["parameters"]["properties"]
-    texts = " ".join(props[name]["description"] for name in ("density", "palette", "motion"))
-    assert not re.search(r"\d+\s*px", texts, re.IGNORECASE), "density must not speak in pixels"
-    assert not re.search(r"#[0-9a-fA-F]{3,8}", texts), "palette must not speak in hex"
-
-
-def test_board_provenance_is_stored_beside_the_blocks(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "2026-11-18", "live": True})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"as_of": "2026-11-18", "live": True,
-                                                                    "blocks": [TIMELINE]}
-
-
-def test_provenance_and_align_share_one_envelope(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "align": "center", "as_of": " Nov 18 ", "live": False})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "center", "as_of": "Nov 18",
-                                                                    "live": False, "blocks": [TIMELINE]}
-
-
-def test_position_text_and_provenance_share_one_envelope(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "align": "right", "text_align": "center", "as_of": "2026-11-18"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"align": "right", "text_align": "center",
-                                                                    "as_of": "2026-11-18", "blocks": [TIMELINE]}
-
-
-def test_live_false_is_kept_as_a_word(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "live": False})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"live": False, "blocks": [TIMELINE]}
-
-
-def test_unknown_provenance_is_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": 5, "live": "yes"})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_a_blank_as_of_is_ignored(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "   "})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_a_long_as_of_is_cut_to_the_footer_line(store_dir):
-    result = tools.show_blocks({"blocks": [TIMELINE], "as_of": "x" * 200})
-    assert plugin_store.load(stored_id(result), root=store_dir) == {"as_of": "x" * 80, "blocks": [TIMELINE]}
-
-
-def test_including_a_board_keeps_its_blocks_and_not_its_provenance(store_dir):
-    board_id = plugin_store.save({"as_of": "2026-11-18", "live": True, "blocks": [TIMELINE]}, root=store_dir)
-    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
-
-def test_including_a_board_keeps_its_blocks_and_not_its_follow_ups(store_dir):
-    board_id = plugin_store.save({"follow_ups": [{"label": "Go", "run": "Tell me more"}],
-                                  "blocks": [TIMELINE]}, root=store_dir)
-    result = tools.show_blocks({"blocks": [{"type": "include", "id": board_id}]})
-    assert plugin_store.load(stored_id(result), root=store_dir) == [TIMELINE]
-
 def test_every_object_list_in_the_schema_stays_open_for_grammar_constrained_servers():
     # Hermes adds an empty "properties" to every object for llama.cpp; without an open door the grammar allows only
     # {}, and every board arrives as [{}] (#86). Each item list must say its objects take their own fields.
@@ -627,3 +456,14 @@ def test_every_object_list_in_the_schema_stays_open_for_grammar_constrained_serv
     for name, items in lists.items():
         assert items == {"type": "object", "additionalProperties": True}, name
     assert lists["blocks"] is not lists["links"]  # one copy each: a caller changing one list cannot change the others
+
+
+def test_the_new_chart_kinds_are_documented_where_the_model_reads_the_blocks(store_dir):
+    # The model reads the menu and a block's spec: every kind the pack added is named in the menu it is given, and
+    # in the fields the model is shown beside a refusal.
+    prompts = importlib.import_module("hermes_genui.core.catalog_text")
+    menu = prompts.menu()
+    for kind in ("gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble", "box", "treemap"):
+        assert kind in menu, kind
+    for kind in ("gauge", "bullet", "funnel", "pareto", "radar", "control", "bubble", "box", "treemap"):
+        assert kind in prompts.describe(), kind

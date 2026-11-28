@@ -1,10 +1,8 @@
-"""post_tool_call observer: remember image references from a short allowlist of Hermes tools.
+"""post_tool_call observer: remember https image URLs from a short allowlist of Hermes tools.
 
 find_photos already records the URLs it returns. Generated images come back through Hermes's own image tools instead,
-so the same provenance store needs a second writer. Only named image tools are observed, and only drawable references
-are kept: an https image URL, or the absolute local path image_generate saves into the agent's image cache (Desktop
-reads those back through the host's own file reader). A fetched web page, a relative name, file:// and data: spellings
-and any other tool's output can never approve an image here.
+so the same provenance store needs a second writer. Only named image tools are observed, and only https values are
+kept: a fetched web page, a local path and any other tool's output can never approve an image here.
 
 Original proposal and scope by @leosgarza in sagarmainkar/hermes-genui#11; this implementation reworks that idea for
 0.3.0.
@@ -15,7 +13,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..blocks.common import is_local_path
 from ..core import store
 
 # A short, named allowlist. Adding a tool here is a deliberate decision, not a pattern match over every tool result.
@@ -68,51 +65,13 @@ def _urls(value: Any, depth: int = 0) -> list[str]:
     return found[:MAX_URLS]
 
 
-def _local_images(result: Any) -> list[str]:
-    """The absolute local paths a result names as its own image, in order, without repeats.
-
-    Only the documented `image` field of a result that did not fail counts: a path quoted inside a log line or an
-    error message is not something a tool made, and must never approve a photo. A result given as a JSON string is
-    read the same way.
-
-    {"success": true, "image": "/Users/me/a.png"} → ["/Users/me/a.png"]
-    {"success": false, "image": "/tmp/x.png"}     → []
-    """
-    refs: list[str] = []
-
-    def add(value: Any) -> None:
-        if isinstance(value, str) and is_local_path(value.strip()) and value.strip() not in refs:
-            refs.append(value.strip())
-
-    item = result
-    if isinstance(item, str):
-        try:
-            item = json.loads(item)
-        except (ValueError, TypeError):
-            return []
-    if isinstance(item, dict):
-        if item.get("success") is False:
-            return []
-        add(item.get("image"))
-        images = item.get("images")
-        if isinstance(images, list):
-            for one in images:
-                if isinstance(one, dict):
-                    add(one.get("url"))
-                else:
-                    add(one)
-    return refs
-
-
 def note_tool_photos(*, tool_name: str, result: Any = None, **kwargs: Any) -> None:
-    """Hermes hook: note the image references an allowed tool returned, https or generated local path. Never raises
-    into the caller."""
+    """Hermes hook: note https image URLs from an allowed tool. Never raises into the caller."""
     if not _observed(tool_name):
         return
     try:
-        made = _local_images(result)
-        refs = made + [url for url in _urls(result) if url not in made]
-        if refs:
-            store.remember_photo_urls(refs)
+        urls = _urls(result)
+        if urls:
+            store.remember_photo_urls(urls)
     except Exception:  # noqa: BLE001 - an observer must never break the tool call it watches
         pass
