@@ -11,10 +11,18 @@
 import type { Rest } from "../../host/actions";
 import { carrySource, eachSlot, kkey } from "../../core/living-identity";
 
+type FailedEdit = {
+  value: unknown;
+  previous: unknown;
+};
+
 type Board = {
   state: Record<string, unknown>;
+  confirmed: Record<string, unknown>;
+  failedEdits: Map<string, FailedEdit>;
   loaded: Promise<Record<string, unknown>>;
   saving: Promise<void>;
+  released: boolean;
   ready: boolean;  // the door has answered once: state may be read and written on the spot, without waiting
 };
 const boards = new Map<string, Board>();
@@ -50,8 +58,47 @@ function stateIn(answer: unknown): Record<string, unknown> {
   return {};
 }
 
+// Compare JSON state values independently of object property order.
+function sameSavedValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null ||
+      typeof a !== "object" || typeof b !== "object" ||
+      Array.isArray(a) !== Array.isArray(b)) return false;
+
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+
+  return keys.length === Object.keys(right).length &&
+    keys.every(key =>
+      Object.prototype.hasOwnProperty.call(right, key) &&
+      sameSavedValue(left[key], right[key])
+    );
+}
+
+/** A successful whole-state write confirms every value it contains. */
+async function writeBoardState(
+  rest: Rest,
+  blockId: string,
+  board: Board,
+  state: Record<string, unknown>,
+): Promise<void> {
+  await rest(`/blocks/${blockId}/state`, {
+    method: "PUT",
+    body: { state },
+  });
+
+  board.confirmed = { ...state };
+
+  for (const key of board.failedEdits.keys()) {
+    if (Object.prototype.hasOwnProperty.call(state, key)) {
+      board.failedEdits.delete(key);
+    }
+  }
+}
+
 /**
- * A board's saved state, fetched once and shared by every block on it (two checklists in one board load it once). A
+ * A board's saved state, fetched once per opening and shared by every block on it (two checklists in one board load it once). A
  * failed fetch gives {} and is forgotten, so the next block drawn tries again. The promise resolves to the board's
  * LIVE object, and so does peekState once the board has loaded: a block mounted after a change reads the newest
  * values without waiting on the network again.
@@ -59,16 +106,53 @@ function stateIn(answer: unknown): Record<string, unknown> {
  */
 export function loadBoardState(rest: Rest, blockId: string): Promise<Record<string, unknown>> {
   const known = boards.get(blockId);
-  if (known) return known.loaded;
-  const board: Board = { state: {}, loaded: Promise.resolve({}), saving: Promise.resolve(), ready: false };
-  board.loaded = rest(`/blocks/${blockId}/state`).then(
+  if (known && !known.released) return known.loaded;
+  const board: Board = {
+    state: {},
+    confirmed: {},
+    // Share failed edits across reopenings, including pending writes.
+    failedEdits: known?.failedEdits ?? new Map(),
+    loaded: Promise.resolve({}),
+    // Carry outstanding writes through repeated reopenings.
+    saving: known?.saving ?? Promise.resolve(),
+    ready: false,
+    released: false,
+  };
+  // A reopened board reads the door after its previous writes settle.
+  const fetchState = () => rest(`/blocks/${blockId}/state`);
+  const request = known ? known.saving.then(fetchState) : fetchState();
+  board.loaded = request.then(
     (answer) => {
-      Object.assign(board.state, stateIn(answer));
+      const remote = stateIn(answer);
+      board.confirmed = remote;
+      Object.assign(board.state, remote);
+
+      // Keep failed local edits only where the server has not changed
+      // the same value since our last confirmed state.
+      for (const [key, edit] of board.failedEdits) {
+        const saved = remote[key];
+        if (sameSavedValue(saved, edit.value) ||
+            !sameSavedValue(saved, edit.previous)) {
+          if (boards.get(blockId) === board && !board.released) {
+            board.failedEdits.delete(key);
+          }
+        } else {
+          board.state[key] = edit.value;
+        }
+      }
+
       board.ready = true;
       return board.state;
     },
     () => {
-      boards.delete(blockId);
+      if (boards.get(blockId) === board) {
+        if (board.failedEdits.size > 0) {
+          // Retry the read later without forgetting unsaved edits.
+          board.released = true;
+        } else {
+          boards.delete(blockId);
+        }
+      }
       return {};
     },
   );
@@ -89,12 +173,35 @@ export function peekState(blockId: string): Record<string, unknown> | null {
  *   the board's state can't be loaded → nothing is sent (the tick stays on screen)
  */
 export async function saveBoardValue(rest: Rest, blockId: string, key: string, value: unknown): Promise<void> {
-  await loadBoardState(rest, blockId);
+  const loaded = loadBoardState(rest, blockId);
   const board = boards.get(blockId);
-  if (!board) return;  // the load failed: saving only this value could wipe what other blocks on the board saved
-  board.state[key] = value;
-  const snapshot = { ...board.state };
-  board.saving = board.saving.then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } })).then(() => {}, () => {});
+  if (!board) return;
+
+  // A ready board takes the edit immediately, before any same-turn
+  // promotion can snapshot its state. Otherwise wait for the initial load.
+  const takeSnapshot = () => {
+    if (!board.ready) return undefined;
+    board.state[key] = value;
+    return { ...board.state };
+  };
+  const snapshot = board.ready
+    ? Promise.resolve(takeSnapshot())
+    : loaded.then(takeSnapshot);
+
+  // Register the save before yielding: an immediate reopen must see it.
+  board.saving = board.saving.then(async () => {
+    const state = await snapshot;
+    if (state === undefined) return;
+    try {
+      await writeBoardState(rest, blockId, board, state);
+    } catch {
+      // Preserve the attempted edit and its last confirmed server value.
+      board.failedEdits.set(key, {
+        value,
+        previous: board.confirmed[key],
+      });
+    }
+  }).then(() => {}, () => {});
   await board.saving;
 }
 
@@ -173,7 +280,7 @@ export function recordValue(
 /** The page has let this board go (its roster is vacant). Releasing a view DESTROYS NOTHING the reader
  *  answered — every answer reached the board at the edit itself, and the page's mirror of them is the
  *  board's own store, not an element's. Push every queued door write out first, so the door holds them
- *  even if this page never speaks to it again; only the archive-walk gate resets, so a later mount
+ *  even if this page never speaks to it again; the cache is marked for refresh, so a later mount
  *  re-checks the door honestly. */
 export function forgetBlock(blockId: string): void {
   const prefix = `${blockId}\u0000`;
@@ -185,6 +292,9 @@ export function forgetBlock(blockId: string): void {
     timers.delete(key);
     void saveBoardValue(item.rest, blockId, key.slice(prefix.length), item.value);
   }
+  const board = boards.get(blockId);
+  if (board !== undefined) board.released = true;
+
   living.delete(blockId);
   migratedWalk.delete(blockId);  // the page let the address go: the next mount re-checks the door honestly
 }
@@ -257,14 +367,20 @@ export async function promoteOnUpdate(
     }
   });
   if (rest === undefined) return;
+  const loading = loadBoardState(rest, blockId);
   const board = boards.get(blockId);
-  if (board !== undefined && board.ready) {
-    fileDoor(board, blockId, rest, next, trails);  // the door already answered: migrate on the spot
+  if (board === undefined) return;
+
+  if (board.ready && !board.released) {
+    fileDoor(board, blockId, rest, next, trails);
     return;
   }
-  await loadBoardState(rest, blockId);
-  const now = boards.get(blockId);
-  if (now !== undefined) fileDoor(now, blockId, rest, next, trails);
+
+  await loading;
+
+  // An old update must not file answers into a replacement cache.
+  if (boards.get(blockId) !== board || board.released || !board.ready) return;
+  fileDoor(board, blockId, rest, next, trails);
 }
 
 function fileDoor(
@@ -304,7 +420,7 @@ function fileDoor(
   if (!dirty) return;
   const snapshot = { ...state };
   board.saving = board.saving
-    .then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } }))
+    .then(() => writeBoardState(rest, blockId, board, snapshot))
     .then(() => {}, () => {});
 }
 
@@ -352,9 +468,15 @@ export async function migrateArchived(
   if (rest === undefined || version < 2) return;
   if ((migratedWalk.get(blockId) ?? 0) >= version) return;
   migratedWalk.set(blockId, version);
-  await loadBoardState(rest, blockId);
+  const loading = loadBoardState(rest, blockId);
   const board = boards.get(blockId);
-  if (board === undefined || !board.ready) return;  // the door did not answer: nothing is known, nothing is filed
+  if (board === undefined) return;
+
+  const isCurrent = () =>
+    boards.get(blockId) === board && !board.released;
+
+  await loading;
+  if (!isCurrent() || !board.ready) return;  // the door did not answer: nothing is known, nothing is filed
   const state = board.state;
   const here = new Set<string>();
   eachSlot(next, (_block, full) => here.add(full));
@@ -417,6 +539,7 @@ export async function migrateArchived(
   };
   let dirty = false;
   for (const key of orphans) {
+    if (!isCurrent()) return;
     const value = state[key];
     let chain: string;
     let field = "";
@@ -460,15 +583,17 @@ export async function migrateArchived(
     }
     if (lost || !here.has(cur)) continue;  // the misfire guard: retention unconfirmed — the bytes stay put
     const target = kkey(cur + field);
+    // The archive request may have outlived its board view.
+    if (!isCurrent()) return;
     if (state[target] === undefined) {
       state[target] = value;
       dirty = true;
     }
   }
-  if (!dirty) return;
+  if (!dirty || !isCurrent()) return;
   const snapshot = { ...state };
   board.saving = board.saving
-    .then(() => rest(`/blocks/${blockId}/state`, { method: "PUT", body: { state: snapshot } }))
+    .then(() => writeBoardState(rest, blockId, board, snapshot))
     .then(() => {}, () => {});
 }
 
