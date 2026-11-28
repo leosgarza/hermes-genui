@@ -1,6 +1,7 @@
 // Containers only arrange blocks that are already drawn: side by side, in a titled card, or in a grid.
 import { isValidElement, useState, type ReactNode } from "react";
 import { InlineText } from "../../lib/InlineText";
+import { slotList } from "../../core/drawSlot";
 
 /** A cell is the block's clothes, not its slot number: it shares the drawn child's identity key so a
  *  living board's update that inserts or reorders inside this container carries each retained child —
@@ -42,7 +43,7 @@ export function Section({ title, collapsed, children }: { title?: string; collap
     return (
       <div className="hb-card hb-section">
         {title && <div className="hb-card-title"><InlineText text={title} /></div>}
-        <div className="hb-section-body">{children}</div>
+        <div className="hb-section-body">{slotList(children)}</div>
       </div>
     );
   }
@@ -55,7 +56,7 @@ export function Section({ title, collapsed, children }: { title?: string; collap
           <path d="M9 6l6 6-6 6" />
         </svg>
       </button>
-      {open && <div className="hb-section-body hb-appear">{children}</div>}
+      {open && <div className="hb-section-body hb-appear">{slotList(children)}</div>}
     </div>
   );
 }

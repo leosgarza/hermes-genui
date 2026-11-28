@@ -1,11 +1,12 @@
 // The host's export acts — the whole of enhancement #6, in browser primitives only: NO new dependency, NO model
-// round-trip, and NO network at the moment of export. A board's stored envelope already sits in the page's memory
-// (it is what the board was drawn from), the Markdown serializer has a host-side twin (lib/markdown.ts, corpus-
-// pinned to hooks/text_fallback.py byte for byte), and a table's CSV and a chart's PNG never left the browser.
-//  · csvBlob: the table's own data, RFC 4180, with a UTF-8 BOM so Excel reads it like the viewer does. Provenance
-//    travels as a leading '#' comment line BEFORE the data block: RFC 4180's data rows stay byte-exact — a reader
-//    that ignores comment lines sees exactly the stored headers and rows — and the file itself says where its
-//    numbers came from. A board that declares no provenance gets no comment line.
+// round-trip, and NO network at the moment of export except the board's one Markdown ask (GET /blocks/<id>/
+// markdown — the host's ONE text writer, so the file says exactly what the chat text says and there is no
+// second serializer to keep in step). A board's stored envelope already sits in the page's memory (it is what
+// the board was drawn from), and a table's CSV and a chart's PNG never left the browser.
+//  · csvBlob: the table's own data, RFC 4180, with a UTF-8 BOM so Excel reads it like the viewer does. Text
+//    that a spreadsheet could ACT on (a cell leading with = + - @, a tab or a CR) is neutralized with a
+//    leading apostrophe — the convention the major readers show as text, not formula — while words that are
+//    plain numbers ("-42") travel bare, exactly as the board said them.
 //  · chartPng: a chart with a picture (the hand-drawn SVG of Chart.tsx/PieChart.tsx) is serialized as it is, with
 //    every element's computed paint inlined. The horizontal-bar kind draws DOM instead (HBarChart.tsx) — so its
 //    picture is REBUILT BY MEASURING that drawing: every bar, zero line and word at the rect the browser laid
@@ -13,12 +14,12 @@
 //    pipeline: <img> decode, canvas raster at a fixed 2x, the words composited above. The canvas is filled with
 //    the block's backdrop COMPOSITED TO OPAQUE first (the card's translucent colour over whatever the page
 //    paints behind it): a PNG whose background carries alpha 8 disappears on a dark viewer surface — an export
-//    must stand on its own. The board's provenance line, composed by the SAME core/provenance.ts the drawn
-//    footer uses, rides as the last line above the picture.
+//    must stand on its own. The words above the picture are the figure's own: title, headline, legend, the
+//    caveat (a projection note must not vanish from the file it qualifies), and the source line.
 //  · saveBlob: bytes to a named host download. Nothing here sends a word to the composer.
 import { csvOf } from "./csv";
-import type { BoardProvenance } from "../core/provenance";
 import type { ChartSpec } from "../blocks/chart/chartData";
+import type { StructuredTable, TableBlock } from "../blocks/table/read";
 
 // The PNG's geometry, exported so real Chrome can assert against the SAME formulas the act uses.
 export const PNG_SCALE = 2;        // every machine, every zoom: a fixed 2x raster
@@ -65,10 +66,9 @@ function fontOf(cs: CSSStyleDeclaration): { font: string; size: number } {
 }
 
 /** The chart figure's words, in the order they sit above the picture: the title, the headline line, every
- *  legend item (the XY row's and the pie's table alike), the source line, and — when the board declares
- *  provenance — the footer's own line last. Plain-text reads: inline formatting the board draws (chips, mini
- *  bars) is not words an export line carries. */
-export function captionLines(figure: HTMLElement, provenance = ""): CaptionLine[] {
+ *  legend item (the XY row's and the pie's table alike), the axis note, the caveat, and the source line. Plain-text reads:
+ *  inline formatting the board draws (chips, mini bars) is not words an export line carries. */
+export function captionLines(figure: HTMLElement): CaptionLine[] {
   const out: CaptionLine[] = [];
   const line = (el: Element | null | undefined, text: string, swatch?: string): void => {
     if (!el || !text.trim()) return;
@@ -100,29 +100,34 @@ export function captionLines(figure: HTMLElement, provenance = ""): CaptionLine[
       .map((td) => (td.textContent ?? "").trim()).filter(Boolean).join(" ");
     line(row, words, sw ? getComputedStyle(sw).backgroundColor : undefined);
   }
+  // The horizontal-bar chart names its value axis under the bars, outside the picture: keep its units.
+  const axis = figure.querySelector(".hb-chart-axis-note");
+  line(axis, axis?.textContent?.trim() ?? "");
+  // The caveat rides above the source line, in the source's voice (a chart that says "projection" must not
+  // have the file drop the word that qualifies it — raised on #75).
+  const caveat = figure.querySelector(".hb-chart-caveat");
+  line(caveat, caveat?.textContent?.trim() ?? "");
   const source = figure.querySelector(".hb-chart-source");
   line(source, source?.textContent?.trim() ?? "");
-  // The provenance footer's own words, in the source line's voice (the fallback keeps the same quiet look on a
-  // figure that has no inline source of its own).
-  if (provenance.trim() && provenance.trim() !== (source?.textContent?.trim() ?? "")) {
-    const styleEl = source ?? figure;
-    const cs = getComputedStyle(styleEl);
-    const { font, size } = fontOf(cs);
-    out.push({ text: provenance.trim(), font, colour: cs.color, size });
-  }
   return out;
 }
 
 // --- the backdrop: an export must stand on any surface -------------------------------------------------------
 
 const RGB = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/;
+// Chrome may also hand a computed colour back in the CSS-4 functional form (color-mix results serialize as
+// color(srgb r g b / a) with 0..1 channels) — an export must read either answer the same way (raised on #75).
+const SRGB = /color\(\s*srgb\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s*(?:\/\s*(-?[\d.]+))?\s*\)/;
 const TRANSPARENT = /^rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)$/;
 
-/** Parse a computed background-color into [r, g, b, a] (a: 1 when the browser answered rgb(), not rgba). */
+/** Parse a computed background-color into [r, g, b, a] (a: 1 when the browser answered no alpha). */
 export function parseColour(value: string): [number, number, number, number] | null {
   const m = RGB.exec(value);
-  if (!m) return null;
-  return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+  const s = SRGB.exec(value);
+  if (!s) return null;
+  const ch = (v: string): number => Math.round(Math.min(Math.max(Number(v), 0), 1) * 255);
+  return [ch(s[1]), ch(s[2]), ch(s[3]), s[4] === undefined ? 1 : Math.min(Math.max(Number(s[4]), 0), 1)];
 }
 
 /** "a over b", both opaque [r,g,b]: source-over compositing of one translucent colour on a solid one. */
@@ -326,14 +331,15 @@ function canvasPng(canvas: HTMLCanvasElement): Promise<Blob | null> {
   return new Promise((done) => canvas.toBlob((blob) => done(blob), "image/png"));
 }
 
-/** A chart as a PNG blob: its words (and the board's provenance line) composited above its picture, at
+/** A chart as a PNG blob: its words composited above its picture, at
  *  PNG_SCALE, on an OPAQUE backdrop — the page's own colours, composited, never a translucent one floating on
  *  whatever surface the reader opens the file over. The picture is the chart's own SVG where one was drawn; for
  *  the horizontal-bar kind (pure DOM drawing) is rebuilt by MEASURING that drawing's laid-out boxes. Null when
  *  there is neither a picture nor a 2D context here (tests). */
 export async function chartPng(
-  figure: HTMLElement, opts: { spec?: ChartSpec; provenance?: string } = {},
+  figure: HTMLElement, opts: { spec?: ChartSpec } = {},
 ): Promise<Blob | null> {
+  const backdrop = opaqueBackdrop(figure);  // read the paint before image decoding yields to another render
   const svg = figure.querySelector<SVGSVGElement>("svg");
   let svgWidth = 0;
   let svgHeight = 0;
@@ -357,7 +363,7 @@ export async function chartPng(
   } else {
     return null;
   }
-  const lines = captionLines(figure, opts.provenance ?? "");
+  const lines = captionLines(figure);
   const probe = document.createElement("canvas").getContext("2d");
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -372,7 +378,7 @@ export async function chartPng(
   canvas.width = Math.round(width * PNG_SCALE);
   canvas.height = Math.round(height * PNG_SCALE);
   ctx.scale(PNG_SCALE, PNG_SCALE);
-  const [r, g, b] = opaqueBackdrop(figure);
+  const [r, g, b] = backdrop;
   ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;  // opaque, always: the PNG must stand on any surface
   ctx.fillRect(0, 0, width, height);
   const textHeight = lines.reduce((h, l) => h + l.size * LINE_RATIO, 0) +
@@ -393,37 +399,47 @@ export async function chartPng(
   return canvasPng(canvas);
 }
 
-/** A table block's whole data — headers, then every stored row in stored order — as a CSV file body. The
- *  reader's view (the filter box, the sort ticks, the picked rows) is state on the page; the export is the
- *  table as the board said it. Provenance (core/provenance.ts's own line, when the board declares any) rides
- *  FIRST as a '#' comment record: the RFC 4180 data block below it is exactly the stored rows — comment-aware
- *  readers skip the line, byte readers see where the numbers came from. */
-export function csvBlob(columns: string[], rows: string[][], provenance = ""): Blob {
-  const head = provenance.trim() ? `# ${provenance.trim()}\r\n` : "";
-  return new Blob([`\uFEFF${head}${csvOf(columns, rows)}`], { type: "text/csv;charset=utf-8" });
+/** A table block's own tabular data — the table as the BOARD said it, never the reader's view of it. Two shapes
+ *  reach this on the current base (web/src/blocks/table/read.ts): the legacy list of column words and rows of
+ *  cell words, kept VERBATIM; and #41's structured table, read back into the same grid — headers are the column
+ *  labels, a number-family cell (number, currency, percent, bar) travels as its RAW value where it has one, a
+ *  sources column joins the row's source labels with ", " — the very word the table says — and everything
+ *  else travels as the word it shows. The reader's view (the filter box, the sort ticks, the paged window,
+ *  the computed aggregate footer) is state and arithmetic on the page; none of it is stored data, none of it
+ *  is exported. */
+/** #41's shape, as the reader says it: a structured table carries structured: true. */
+function isStructuredTable(block: TableBlock): block is StructuredTable {
+  return "structured" in block && block.structured === true;
 }
 
-/** The board's Markdown file: the host-side twin of the chat serializer's whole text (no cap — a file is not
- *  one chat message), then the provenance footer the SAME core/provenance.ts reading the drawn footer uses.
- *  A board with no provenance gets no footer it did not have. */
-export function markdownFile(body: string, provenance: BoardProvenance): string {
-  const parts: string[] = [];
+function tableWords(block: TableBlock): { headers: string[]; rows: string[][] } {
+  if (isStructuredTable(block)) {
+    const headers = block.columns.map((col) => col.label);
+    const numberFamily = new Set(["number", "currency", "percent", "bar"]);
+    const rows = block.rows.map((row) => block.columns.map((col) => {
+      if (col.kind === "sources") return row.sources.map((s) => s.label).join(", ");  // the very word the table says
+      const cell = row.cells[col.id];
+      if (!cell) return "";
+      if (numberFamily.has(col.kind) && cell.value !== undefined && cell.value !== null) return String(cell.value);
+      return cell.text;
+    }));
+    return { headers, rows };
+  }
+  return { headers: block.columns, rows: block.rows };  // legacy: the stored words verbatim
+}
+
+/** A table as a CSV file body: exactly the stored headers and rows, RFC 4180, behind the UTF-8 BOM. Cells that
+ *  a spreadsheet could mistake for a formula are neutralized by the writer (csv.ts), numbers included. */
+export function tableCsvBlob(block: TableBlock): Blob {
+  const { headers, rows } = tableWords(block);
+  return new Blob([`\uFEFF${csvOf(headers, rows)}`], { type: "text/csv;charset=utf-8" });
+}
+
+/** The board's Markdown file: the ONE host writer's whole text (uncapped — a file is not one chat message),
+ *  closed by exactly one trailing newline. No footer of any kind: what the door said IS what the chat says. */
+export function markdownFile(body: string): string {
   const head = body.trimEnd();
-  const footer = provenanceText(provenance);
-  if (head) parts.push(head);
-  if (footer) parts.push(`---\n\n${footer}`);
-  return `${parts.join("\n\n")}\n`;
-}
-
-/** The footer words: the parts the board gave, in the footer's order — delegated to the one composition in
- *  core/provenance so the file can never disagree with the screen. */
-function provenanceText(p: BoardProvenance): string {
-  const parts: string[] = [];
-  if (p.source && p.source.text) parts.push(p.source.text);
-  parts.push(...p.chartSources);
-  if (p.asOf) parts.push(`as of ${p.asOf}`);
-  if (p.live !== undefined) parts.push(p.live ? "Live" : "Snapshot");
-  return parts.join(" · ");
+  return head ? `${head}\n` : "";
 }
 
 /** The board's JSON file: the stored envelope, every word it has, pretty. */

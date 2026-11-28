@@ -1,19 +1,16 @@
 // The host's export acts, apart from any click: what a chart's PNG is built from, how the files read, where the
 // bytes go. Canvas pixels belong to real Chrome (tests/test_export_chrome.py); these pin everything the act
-// computes BEFORE a single pixel is painted — the caption lines it composites (with the provenance line that now
-// travels), the geometry it sizes the canvas with, the OPAQUE backdrop it fills first, the rebuilt horizontal-bar
-// picture, the file text, the name — and the CSV comment header provenance rides in. No door is asked anywhere:
-// fetchBoardExport left with the rework, and these functions take the page's own memory as arguments.
+// computes BEFORE a single pixel is painted — the caption lines it composites (the figure's own words: title,
+// headline, legend, caveat, source), the geometry it sizes the canvas with, the OPAQUE backdrop it fills first,
+// the rebuilt horizontal-bar picture, the file text, the name — and the CSV writer's formula guard. The board's
+// Markdown is the ONE door act (tests/dashboard pins it to the writer); these functions take the page's own
+// memory as arguments.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  captionLines, chartFileBase, csvBlob, fileBase, hbarSvg, jsonFile, LINE_GAP, LINE_RATIO, markdownFile,
-  measureLine, opaqueBackdrop, over, parseColour, PNG_PAD, pngMetrics, saveBlob, serializeSvg,
+  captionLines, chartFileBase, fileBase, hbarSvg, jsonFile, LINE_GAP, LINE_RATIO, markdownFile,
+  measureLine, opaqueBackdrop, over, parseColour, PNG_PAD, pngMetrics, saveBlob, serializeSvg, tableCsvBlob,
 } from "./export";
-import { provenanceOf } from "../core/provenance";
-import type { Block } from "../registry";
 import type { ChartSpec } from "../blocks/chart/chartData";
-
-const chart = (src?: string) => ({ type: "chart", spec: { type: "line", x: ["a"], series: [{ data: [1] }], ...(src ? { source: src } : {}) } } as Block);
 
 function fixture(html: string): HTMLElement {
   const host = document.createElement("div");
@@ -63,19 +60,37 @@ describe("captionLines", () => {
   it("a bare drawing has no lines to composite", () => {
     expect(captionLines(fixture("<div><svg></svg></div>"))).toEqual([]);
   });
-  it("the board's provenance line rides last, in the source line's voice", () => {
-    const lines = captionLines(fixture(XY_FIGURE), "Trip ledger · as of 2026-11-18 · Snapshot");
-    expect(lines.map((l) => l.text)).toEqual([
-      "Revenue", "$9,800", "Ads $4,000", "Organic", "Finance board", "Trip ledger · as of 2026-11-18 · Snapshot",
+  it("the caveat rides above the source line — a projection note may not vanish from the file it qualifies", () => {
+    const fig = fixture(XY_FIGURE.replace(
+      '<div class="hb-chart-source">Finance board</div>',
+      '<div class="hb-chart-caveat">Q3 onward is a projection.</div><div class="hb-chart-source">Finance board</div>',
+    ));
+    expect(captionLines(fig).map((l) => l.text)).toEqual([
+      "Revenue", "$9,800", "Ads $4,000", "Organic", "Q3 onward is a projection.", "Finance board",
     ]);
-    expect(lines[5].font).toBe(lines[4].font);   // the same voice the figure already speaks
   });
-  it("a provenance line already said by the figure's own source is not said twice", () => {
-    const lines = captionLines(fixture(XY_FIGURE), "Finance board");
-    expect(lines.map((l) => l.text).filter((t) => t === "Finance board")).toHaveLength(1);
+  it("the horizontal-bar axis note keeps its units in the file, above the caveat and the source", () => {
+    const fig = fixture(XY_FIGURE.replace(
+      '<div class="hb-chart-source">Finance board</div>',
+      '<div class="hb-chart-axis-note">Annual revenue, USD millions</div>'
+        + '<div class="hb-chart-caveat">Q3 onward is a projection.</div><div class="hb-chart-source">Finance board</div>',
+    ));
+    expect(captionLines(fig).map((l) => l.text)).toEqual([
+      "Revenue", "$9,800", "Ads $4,000", "Organic", "Annual revenue, USD millions", "Q3 onward is a projection.",
+      "Finance board",
+    ]);
   });
-  it("an empty provenance adds no line", () => {
-    expect(captionLines(fixture(XY_FIGURE), "").map((l) => l.text)).toEqual([
+  it("a figure without a caveat composes its words untouched", () => {
+    expect(captionLines(fixture(XY_FIGURE)).map((l) => l.text)).toEqual([
+      "Revenue", "$9,800", "Ads $4,000", "Organic", "Finance board",
+    ]);
+  });
+  it("an empty caveat adds no line", () => {
+    const fig = fixture(XY_FIGURE.replace(
+      '<div class="hb-chart-source">Finance board</div>',
+      '<div class="hb-chart-caveat">   </div><div class="hb-chart-source">Finance board</div>',
+    ));
+    expect(captionLines(fig).map((l) => l.text)).toEqual([
       "Revenue", "$9,800", "Ads $4,000", "Organic", "Finance board",
     ]);
   });
@@ -101,6 +116,10 @@ describe("the backdrop an export paints first is OPAQUE, always", () => {
     expect(parseColour("rgb(1, 2, 3)")).toEqual([1, 2, 3, 1]);
     expect(parseColour("rgba(32, 32, 32, 0.08)")).toEqual([32, 32, 32, 0.08]);
     expect(parseColour("transparent")).toBeNull();
+    // Chrome's CSS-4 computed form (color-mix answers): channels are 0..1, the alpha rides after a slash.
+    expect(parseColour("color(srgb 1 0.5 0 / 0.5)")).toEqual([255, 128, 0, 0.5]);
+    expect(parseColour("color(srgb 0 0 0)")).toEqual([0, 0, 0, 1]);
+    expect(parseColour("color(srgb 2 -1 0.5)")).toEqual([255, 0, 128, 1]);   // out-of-range settles, never breaks
   });
   it("composites source-over the way the page does", () => {
     expect(over([0, 0, 0, 0.5], [255, 255, 255])).toEqual([128, 128, 128]);
@@ -253,23 +272,18 @@ describe("file names", () => {
 });
 
 describe("the files themselves", () => {
-  it("a Markdown export carries the provenance footer and ends in a newline", () => {
-    const p = provenanceOf([chart("OpenWeather"), { type: "heading", text: "Hi" } as Block], "2026-11-18", false);
-    expect(markdownFile("# Hi", p)).toBe("# Hi\n\n---\n\nOpenWeather · as of 2026-11-18 · Snapshot\n");
-  });
-  it("a board with no provenance gets no footer it did not have", () => {
-    expect(markdownFile("body", provenanceOf([{ type: "divider" } as Block]))).toBe("body\n");
-  });
-  it("an empty body with provenance still says where the data came from", () => {
-    const p = provenanceOf([], "2026-11-18", true);
-    expect(markdownFile("", p)).toBe("---\n\nas of 2026-11-18 · Live\n");
+  it("a Markdown export is the writer's whole text closed by exactly one newline", () => {
+    expect(markdownFile("# Hi")).toBe("# Hi\n");
+    expect(markdownFile("body\n\n")).toBe("body\n");      // trailing whitespace settles to one newline
+    expect(markdownFile("")).toBe("");                     // a board that says nothing writes nothing padded
+    expect(markdownFile("   \n ")).toBe("");
   });
   it("a JSON export is the stored envelope, pretty and whole", () => {
-    const stored = { as_of: "x", blocks: [{ type: "divider" }] };
+    const stored = { version: 2, model_note: "kept", blocks: [{ type: "divider" }] };
     expect(jsonFile(stored)).toBe(`${JSON.stringify(stored, null, 2)}\n`);
   });
   it("a CSV blob carries the escaping and a UTF-8 BOM for spreadsheets", async () => {
-    const blob = csvBlob(["A"], [["x,y"]]);
+    const blob = tableCsvBlob({ type: "table", columns: ["A"], rows: [["x,y"]] });
     expect(blob.type).toBe("text/csv;charset=utf-8");
     // The bytes ARE the file: the first three are the BOM. text() then reads the record itself — per spec it
     // decodes UTF-8 and drops the BOM, so the BOM is a bytes claim, not a text claim.
@@ -277,14 +291,9 @@ describe("the files themselves", () => {
     expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     expect(await blob.text()).toBe("A\r\n\"x,y\"\r\n");
   });
-  it("provenance rides as a leading '#' comment: the data block below it never moved", async () => {
-    const blob = csvBlob(["A"], [["x,y"]], "Trip ledger · as of 2026-11-18 · Snapshot");
-    expect(await blob.text()).toBe("# Trip ledger · as of 2026-11-18 · Snapshot\r\nA\r\n\"x,y\"\r\n");
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);   // BOM still first, comment still a comment
-  });
-  it("an empty provenance word adds no line", async () => {
-    expect(await csvBlob(["A"], [["1"]], "   ").text()).toBe("A\r\n1\r\n");
+  it("no comment header rides above the table any more: the file is the stored data, whole", async () => {
+    const blob = tableCsvBlob({ type: "table", columns: ["A"], rows: [["1"]] });
+    expect(await blob.text()).toBe("A\r\n1\r\n");
   });
 });
 

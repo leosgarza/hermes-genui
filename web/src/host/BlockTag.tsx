@@ -1,9 +1,15 @@
 // What `::blocks{id="..."}` turns into inside a reply: a placeholder while the reply streams in, then the stored
-// blocks fetched by id and drawn. A block that cannot load draws nothing — a stray id in a reply stays silent
-// rather than printing an error note. Never raw JSON.
-// Alignment is the model's alone: the board's own default (the stored envelope's align) and a block's own ask
-// (readBlocks reads it into the block) decide where each card sits. The reader has no control — the chips and
-// their per-device override are gone.
+// blocks fetched by id and drawn, or nothing at all when that isn't possible. Never raw JSON.
+//
+// One address, one live view (Living Boards): the FIRST tag of an id claims the address in the roster
+// (core/boardRoster.ts) and owns the live view; every later tag of the same id draws a pointer instead and
+// pokes the owner, whose refetch updates the SAME mounted subtree in place — a layout/state change of the
+// same elements, never a second renderer (a calculator's sliders, an unsent form, a lit tab all ride
+// through). A board that speaks a living word (a version, links) says it in a quiet row under itself; a board
+// that speaks nothing draws the DOM and the note it always drew. The stored answer may also carry the board's
+// own placement words (align, text_align) beside its blocks; they ride through to the drawing, which resolves
+// them for every block that didn't ask for itself.
+//
 // The reader gets exactly one view, not an ask: a quiet expand control on every drawn board, the images strip's
 // full-size overlay pattern (blocks/images/Images.tsx) raised to the whole board — with one honest correction.
 // A stateless photo may be re-drawn at full size; a board may not: its blocks carry live state (a calculator's
@@ -14,10 +20,15 @@
 // inline view and the element settles back into flow; state survives open, close and reopen in both directions
 // because the blocks were never unmounted. Focus lands in the dialog on open, stays inside it while open, and
 // lands back on the control on close; the trap wraps Tab on the eligible tabbable controls (see tabbableIn),
-// never on disabled, negative-tabindex or hidden ones — and only while the board is the TOP of the overlay
-// stack: a chart detail or a photo opened from inside it answers the keys first, and one Escape steps the
-// reader down exactly one layer (core/overlays.ts). A board that is not expanded draws exactly the markup
-// it always drew: the control lives outside the board wrapper, and the wrapper takes no part in layout.
+// never on disabled, negative-tabindex or hidden ones. A board that is not expanded draws exactly the markup
+// it always drew: the control lives outside the board wrapper, and the wrapper takes no part in layout. The
+// pointer a later tag draws has no board to move, so it grows no control; the living row stays beside the
+// live view (the dialog is the board itself).
+//
+// Export chrome (#6, host/ExportChrome.tsx): the tag grows view-act controls OUTSIDE .hb-blocks — a board menu
+// (JSON from the stored envelope this very load delivered; Markdown from the ONE host writer, asked at the
+// exact version this drawing committed with) and a corner button per drawn chart and table. The board's own
+// drawing stays exactly what it always was.
 import { useContext, useEffect, useLayoutEffect, useReducer, useRef, useState } from "react";
 import { Blocks } from "../core/Blocks";
 import * as boards from "../core/boardRoster";
@@ -25,13 +36,10 @@ import { carryBlocks } from "../core/living-identity";
 import { forgetBlock, markLiving, migrateArchived, promoteOnUpdate } from "../blocks/checklist/savedState";
 import { LivePointer, LiveRow } from "../core/LivingBoards";
 import { readBlocksNoted, type BoardLink, type FollowUp } from "../core/readBlocks";
-import { popLayer, pushLayer } from "../core/overlays";
-import type { Align, Density, Motion, Palette } from "../core/fields";
+import type { Align } from "../core/fields";
 import type { Block } from "../registry";
 import { BlockActions } from "./actions";
 import { useExportChrome } from "./ExportChrome";
-import { useLibraryChrome } from "./LibraryChrome";
-import { dialogKeys } from "./tabbable";
 
 const ID_PATTERN = /^[0-9a-f]{8}$/;
 
@@ -40,54 +48,58 @@ function isEnvelopeCarrying(data: unknown): data is { stored: unknown } {
   return typeof data === "object" && data !== null && !Array.isArray(data) && "stored" in data;
 }
 
+/** The version a DRAWING is, said by the answer that committed it:
+ *  · the version word the answer speaks (the door says it for every version it serves);
+ *  · the reached-back number when a reach-back answer says none (it answered THAT ask — what it drew IS
+ *    that version, fetched by address, never redrawn);
+ *  · 1 when the answer is the door's own envelope speaking no version word — the store's rule that a
+ *    board never updated IS version 1, pinned at the door: ?version=1 answers exactly that board;
+ *  · null when the answer identifies nothing — a bare block list is not the door's answer shape, and
+ *    an export that cannot name the version on screen must REFUSE, not download "whatever is current".
+ *  This is the export's pin: it rides the committed drawing, so a host advance the view has not seen,
+ *  or a selection whose load has not landed, cannot move the file out from under the screen. */
+function committedVersion(data: unknown, said: number | undefined, viewing: number | null): number | null {
+  if (said !== undefined) return said;
+  if (viewing !== null) return viewing;
+  const envelope = typeof data === "object" && data !== null && !Array.isArray(data)
+    && Array.isArray((data as { blocks?: unknown }).blocks)
+    && typeof (data as { type?: unknown }).type !== "string";
+  return envelope ? 1 : null;
+}
+
 // One stable empty list for the chrome's "nothing drawn yet" argument: a fresh [] every render would churn its
 // deps and let its scan re-commit forever.
 const NO_BLOCKS: Block[] = [];
 
-type Board = {
-  blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string; boardLive?: boolean;
-  boardFollowUps?: FollowUp[]; boardDensity?: Density; boardPalette?: Palette; boardMotion?: Motion;
-  boardVersion?: number; boardUpdatedAt?: string; boardLinks?: BoardLink[];
-  stored: unknown;
-};
-
-type State = {
-  kind: "loading";
-} | {
-  kind: "drawn"; blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; boardAsOf?: string;
-  boardLive?: boolean; boardFollowUps?: FollowUp[]; boardDensity?: Density; boardPalette?: Palette;
-  boardMotion?: Motion; boardVersion?: number; boardUpdatedAt?: string; boardLinks?: BoardLink[];
-  stored: unknown;
-} | { kind: "failed" };
+type State = { kind: "loading" } | { kind: "drawn"; blocks: Block[]; stored: unknown;
+  version: number | null; align?: Align; textAlign?: Align; followUps?: FollowUp[] }
+  | { kind: "failed" };
 
 /**
  * load fetches the stored JSON for an id (in the app: the plugin's REST route).
  *   streaming → "drawing…" (no fetch yet: the tag may still be arriving)
- *   id "zzz" → nothing (never fetched)
- *   fetch fails, or nothing in it can be drawn → nothing
+ *   id "zzz" → renders nothing (never fetched: a stray half-written tag must not leave a note in the reply)
+ *   fetch fails, or nothing in it can be drawn → renders nothing
  * The blocks drawn get the app's actions (send, fill, rest) with this tag's id added, so a checklist saves its
  * ticks with this board.
- *
- * One address, one live view (Living Boards v1): the FIRST tag of an id claims the address in the roster
- * (core/boardRoster.ts) and owns the live view; every later tag of the same id draws a pointer instead and
- * pokes the owner, whose refetch updates the SAME mounted subtree in place — a layout/state change of the
- * same elements, never a second renderer (a calculator's sliders, an unsent form, a lit tab all ride
- * through). A board that speaks a living word (a version, links) says it in a quiet row under itself.
  */
 export function BlockTag({ id, streaming, load }: { id: string | undefined; streaming: boolean; load: (id: string) => Promise<unknown> }) {
   const validId = typeof id === "string" && ID_PATTERN.test(id);
   const actions = useContext(BlockActions);
   // The roster's address key: the board id scoped to its conversation. An address is THE CHAT's visual
-  // memory — two session panes open on one page (the host integration's shape) never pointer each other.
+  // memory — two session panes open on one page never pointer each other.
   const address = validId ? `${actions.sessionScope ?? ""}|${id}` : "";
   const [state, setState] = useState<State>({ kind: "loading" });
-  const [expanded, setExpanded] = useState(false);
   const [viewing, setViewing] = useState<number | null>(null);  // an archived version being viewed, or null
+  const [expanded, setExpanded] = useState(false);              // the drawn board moved into the full-screen dialog
   const hostRef = useRef<HTMLDivElement | null>(null);
   const expandRef = useRef<HTMLButtonElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   // The tree this live view MOUNTED last: what the next replacement tree is carried against.
   const drawn = useRef<Block[] | null>(null);
+  // The chrome's anchor: the tag wraps the board (never inside .hb-blocks) so corners and the menu pair with it.
+  const tagRef = useRef<HTMLDivElement | null>(null);
+  const previousId = useRef(id);
 
   // The roster claim (core/boardRoster.ts): the token belongs to this instance; the claim is taken in a
   // LAYOUT effect so no flash of the wrong role ever paints, and it is released on unmount whatever path
@@ -100,6 +112,17 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
   const [refresh, setRefresh] = useState(0);  // the owner's answer to a poke: the address said something newer
   const [, force] = useReducer((x: number) => x + 1, 0);  // repaint on any roster word about this address
   const [live, setLive] = useState<{ version?: number; updatedAt?: string; links?: BoardLink[] }>({});
+  if (previousId.current !== id) {
+    previousId.current = id;
+    setState({ kind: "loading" });
+    setViewing(null);
+    setExpanded(false);
+    setRole("unknown");
+    setRefresh(0);
+    setLive({});
+    drawn.current = null;
+  }
+
 
   useLayoutEffect(() => {
     if (streaming || !validId) return;
@@ -122,9 +145,9 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     return () => {
       unsub();
       offPoke();
-      // round 5/7: when this was the page's LAST tag of the address, forgetBlock only PUSHES the
-      // queued door writes out — the board's answers live on the board (door + page mirror), not on
-      // the elements, so a reopen at the address finds everything, mounted updates or headless ones.
+      // When this was the page's LAST tag of the address, forgetBlock only PUSHES the queued door writes
+      // out — the board's answers live on the board (door + page mirror), not on the elements, so a reopen
+      // at the address finds everything, mounted updates or headless ones.
       if (boards.release(address, token)) forgetBlock(id);
     };
   }, [address, id, streaming, validId]);
@@ -140,45 +163,40 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     Promise.resolve(ask)
       .then((data) => {
         const {
-          blocks, align: boardAlign, textAlign: boardTextAlign, asOf: boardAsOf, live: boardLive,
-          followUps: boardFollowUps, density: boardDensity, palette: boardPalette, motion: boardMotion,
-          version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks,
+          blocks, version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks, followUps: boardFollowUps,
+          align: boardAlign, textAlign: boardTextAlign,
         } = readBlocksNoted(data);
-        // The export's JSON source: the stored envelope when the answer carries it (the local get_block does);
-        // the answer itself where it does not (previews, old doors) — never a fabrication.
-        const envelope = isEnvelopeCarrying(data) ? (data as { stored: unknown }).stored : data;
         if (!alive) return;
         if (blocks.length) {
-          // Drawing the answer is a function of the board and the door; the ONE thing that may precede
-          // it is an archive walk. Round 6 (Sol's disposition on reviewer comment 937): a version ≥ 2
-          // board arriving at a FRESH mount (drawn.current === null) may carry updates that landed with
-          // no view mounted anywhere — no promote ever ran, and the door may still hold answers under
-          // the OLD position or a superseded chain. migrateArchived computes the old→new mapping from
-          // the STORED specs alone and lands every answer it can PROVE before any block mounts, so a
-          // reopened block never reads its vacated slot and never loses what it filed. The walk may
+          // The export's JSON source: the stored envelope when the answer carries it (the local get_block
+          // does, at every version); the answer itself where it does not (previews, old doors) — never a
+          // fabrication. With ?version=N this is THAT version's envelope, the board being looked at.
+          const envelope = isEnvelopeCarrying(data) ? data.stored : data;
+          // Drawing the answer is a function of the board and the door; the ONE thing that may precede it
+          // is an archive walk: a version ≥ 2 board arriving at a FRESH mount may carry updates that landed
+          // with no view mounted anywhere — no promote ever ran, and the door may still hold answers under
+          // the OLD position or a superseded chain. migrateArchived computes the old→new mapping from the
+          // STORED specs alone and lands every answer it can PROVE before any block mounts. The walk may
           // not block the draw forever: it never rejects, and its round trips are the door's own.
           const headless = drawn.current === null && viewing === null && (boardVersion ?? 0) >= 2;
           const commitDraw = () => {
             if (!alive) return;
-            // A replacement tree landing on this live view: carry every logically-retained block's
-            // identity forward (core/living-identity.ts) BEFORE the swap, so React reconciles each
-            // surviving drawing onto the very element already mounted — independent of content shape
-            // and of slot alike (review round 3, defect 2). The first draw carries nothing: an unsaid
-            // board draws exactly the old content keys, byte for byte.
+            // A replacement tree landing on this live view: carry every logically-retained block's identity
+            // forward (core/living-identity.ts) BEFORE the swap, so React reconciles each surviving drawing
+            // onto the very element already mounted — independent of content shape and of slot alike.
+            // The first draw carries nothing: an unsaid board draws exactly the old keys, byte for byte.
             if (drawn.current) carryBlocks(drawn.current, blocks);
-            // Round 5 (Sol's disposition): the update also makes the board LIVING — its interactive
-            // answers now file by identity and follow their blocks across moves and reopens. The
-            // promote runs synchronously up to the door's first answer, and marks before the swap
-            // renders, so every remount mounts from the board, not from the spec, wherever the
-            // update moved it. A version ≥ 2 answering a FRESH mount (a reopen) says the same word —
-            // and the archive walk above already moved what a mounted promote never got to.
+            // The update also makes the board LIVING: its interactive answers now file by identity and
+            // follow their blocks across moves and reopens. The promote runs synchronously up to the door's
+            // first answer, and marks before the swap renders, so every remount mounts from the board.
             if (drawn.current && viewing === null) void promoteOnUpdate(actions.rest, id, drawn.current, blocks);
             if (viewing === null && (boardVersion ?? 0) >= 2) markLiving(id);
             drawn.current = blocks;
-            setState({ kind: "drawn", blocks, boardAlign, boardTextAlign, boardAsOf, boardLive, boardFollowUps,
-              boardDensity, boardPalette, boardMotion, boardVersion, boardUpdatedAt, boardLinks, stored: envelope });
-            // Only the LIVE answer says what this address IS now: the live row and the roster's word about the
-            // address speak of the current version, whatever older one is being looked at.
+            setState({ kind: "drawn", blocks, stored: envelope,
+              version: committedVersion(data, boardVersion, viewing),
+              align: boardAlign, textAlign: boardTextAlign, followUps: boardFollowUps });
+            // Only the LIVE answer says what this address IS now: the live row and the roster's word about
+            // the address speak of the current version, whatever older one is being looked at.
             if (viewing === null) {
               setLive({ version: boardVersion, updatedAt: boardUpdatedAt, links: boardLinks });
               boards.setMeta(address, { version: boardVersion, updatedAt: boardUpdatedAt });
@@ -220,65 +238,61 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
     expandRef.current?.focus();  // the dialog hands focus back to the control it opened from
   };
 
-  // The export affordance (host/ExportChrome.tsx): chrome around the board, never inside it. Its corner buttons
-  // pair the one drawn instance's elements with the read blocks by walking both trees together; its board
-  // files come out of the stored envelope this very load already delivered — export asks the door for nothing.
-  const chrome = useExportChrome({
-    blocks: state.kind === "drawn" ? state.blocks : NO_BLOCKS,
-    asOf: state.kind === "drawn" ? state.boardAsOf : undefined,
-    live: state.kind === "drawn" ? state.boardLive : undefined,
-    stored: state.kind === "drawn" ? state.stored : null,
-    expanded,
-    getBoard: () => hostRef.current?.querySelector<HTMLElement>(".hb-blocks") ?? null,
-    getHost: () => hostRef.current,
-  });
-
-  // The Library (host/LibraryChrome.tsx): a pin beside the board's other chrome and the shelf dialog the
-  // pin feeds. The controls live OUTSIDE .hb-blocks, exactly like the expand and export pair, so an inline
-  // board still draws the markup it always drew; the dialog is the one established window-covering
-  // pattern, answering its own Escape/Tab on the shared layer stack.
-  const library = useLibraryChrome({
-    id,
-    drawn: state.kind === "drawn",
-    expanded,
-  });
-
   useEffect(() => {
     if (expanded) closeRef.current?.focus();  // an open dialog owns the keyboard
   }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
-    const root = hostRef.current;
-    if (!root) return;
-    const layer = pushLayer();  // the board holds the keys until something opens over it
-    // One Escape steps the reader down exactly one layer; the trap belongs to the topmost dialog alone.
-    // The rules themselves are host/tabbable.ts, shared with the Library dialog word for word.
-    const onKey = dialogKeys(root, layer, close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      popLayer(layer);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // A photo opened from inside this dialog sits above it; the key answers the topmost layer first.
+        if (document.querySelector(".hb-photo-overlay")) return;
+        close();
+        return;
+      }
+      if (e.key !== "Tab" || !hostRef.current) return;
+      const items = tabbableIn(hostRef.current);
+      if (!items.length) return;
+      e.preventDefault();  // the dialog owns the keyboard: Tab steps only through its own eligible controls
+      const active = document.activeElement as HTMLElement | null;
+      const at = active === null ? -1 : items.indexOf(active);
+      const step = e.shiftKey ? -1 : 1;
+      const next = at === -1 ? (e.shiftKey ? items.length - 1 : 0) : (at + step + items.length) % items.length;
+      items[next].focus();
     };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [expanded]);
+  // The export affordance (host/ExportChrome.tsx): chrome around the board, never inside it. Its corner buttons
+  // pair the one drawn instance's elements with the read blocks by walking both trees together; the board's
+  // JSON file is the stored envelope this very load already delivered, and its Markdown asks the ONE host
+  // writer (GET /blocks/<id>/markdown) at the EXACT version this drawing committed with — never "whatever the
+  // address is on now", so a host advance the view has not seen, or a selection whose load has not landed,
+  // cannot move the file out from under the screen; a drawing that names no version is refused, not guessed.
+  // The tag's OWN id rides in too: an enclosing provider's blockId must never name this board.
+  const chrome = useExportChrome({
+    blocks: state.kind === "drawn" ? state.blocks : NO_BLOCKS,
+    stored: state.kind === "drawn" ? state.stored : null,
+    boardId: id, drawnVersion: state.kind === "drawn" ? state.version : null,
+    getBoard: () => tagRef.current?.querySelector<HTMLElement>(".hb-blocks") ?? null,
+    getHost: () => tagRef.current,
+  });
 
   if (!validId && !streaming) return null;
   if (streaming || role === "unknown") return <Note text="drawing…" pulse />;
   if (role === "pointer") return <LivePointer id={id as string} address={address} />;
   if (state.kind === "loading") return <Note text="drawing…" pulse />;
   if (state.kind === "failed") return null;
-
-  const board: Board = state;
-
   return (
     <BlockActions.Provider value={{ ...actions, blockId: id }}>
-      <div className="hb-tag" {...chrome.bind}>
+      <div className="hb-tag" ref={tagRef} {...chrome.bind}>
         <button ref={expandRef} type="button" className="hb-expand" aria-label="Expand board" aria-haspopup="dialog"
           onClick={() => setExpanded(true)}>
           <IconExpand />
         </button>
-        {chrome.menu}
-        {library.controls}
+        {/* Export lives in the inline view: in full screen its corners would sit under the dialog's backdrop. */}
+        {!expanded && chrome.menu}
         <div ref={hostRef} className={expanded ? "hb-board-host hb-board-overlay" : "hb-board-host"}
           {...(expanded ? { role: "dialog", "aria-modal": "true", "aria-label": "Expanded board" } : {})}
           onClick={expanded ? (e) => e.target === e.currentTarget && close() : undefined}>
@@ -288,20 +302,35 @@ export function BlockTag({ id, streaming, load }: { id: string | undefined; stre
               <IconClose />
             </button>
           )}
-          {chrome.dialogMenu}
-          <Blocks blocks={board.blocks} boardAlign={board.boardAlign} boardTextAlign={board.boardTextAlign}
-            boardFollowUps={board.boardFollowUps}
-            boardDensity={board.boardDensity} boardPalette={board.boardPalette} boardMotion={board.boardMotion} />
-          {(live.version != null || live.links) && (
-            <LiveRow id={id as string} version={live.version} updatedAt={live.updatedAt}
-              links={live.links} viewing={viewing} onShow={setViewing}
-              canReach={Boolean(actions.rest)} />
-          )}
-          {chrome.layer}
+          <Blocks blocks={state.blocks} boardAlign={state.align} boardTextAlign={state.textAlign}
+            boardFollowUps={state.followUps} />
         </div>
-        {library.dialog}
+        {!expanded && chrome.layer}
       </div>
+      {(live.version != null || live.links) && (
+        <LiveRow id={id as string} version={live.version} updatedAt={live.updatedAt} links={live.links}
+          viewing={viewing} onShow={setViewing} canReach={Boolean(actions.rest)} />
+      )}
     </BlockActions.Provider>
+  );
+}
+
+/** The controls a real Tab press can reach inside the open dialog, in tab order. The focusable set minus the
+ *  controls that are not actually stops: anything disabled (own .disabled or a disabled fieldset — Steps and
+ *  Layers end on a spent Next, and a form's Send sits behind its fieldset once sent), anything asking not to be
+ *  (negative tabindex, hidden inputs), anything not shown. The layout half of that read (rects, visibility)
+ *  only counts where layout is real; jsdom reports a zero rect for every element, so there the attribute
+ *  shape governs and Chrome measures the rest (tests/test_expand_fullscreen.py). */
+function tabbableIn(root: HTMLElement): HTMLElement[] {
+  const laidOut = root.getClientRects().length > 0;
+  return [...root.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")].filter(
+    (el) =>
+      el.tabIndex >= 0 &&
+      el.getAttribute("type") !== "hidden" &&
+      (el as HTMLButtonElement).disabled !== true &&
+      !el.closest("fieldset[disabled]") &&
+      !el.closest("[hidden]") &&
+      (!laidOut || (el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible")),
   );
 }
 

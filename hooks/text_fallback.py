@@ -83,6 +83,17 @@ def _fit(pieces: list[str], limit: int | None) -> str:
     if limit is None or len(whole) <= limit:
         return whole
     room = limit - len(MORE_NOTE) - 2
+    if room < 0:
+        # The ask cannot even hold the note: pack whole pieces into the limit WITHOUT one, and when the
+        # first piece does not fit either, say nothing. The result never passes the caller's limit.
+        bare: list[str] = []
+        taken = 0
+        for piece in pieces:
+            if taken + len(piece) + 2 > limit:
+                break
+            bare.append(piece)
+            taken += len(piece) + 2
+        return "\n\n".join(bare)
     kept: list[str] = []
     size = 0
     for piece in pieces:

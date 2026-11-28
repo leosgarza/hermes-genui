@@ -28,13 +28,13 @@ function parseCsv(text: string): string[][] {
       row.push(text.slice(i, j));
       i = j;
     }
-    if (i < text.length && text[i] === ",") { i++; continue; }
+    if (i < text.length && text[i] === ",") { i++; if (i === text.length) row.push(""); continue; }
     if (text[i] === "\r") i += text[i + 1] === "\n" ? 2 : 1;
     else if (text[i] === "\n") i += 1;
     rows.push(row);
     row = [];
   }
-  if (i === text.length && text.length > 0 && !/[\r\n]$/.test(text)) rows.push(row);
+  if (i === text.length && row.length > 0 && !/[\r\n]$/.test(text)) rows.push(row);
   return rows;
 }
 
@@ -49,12 +49,40 @@ describe("csvCell", () => {
     expect(csvCell("two\nlines")).toBe('"two\nlines"');
     expect(csvCell("two\r\nlines")).toBe('"two\r\nlines"');
   });
+  it("keeps literal table text from becoming spreadsheet formulas (CWE-1236, raised on #75)", () => {
+    expect(csvCell("=1+1")).toBe("'=1+1");
+    expect(csvCell("+1+contact()")).toBe("'+1+contact()");
+    expect(csvCell("@SUM(1,2)")).toBe("\"'@SUM(1,2)\"");   // trigger AND a comma: neutralized, then quoted
+    expect(csvCell("-1+1")).toBe("'-1+1");
+    expect(csvCell("\tx")).toBe("'\tx");                     // a tab lead is a trigger; a tab is no delimiter
+    expect(csvCell("\rx")).toBe("\"'\rx\"");                  // a CR cannot travel bare, so it quotes too
+    expect(csvCell('=HYPERLINK("x")')).toBe("\"'=HYPERLINK(\"\"x\"\")\"");  // apostrophe first, RFC quoting after
+  });
+  it("neutralizes signed numeric strings too — the agreed rule takes EVERY leading trigger (raised on #75)", () => {
+    expect(csvCell("-42")).toBe("'-42");
+    expect(csvCell("+7.5")).toBe("'+7.5");
+    expect(csvCell("-0.001")).toBe("'-0.001");
+    expect(csvCell("-1e9")).toBe("'-1e9");
+    expect(csvCell("3e8")).toBe("3e8");   // no trigger lead: a digit-first word travels exactly as stored
+    expect(csvCell("42")).toBe("42");
+  });
+  it("a neutralized cell with delimiters still quotes whole", () => {
+    expect(csvCell("=a,b")).toBe('"\'=a,b"');
+  });
 });
 
 describe("csvOf", () => {
   it("writes headers first, then every row, one record per line with CRLF", () => {
     expect(csvOf(["Phone", "Price"], [["Pixel", "₹44,999"], ["Galaxy", "₹42,999"]])).toBe(
       "Phone,Price\r\nPixel,\"₹44,999\"\r\nGalaxy,\"₹42,999\"\r\n",
+    );
+  });
+  it("signed numeric strings travel neutralized in headers AND in data, byte for byte", () => {
+    // The agreed safety rule makes no exception for a word that merely LOOKS like a number: a header "-42"
+    // and a data "+7.5" arrive apostrophe-first exactly like a formula word; 42 and 3e8 lead with digits
+    // and travel as stored. A neutralized trigger that also holds a comma quotes after the prefix.
+    expect(csvOf(["-42", "Balance"], [["+7.5", "-0.001"], ["42", "@SUM(1,2)"]])).toBe(
+      "'-42,Balance\r\n'+7.5,'-0.001\r\n42,\"'@SUM(1,2)\"\r\n",
     );
   });
   it("keeps empty cells as empty fields, never as nothing", () => {

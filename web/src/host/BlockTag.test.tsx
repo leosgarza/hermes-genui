@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import catalog from "../../../core/catalog.json";
 import { Blocks } from "../core/Blocks";
@@ -15,9 +15,17 @@ afterEach(cleanup);
 
 const timeline = catalog.blocks.find((b) => b.kind === "timeline")!.example;
 
-// Shared shapes for the expand suite below (the placement describe keeps its own locals untouched).
+// Shared shapes for the expand suite below (the BlockTag describe keeps its own locals untouched).
 const stored = (blocks: unknown[], envelope: Record<string, unknown> = {}) => ({ ...envelope, blocks });
-const calc = { type: "calculator", sliders: [{ name: "p", title: "Loan", max: 100, value: 40 }], results: [{ label: "Half", formula: "p / 2" }] };
+const calc = {
+  type: "calculator", title: "Loan",
+  inputs: [{ id: "p", label: "Principal", value: 40, min: 0, max: 100, step: 1 }],
+  outputs: [{ label: "Half", formula: "p / 2" }],
+};
+const form = {
+  type: "form", id: "trip", title: "Weekend",
+  fields: [{ id: "note", kind: "text", label: "Note" }],
+};
 const photo = { type: "images", images: [{ url: "https://a.example/x.jpg", caption: "Alfama" }] };
 
 const drawn = async (blocks: unknown[], envelope: Record<string, unknown> = {}) => {
@@ -41,21 +49,44 @@ describe("BlockTag", () => {
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("hides a malformed id without loading", () => {
+  it("renders nothing for a malformed id, without loading", () => {
     const load = vi.fn();
     const { container } = render(<BlockTag id="zzz" streaming={false} load={load} />);
-    expect(container.innerHTML).toBe("");
+    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Couldn't load this block")).toBeNull();
+    expect(container.querySelector(".hb-state")).toBeNull();
     expect(load).not.toHaveBeenCalled();
   });
 
-  it("hides itself when loading fails", async () => {
-    const { container } = render(<BlockTag id="7f3a09bc" streaming={false} load={() => Promise.reject(new Error("404"))} />);
-    await waitFor(() => expect(container.innerHTML).toBe(""));
+  it("does not carry the prior block's version into a different id", async () => {
+    let finishNext!: () => void;
+    const load = (qid: string) => qid === "7f3a09bc"
+      ? Promise.resolve({ blocks: [{ type: "text", text: "OLD BOARD" }] })
+      : new Promise((resolve) => { finishNext = () => resolve({ blocks: [{ type: "text", text: "NEW BOARD" }] }); });
+    const view = render(<BlockTag id="7f3a09bc" streaming={false} load={load} />);
+    await screen.findByText("OLD BOARD");
+    view.rerender(<BlockTag id="8a4c10de" streaming={false} load={load} />);
+    expect(screen.queryByText("OLD BOARD")).toBeNull();
+    await waitFor(() => expect(finishNext).toBeTypeOf("function"));
+    await act(async () => { finishNext(); });
+    await screen.findByText("NEW BOARD");
+    expect(screen.queryByText("OLD BOARD")).toBeNull();
   });
 
-  it("hides itself when the stored data has nothing drawable", async () => {
-    const { container } = render(<BlockTag id="7f3a09bc" streaming={false} load={() => Promise.resolve({ blocks: [{ type: "weather" }] })} />);
-    await waitFor(() => expect(container.innerHTML).toBe(""));
+  it("renders nothing when loading fails", async () => {
+    const { container } = render(<BlockTag id="7f3a09bc" streaming={false} load={() => Promise.reject(new Error("404"))} />);
+    await waitFor(() => expect(container.querySelector(".hb-state")).toBeNull());
+    expect(screen.queryByText("Couldn't load this block")).toBeNull();
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing when the stored data has nothing drawable", async () => {
+    const { container } = render(
+      <BlockTag id="7f3a09bc" streaming={false} load={() => Promise.resolve({ blocks: [{ type: "weather" }] })} />,
+    );
+    await waitFor(() => expect(container.querySelector(".hb-state")).toBeNull());
+    expect(screen.queryByText("Couldn't load this block")).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 
   it("draws the stored blocks", async () => {
@@ -76,64 +107,27 @@ describe("BlockTag", () => {
     await waitFor(() => expect(screen.getByText("1 of 2 done")).toBeTruthy());
     expect(rest).toHaveBeenCalledWith("/blocks/7f3a09bc/state");
   });
-});
 
-describe("BlockTag placement", () => {
-  // Placement is the model's alone: the block's own ask, then the board's stored default, then left. The reader
-  // has no control anywhere — no chips above the board, and no remembered per-board override: a stale
-  // localStorage key from the old chips changes nothing and is never read.
-  const stored = (blocks: unknown[], envelope: Record<string, unknown> = {}) => ({ ...envelope, blocks });
-  const calc = { type: "calculator", sliders: [{ name: "p", title: "Loan", max: 100, value: 40 }], results: [{ label: "Half", formula: "p / 2" }] };
-
-  afterEach(() => {
-    localStorage.clear();
-    cleanup();
+  it("threads the board's placement words from the stored answer into the drawing", async () => {
+    const heading = { type: "heading", text: "Revenue hit ₹72,275 Cr" };
+    const { container } = render(
+      <BlockTag id="7f3a09bc" streaming={false}
+        load={() => Promise.resolve({ blocks: [heading], align: "center", text_align: "center" })} />,
+    );
+    await waitFor(() => expect(container.querySelector(".hb-place")).toBeTruthy());
+    const place = container.querySelector(".hb-place")!;
+    expect(place.getAttribute("data-align")).toBe("center");
+    expect(place.getAttribute("data-text-align")).toBe("center"); // a heading carries words; the voice lands too
+    expect(place.querySelector(".hb-heading")).toBeTruthy();
   });
 
-  it("passes the board's own default down to the blocks", async () => {
-    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([timeline], { align: "center" })} />);
-    await waitFor(() => expect(screen.getByText("Day 1 · Fri 9 Oct")).toBeTruthy());
-    expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy();
-  });
-
-  it("passes the board's own text default down to its blocks", async () => {
-    render(<BlockTag id="7f3a09bc" streaming={false}
-      load={async () => stored([{ type: "heading", text: "Today" }], { text_align: "center" })} />);
-    await waitFor(() => expect(screen.getByText("Today")).toBeTruthy());
-    expect(document.querySelector("[data-text-align='center'] .hb-heading")).toBeTruthy();
-  });
-
-  it("draws no alignment control of any kind", async () => {
-    // The host controls a board grows are view acts, never placement asks: the expand control (t_e7796349) and,
-    // since #6 (t_bff8178a), the export affordance — a deterministic save of what is drawn. Every button at the
-    // host level must be one of them; every OTHER button — and above all any alignment word — stays forbidden.
-    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([calc], { align: "center" })} />);
-    await waitFor(() => expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy());
-    expect(document.querySelector(".hb-align")).toBeNull();
-    for (const b of [...document.querySelectorAll("button")]) {
-      const viewAct = b.classList.contains("hb-expand") ||
-        b.classList.contains("hb-export") || b.classList.contains("hb-export-btn") ||
-        b.closest(".hb-export-menu") !== null ||
-        // …and since #8 (t_0559173f), the Library pair: saving a board and reading the shelf are local
-        // shelf acts, exactly like exporting — they never ask the model anything and never place anything.
-        b.classList.contains("hb-pin") || b.classList.contains("hb-lib") ||
-        b.closest(".hb-library-row") !== null || b.closest(".hb-library-tools") !== null ||
-        b.closest(".hb-library-edit") !== null || b.closest(".hb-library-boardhead") !== null ||
-        b.classList.contains("hb-library-close");
-      expect(viewAct, b.className).toBe(true);
-    }
-    for (const word of ["Auto", "Left", "Center", "Right"]) {
-      expect(screen.queryByRole("button", { name: word })).toBeNull();
-    }
-  });
-
-  it("ignores a remembered reader choice: the model's word stands", async () => {
-    localStorage.setItem("hermes-genui-align-7f3a09bc", "right");  // what the old chips used to save
-    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => stored([{ ...calc, align: "center" }])} />);
-    await waitFor(() => expect(document.querySelector(".hb-place")).toBeTruthy());
-    expect(document.querySelector(".hb-place[data-align='center']")).toBeTruthy();  // still the model's center
-    expect(document.querySelectorAll(".hb-place[data-align='right']").length).toBe(0);
-    expect(localStorage.getItem("hermes-genui-align-7f3a09bc")).toBe("right");      // untouched: never read, never written
+  it("threads nothing when the answer carries no words: the board draws the DOM it always drew", async () => {
+    const { container } = render(
+      <BlockTag id="7f3a09bc" streaming={false} load={() => Promise.resolve({ blocks: [timeline] })} />,
+    );
+    await waitFor(() => expect(container.querySelector(".hb-blocks")).toBeTruthy());
+    expect(container.querySelector(".hb-place")).toBeNull();
+    expect(container.querySelector("[data-align], [data-text-align]")).toBeNull();
   });
 });
 
@@ -146,11 +140,6 @@ describe("BlockTag expand / full-screen", () => {
   // Escape and the close control return to the inline view; focus is trapped inside while open and handed back
   // on close. The trap wraps Tab on the ELIGIBLE tabbable controls: disabled (own or via a disabled fieldset),
   // negative-tabindex and hidden controls are never stops and never leak focus out of the dialog.
-
-  const form = {
-    type: "form", id: "trip", title: "Weekend",
-    fields: [{ id: "note", kind: "text", label: "Note" }],
-  };
 
   it("grows an expand control on every drawn board — a real button, outside the blocks", async () => {
     const { container, button } = await drawn([{ type: "heading", text: "Quarterly" }]);
@@ -172,11 +161,11 @@ describe("BlockTag expand / full-screen", () => {
   });
 
   it("leaves the inline board byte-identical when nothing is expanded", async () => {
-    const blocks = [{ type: "heading", text: "Quarterly" }, { ...calc, align: "center" }, { type: "text", text: "Notes" }];
-    const { container } = await drawn(blocks, { align: "right", text_align: "center" });
+    const blocks = [{ type: "heading", text: "Quarterly" }, calc, { type: "text", text: "Notes" }];
+    const { container } = await drawn(blocks);
     const inline = container.querySelector(".hb-blocks")!.outerHTML;
     cleanup();
-    const bare = render(<Blocks blocks={readBlocks(blocks)} boardAlign="right" boardTextAlign="center" />).container;
+    const bare = render(<Blocks blocks={readBlocks(blocks)} />).container;
     expect(inline).toBe(bare.innerHTML);  // the whole .hb-blocks element: not one byte of markup changes
   });
 
@@ -252,6 +241,23 @@ describe("BlockTag expand / full-screen", () => {
     expect(button).not.toBe(document.activeElement);                     // focus never escaped to the inline button
   });
 
+  it("full screen shows no export controls, and Tab never reaches one", async () => {
+    const { container } = await drawn([{ type: "table", caption: "Sample", columns: ["Item"], rows: [["A"]] }]);
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // inline: the corner is there
+    fireEvent.click(screen.getByRole("button", { name: "Expand board" }));
+    await waitFor(() => expect(document.querySelector(".hb-board-overlay")).toBeTruthy());
+    expect(document.querySelector(".hb-export-btn")).toBeNull();          // full screen: no corners under the backdrop
+    expect(document.querySelector(".hb-export")).toBeNull();              // and no board menu either
+    const dialog = document.querySelector<HTMLElement>(".hb-board-overlay")!;
+    const controls = [...dialog.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, [tabindex]")]
+      .filter((el) => el.tabIndex >= 0 && (el as HTMLButtonElement).disabled !== true && !el.closest("[hidden]"));
+    controls[controls.length - 1].focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(dialog.contains(document.activeElement)).toBe(true);           // the loop wraps inside the dialog
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(container.querySelector(".hb-export-btn")).toBeTruthy());   // back inline: it returns
+  });
+
   it("the trap wraps on the real ends when the last control is disabled — the reviewer probe", async () => {
     await openExpanded([calc]);
     const dialog = document.querySelector(".hb-board-overlay")!;
@@ -288,13 +294,10 @@ describe("BlockTag expand / full-screen", () => {
     const realLast = add(document.createElement("button"));
     realLast.textContent = "Real last";
     const close = document.querySelector<HTMLElement>(".hb-overlay-close")!;
-    const exportMenu = document.querySelector<HTMLElement>(".hb-board-overlay .hb-export")!;  // the dialog's own export control: eligible by design (#6 round 2)
     const slider = document.querySelector<HTMLElement>(".hb-board-overlay .hb-calc input")!;
     close.focus();
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(exportMenu);                     // first: the close control, then the board menu, then the slider
-    fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(slider);
+    expect(document.activeElement).toBe(slider);                         // first: the close control, then the slider
     fireEvent.keyDown(window, { key: "Tab" });                           // skipping negative, hidden and held
     expect(document.activeElement).toBe(realLast);
     fireEvent.keyDown(window, { key: "Tab" });                           // and wrapping at that real end
@@ -313,88 +316,43 @@ describe("BlockTag expand / full-screen", () => {
     expect(document.querySelector(".hb-board-overlay")).toBeNull();
   });
 
-  it("an expanded board keeps the model's placement and voice", async () => {
-    await openExpanded([{ ...calc, align: "center" }, { type: "heading", text: "Reads centered" }],
-      { text_align: "center" });
-    const dialog = document.querySelector(".hb-board-overlay")!;
-    expect(dialog.querySelector(".hb-place[data-align='center']")).toBeTruthy();
-    expect(dialog.querySelector(".hb-place[data-text-align='center'] .hb-heading")).toBeTruthy();
-    expect(document.querySelectorAll(".hb-place").length).toBe(2);       // both asks — and one instance, not two draws
+  it("a pointer of the same address — a chip, not a board — draws no expand control", async () => {
+    // Living Boards (#55): one address draws ONE live view; every later tag is a pointer. The expand control
+    // belongs to the drawn board; a pointer has no board to move and must stay exactly the quiet chip it is.
+    const id = "c0ffee0d";
+    const load = async () => stored([{ type: "heading", text: "Portfolio" }]);
+    const home = render(
+      <BlockActions.Provider value={{ send: async () => "nowhere", fill: () => {}, sessionScope: "expand-pointer" }}>
+        <BlockTag id={id} streaming={false} load={load} />
+      </BlockActions.Provider>,
+    );
+    await waitFor(() => expect(home.container.querySelector(".hb-blocks")).toBeTruthy());
+    const pointer = render(
+      <BlockActions.Provider value={{ send: async () => "nowhere", fill: () => {}, sessionScope: "expand-pointer" }}>
+        <BlockTag id={id} streaming={false} load={load} />
+      </BlockActions.Provider>,
+    );
+    await waitFor(() => expect(pointer.container.querySelector(".hb-live-pointer")).toBeTruthy());
+    expect(pointer.container.querySelector(".hb-expand")).toBeNull();    // the pointer grows no control
+    expect(home.container.querySelector(".hb-expand")).toBeTruthy();     // the live view keeps its one
   });
 
-  it("an expanded board keeps the no-echo rule and the withdrawn envelope words stay silent", async () => {
-    await openExpanded([{ type: "source", text: "BLS series" }, { type: "heading", text: "Jobs" }],
-      { as_of: "2026-11-18", live: false });
-    // The shown source draws in the flow, once; the withdrawn envelope words add no footer and no badge.
-    expect(document.querySelectorAll(".hb-provenance").length).toBe(0);
-    expect(document.querySelectorAll(".hb-board-overlay .hb-source").length).toBe(1);
-    expect(document.body.textContent!.split("BLS series").length - 1).toBe(1);
-    expect(document.querySelector(".hb-provenance-badge")).toBeNull();
+  it("the living row stays with the live view; the dialog is the board", async () => {
+    const { container } = await openExpanded([{ type: "heading", text: "Portfolio" }],
+      { version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+    expect(container.querySelector(".hb-live")).toBeTruthy();            // the row keeps speaking beside the board
+    expect(document.querySelector(".hb-board-overlay .hb-live")).toBeNull();  // the dialog carries the board, not the address row
+    const dialog = document.querySelector(".hb-board-overlay")!;
+    expect(dialog.querySelectorAll(".hb-blocks").length).toBe(1);         // one board, moved in, never copied
   });
 
   it("Escape answers the photo layer first while the board stays expanded", async () => {
     await openExpanded([photo]);
-    fireEvent.click(document.querySelector(".hb-board-overlay .hb-photo")!);   // open a photo inside the dialog
+    fireEvent.click(document.querySelector(".hb-photo-open")!);          // open a photo inside the dialog
     await waitFor(() => expect(document.querySelector(".hb-photo-overlay")).toBeTruthy());
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(document.querySelector(".hb-photo-overlay")).toBeNull();             // the photo closes first
-    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();           // the board keeps the ask
-  });
-});
-
-describe("BlockTag nested overlays — the chart detail inside the expanded board", () => {
-  // A drill-down can open over an expanded board: a chart, expanded, drilled. The keyboard then belongs to the
-  // topmost layer alone — the first Escape closes the detail (the board stays expanded, focus returns to the
-  // drawing, its pick kept) and only a second Escape closes the board (focus back on the expand control). The
-  // board's Tab trap must not reach past the dialog above it (core/overlays.ts is the stack).
-  const line = { type: "chart", kind: "line", title: "Temps", x: ["Jun", "Jul"], series: [{ name: "°C", data: [20, 30] }] };
-
-  const openDrill = async () => {
-    const view = await openExpanded([line]);
-    const svg = document.querySelector<SVGSVGElement>(".hb-board-overlay svg.hb-chart-svg")!;
-    svg.focus();
-    fireEvent.keyDown(svg, { key: "ArrowRight" });   // pick Jun
-    fireEvent.keyDown(svg, { key: "Enter" });        // drill into it
-    await waitFor(() => expect(document.querySelector(".hb-chart-detail")).toBeTruthy());
-    return { ...view, svg };
-  };
-
-  it("the first Escape closes the detail ONLY — the board stays expanded, focus back on the drawing", async () => {
-    const { container, svg } = await openDrill();
-    const dialog = document.querySelector<HTMLElement>(".hb-chart-detail")!;
-    const button = dialog.querySelector("button")!;
-    expect(document.activeElement).toBe(button);                        // the dialog owns the keyboard
-    fireEvent.keyDown(button, { key: "Escape" });
-    expect(document.querySelector(".hb-chart-detail")).toBeNull();      // the detail answered the key…
-    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();   // …and nothing under it did
-    expect(document.activeElement).toBe(svg);                           // back to the drawing it opened from
-    expect(container.querySelector("svg.hb-chart-svg")).toBe(svg);      // the ONE chart, never re-mounted
-    expect(container.querySelector(".hb-chart-at")!.textContent).toBe("Jun");  // its pick survived the round trip
-  });
-
-  it("a second Escape then closes the board itself, focus back on the expand control", async () => {
-    const { button: expand, svg } = await openDrill();
-    fireEvent.keyDown(document.querySelector(".hb-chart-detail button")!, { key: "Escape" });  // the detail first
-    fireEvent.keyDown(svg, { key: "Escape" });                                                 // then the board
-    expect(document.querySelector(".hb-chart-detail")).toBeNull();
-    expect(document.querySelector(".hb-board-overlay")).toBeNull();
-    expect(document.activeElement).toBe(expand);
-  });
-
-  it("Tab belongs to the topmost dialog only; the board's trap resumes when it closes", async () => {
-    const { svg } = await openDrill();
-    const dialog = document.querySelector<HTMLElement>(".hb-chart-detail")!;
-    const close = dialog.querySelector("button")!;
-    expect(document.activeElement).toBe(close);
-    fireEvent.keyDown(close, { key: "Tab" });
-    expect(document.activeElement).toBe(close);                    // the dialog's own trap, not the board's
-    fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(close);                    // wrapping both ways
-    fireEvent.keyDown(close, { key: "Escape" });                   // close the detail
-    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();
-    fireEvent.keyDown(svg, { key: "Tab" });                        // the board's trap owns the keys again
-    const host = document.querySelector(".hb-board-overlay")!;
-    expect(host.contains(document.activeElement)).toBe(true);
+    expect(document.querySelector(".hb-photo-overlay")).toBeNull();       // the photo closes first
+    expect(document.querySelector(".hb-board-overlay")).toBeTruthy();      // the board keeps the ask
   });
 });
 
@@ -418,5 +376,35 @@ describe("BlockTag expand width semantics", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(getComputedStyle(board).maxWidth).toBe("1100px");             // closed: the cap returns with the inline view
     expect(getComputedStyle(card).maxWidth).toBe("720px");               // and the cards never moved
+  });
+  it("keeps every block its own height in the expanded box, which scrolls instead of squeezing them", async () => {
+    const table = { type: "table", caption: "Sample", columns: ["Item"], rows: [["A"]] };
+    const { container, button } = await drawn([{ type: "heading", text: "Quarterly" }, table, calc]);
+    const card = container.querySelector(".hb-table-card")!;
+    expect(getComputedStyle(card).flexShrink).not.toBe("0");             // inline: the board's own flow, untouched
+    fireEvent.click(button);
+    expect(getComputedStyle(card).flexShrink).toBe("0");                 // expanded: the table may not collapse
+    expect(getComputedStyle(container.querySelector(".hb-calc")!).flexShrink).toBe("0");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(getComputedStyle(card).flexShrink).not.toBe("0");
+  });
+});
+
+describe("the export chrome is the only control a board grows", () => {
+  // enhancement #6: the tag gains a board menu and a corner per exportable chart/table — view acts, never
+  // placement or composer asks. Everything the chrome adds lives OUTSIDE .hb-blocks; the drawing itself is
+  // none of its business (ExportChrome.test.tsx pins the bytes and the acts).
+  it("the tag's controls at rest are the expand button and the export chrome — nothing inside the drawing", async () => {
+    const chart = { type: "chart", title: "T", x: ["a"], series: [{ name: "s", data: [1, 2] }] };
+    render(<BlockTag id="7f3a09bc" streaming={false} load={async () => ({ blocks: [chart], stored: [chart] })} />);
+    await waitFor(() => expect(document.querySelector(".hb-blocks")).toBeTruthy());
+    const tag = document.querySelector(".hb-tag")!;
+    const buttons = [...tag.querySelectorAll("button")];
+    expect(buttons.length).toBe(3);                       // #72's expand + the menu + this chart's corner
+    for (const b of buttons) {
+      expect(b.classList.contains("hb-expand")
+        || b.classList.contains("hb-export") || b.classList.contains("hb-export-btn")).toBe(true);
+    }
+    expect(document.querySelector(".hb-blocks button")).toBeNull();   // nothing inside the drawing
   });
 });

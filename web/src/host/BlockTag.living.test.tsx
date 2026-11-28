@@ -1,11 +1,11 @@
 // Living Boards at the tag: one address, one live view; an update lands in place on the SAME mounted
 // elements and the reader's answers follow their blocks; older versions stay reachable by address; and
 // links open other boards without redrawing them. The door is a fake over the real route shapes
-// (GET /blocks/{id}[?version=N], GET/PUT /blocks/{id}/state); the store object is what show_blocks
-// and store.update leave on disk in the app.
+// (GET /blocks/{id}[?version=N], GET /blocks/{id}/markdown[?version=N], GET/PUT /blocks/{id}/state);
+// the store object is what show_blocks and store.update leave on disk in the app.
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { forgetBoards } from "../blocks/checklist/savedState";
+import { forgetBoards, peekStored } from "../blocks/checklist/savedState";
 import { BlockActions, type Rest } from "./actions";
 import { BlockTag } from "./BlockTag";
 
@@ -14,14 +14,35 @@ afterEach(() => {
   forgetBoards();
 });
 
-type Door = { boards: Map<string, unknown>; state: Map<string, Record<string, unknown>>; puts: unknown[][] };
+type Door = { boards: Map<string, unknown>; state: Map<string, Record<string, unknown>>; puts: unknown[][];
+  calls: string[]; hold?: number; release?: () => void };
 
 function door(): Door {
-  return { boards: new Map(), state: new Map(), puts: [] };
+  return { boards: new Map(), state: new Map(), puts: [], calls: [] };
+}
+
+/** The door's version rule for a stored board (core/store.py version_of + _resolve_board's "or 1"):
+ *  a board that never carried an update's word IS version 1. */
+function versionWord(board: unknown): number {
+  const v = (board as { version?: unknown } | undefined)?.version;
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 ? v : 1;
+}
+
+/** The ONE text writer's answer for a board at one version: words built from the blocks themselves plus
+ *  the version's own mark, so a test can prove WHICH version's words landed (the real door rides
+ *  hooks/text_fallback.py; this fake is the same door shape over the same version rule). */
+function mdWords(version: number, board: unknown): { markdown: string } {
+  const list = Array.isArray(board) ? board : (board as { blocks?: unknown[] } | undefined)?.blocks ?? [];
+  const words = list.map((raw) => {
+    const b = raw as { text?: string; caption?: string; title?: string };
+    return b.text ?? b.caption ?? b.title ?? "·";
+  }).join(" / ");
+  return { markdown: `MD v${version} :: ${words}\n` };
 }
 
 function restFor(d: Door): Rest {
   return async (path: string, init?: { method?: string; body?: unknown }) => {
+    d.calls.push(path);
     if (init?.method === "PUT") {
       const id = path.split("/")[2];
       const state = (init.body as { state: Record<string, unknown> }).state;
@@ -38,8 +59,21 @@ function restFor(d: Door): Rest {
     if (parts[3] === "versions") {
       return { versions: (d.boards.get(`${id}.versions`) as { version: number }[] | undefined) ?? [] };
     }
-    if (query?.startsWith("version=")) {
-      const want = Number(query.split("=")[1]);
+    const want = query?.startsWith("version=") ? Number(query.split("=")[1]) : null;
+    if (parts[3] === "markdown") {
+      // The ONE writer's door (GET /blocks/{id}/markdown) answering get_block's own version rule: the
+      // address serves its CURRENT version; ?version=N reaches back; a number with nothing archived
+      // behind it is refused. The export's pin therefore always says the version the door resolves.
+      const cur = versionWord(board);
+      if (want === null || want === cur) return mdWords(cur, board);
+      const archive = (d.boards.get(`${id}.versions`) as { version: number; board: unknown }[] | undefined) ?? [];
+      const hit = archive.find((e) => e.version === want);
+      return hit ? mdWords(want as number, hit.board) : { error: "no such version" };
+    }
+    if (want !== null && parts[3] === undefined) {
+      if (d.hold !== undefined && want === d.hold) {   // the race fixture: a selection whose load has not landed
+        await new Promise<void>((resolve) => { d.release = resolve; });
+      }
       const archive = (d.boards.get(`${id}.versions`) as { version: number; board: unknown }[] | undefined) ?? [];
       const hit = archive.find((e) => e.version === want);
       return hit ? answerOf(hit.board) : { error: "no such version" };
@@ -58,8 +92,7 @@ const loadFor = (d: Door) => async (id: string) => {
   return board === undefined ? { error: "not found" } : answerOf(board);
 };
 
-function mountTag(id: string, d: Door, scope = "s1") {
-  const rest = restFor(d);
+function mountTag(id: string, d: Door, scope = "s1", rest = restFor(d)) {
   return render(
     <BlockActions.Provider value={{ send: async () => "nowhere", fill: () => {}, rest, sessionScope: scope }}>
       <BlockTag id={id} streaming={false} load={loadFor(d)} />
@@ -212,6 +245,229 @@ describe("links between boards", () => {
   });
 });
 
+describe("export follows the board on screen", () => {
+  // Round-2's blocking finding, pinned through the REAL BlockTag machinery: an addressed update or a version
+  // reach-back REPLACES THE READ at the same slot while the drawing carries on (the identity system keeps a
+  // survivor on the very element already mounted when its words held, and honestly remounts it when they
+  // moved). Either way the export corner must refresh: its bytes AND its accessible name follow whatever
+  // the reader is looking at right now, never the previous version. The predicate-level proof — same element,
+  // same position, changed data — is pinned directly in ExportChrome.scan.test.tsx; real Chrome rides in
+  // tests/test_export_chrome.py::TestLivingRefresh.
+  const downloads = () => {
+    const files: { name: string; blob: Blob }[] = [];
+    (URL as { createObjectURL?: unknown }).createObjectURL = (b: Blob) => {
+      files.push({ name: "", blob: b });
+      return "blob:x";
+    };
+    (URL as { revokeObjectURL?: unknown }).revokeObjectURL = () => {};
+    const grab = (e: Event) => {
+      const link = (e.target as HTMLElement).closest?.("a[download]");
+      if (link && files.length) files[files.length - 1].name = link.getAttribute("download")!;
+    };
+    document.addEventListener("click", grab, true);
+    return files;
+  };
+  const TABLE = (value: string) => ({
+    type: "table", caption: "Lodging, compared", columns: ["Hotel", "Cost"], rows: [["Kanra", value]],
+  });
+  const corner = () =>
+    [...document.querySelectorAll<HTMLButtonElement>(".hb-export-btn")]
+      .find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Export table"));
+
+  it("a version reach-back re-exports the version being VIEWED — same slot, new bytes", async () => {
+    const id = "c0ffee0e";
+    const d = door();
+    d.boards.set(`${id}.versions`, [
+      { version: 1, saved_at: "2026-11-19T08:00:00+00:00", board: { blocks: [TABLE("old")], version: 1 } },
+    ]);
+    d.boards.set(id, { blocks: [TABLE("new")], version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+    const files = downloads();
+    const { container } = mountTag(id, d);
+    await waitFor(() => expect(container.querySelector(".hb-table")).toBeTruthy());
+    expect(container.textContent).toContain("new");
+
+    // The live board on screen: the corner says CURRENT data.
+    corner()!.click();
+    await waitFor(() => expect(files.length).toBe(1));
+    expect(await files[0].blob.text()).toContain("new");
+
+    // Reach back: v1 answers through the REAL door route (?version=N) at the SAME slot. Whether the
+    // identity system carries the survivor onto the very element or honestly remounts it (its words moved),
+    // the pairing must refresh: exported bytes follow the displayed version, never the previous one.
+    fireEvent.click(container.querySelector(".hb-live-history")!);
+    await waitFor(() => expect(container.textContent).toContain("viewing v1"));
+    await waitFor(() => expect(container.textContent).toContain("old"));
+    expect(corner()).toBeTruthy();                                   // the corner never left the DOM
+
+    // The bytes the reader would download are the board the reader SEES — not the version that came before.
+    corner()!.click();
+    await waitFor(() => expect(files.length).toBe(2));
+    expect(await files[1].blob.text()).toContain("old");
+    expect(await files[1].blob.text()).not.toContain("new");
+
+    // And stepping back to current follows the SAME way: current bytes again.
+    fireEvent.click(container.querySelector(".hb-live-back")!);
+    await waitFor(() => expect(container.textContent).toContain("new"));
+    corner()!.click();
+    await waitFor(() => expect(files.length).toBe(3));
+    expect(await files[2].blob.text()).toContain("new");
+    expect(await files[2].blob.text()).not.toContain("old");
+  });
+
+  it("an update-in-place moves the corner's CSV at the same slot (poke, not reach-back)", async () => {
+    const id = "c0ffee0f";
+    const d = door();
+    d.boards.set(id, [TABLE("old")]);
+    const files = downloads();
+    const { container } = mountTag(id, d);
+    await waitFor(() => expect(container.querySelector(".hb-table")).toBeTruthy());
+    corner()!.click();
+    await waitFor(() => expect(files.length).toBe(1));
+    expect(await files[0].blob.text()).toContain("old");
+
+    // A newer turn quotes the SAME address: the owner refetches and REPLACES the read in place — v2, a table
+    // at the same slot with a new value (an unsaid board grows no living row: this is the plainest swap).
+    d.boards.set(`${id}.versions`, [{ version: 1, saved_at: null, board: [TABLE("old")] }]);
+    d.boards.set(id, { blocks: [TABLE("new")], version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+    act(() => { mountTag(id, d); });   // the later tag is a pointer; its claim pokes the live view
+    await waitFor(() => expect(container.textContent).toContain("new"));
+
+    corner()!.click();
+    await waitFor(() => expect(files.length).toBe(2));
+    expect(await files[1].blob.text()).toContain("new");
+    expect(await files[1].blob.text()).not.toContain("old");
+  });
+});
+
+describe("markdown names the version the DRAWING committed (the screen/export race)", () => {
+  // Round 4's blocking finding, through the REAL machinery: the Markdown act must ask of the version that
+  // COMMITTED with the currently drawn board — never "whatever the host is on now" (a host update that has
+  // not reached this view may not move the file out from under the screen), and never the version a
+  // selection merely INTENDED while its load is still pending (until the load lands, the old drawing IS
+  // the screen). A drawing that cannot name its own version is refused, not guessed. The fake door grew a
+  // markdown branch with the door's own version rule; the writer's words carry "MD v<N>" so a test proves
+  // WHICH version's bytes landed, not only which path was asked.
+  const downloads = () => {
+    const files: { name: string; blob: Blob }[] = [];
+    (URL as { createObjectURL?: unknown }).createObjectURL = (b: Blob) => {
+      files.push({ name: "", blob: b });
+      return "blob:x";
+    };
+    (URL as { revokeObjectURL?: unknown }).revokeObjectURL = () => {};
+    const grab = (e: Event) => {
+      const link = (e.target as HTMLElement).closest?.("a[download]");
+      if (link && files.length) files[files.length - 1].name = link.getAttribute("download")!;
+    };
+    document.addEventListener("click", grab, true);
+    return files;
+  };
+  const TABLE = (value: string) => ({
+    type: "table", caption: `Lodging ${value}`, columns: ["Hotel", "Cost"], rows: [["Kanra", value]],
+  });
+  const askMarkdown = async (container: HTMLElement) => {
+    fireEvent.click(container.querySelector(".hb-export")!);
+    const items = await waitFor(() => {
+      const found = container.querySelectorAll<HTMLElement>('[role="menuitem"]');
+      if (found.length < 2) throw new Error("menu not open");
+      return found;
+    });
+    fireEvent.click(items[0]);                                          // Markdown
+  };
+  const markdownAsks = (d: Door) => d.calls.filter((c) => c.includes("/markdown"));
+
+  it("a host advance the view has not seen cannot move the file (the stale-live race)", async () => {
+    const id = "c0ffee40";
+    const d = door();
+    const files = downloads();
+    d.boards.set(id, [HEADING, TABLE("old")]);                          // the initial, never-updated v1 board
+    const { container } = mountTag(id, d);
+    await waitFor(() => expect(container.textContent).toContain("Lodging old"));
+
+    // The HOST moves without this view hearing a word: v1 archived, v2 current, no poke lands.
+    d.boards.set(`${id}.versions`, [{ version: 1, saved_at: null, board: [HEADING, TABLE("old")] }]);
+    d.boards.set(id, { blocks: [HEADING, TABLE("new")], version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+    expect(container.textContent).toContain("Lodging old");              // the screen has not moved yet
+
+    await askMarkdown(container);
+    await waitFor(() => expect(files.length).toBe(1));
+    expect(markdownAsks(d)).toEqual([`/blocks/${id}/markdown?version=1`]);
+    const text = await files[0].blob.text();
+    expect(text).toContain("MD v1");
+    expect(text).not.toContain("MD v2");
+
+    // The app's own word: a later tag of the address POKEs the owner, the view refetches, the DRAWING
+    // commits v2 — and the pin rides with the commit, not before it.
+    act(() => { mountTag(id, d); });
+    await waitFor(() => expect(container.textContent).toContain("Lodging new"));
+    await askMarkdown(container);
+    await waitFor(() => expect(files.length).toBe(2));
+    expect(markdownAsks(d)).toEqual([
+      `/blocks/${id}/markdown?version=1`, `/blocks/${id}/markdown?version=2`,
+    ]);
+    expect(await files[1].blob.text()).toContain("MD v2");
+  });
+
+  it("a selection still loading cannot outrun the drawing (the pending reach-back race)", async () => {
+    const id = "c0ffee41";
+    const d = door();
+    const files = downloads();
+    d.boards.set(`${id}.versions`, [{ version: 1, saved_at: "2026-11-19T08:00:00+00:00",
+      board: { blocks: [HEADING, TABLE("old")], version: 1 } }]);
+    d.boards.set(id, { blocks: [HEADING, TABLE("new")], version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+    const { container } = mountTag(id, d);
+    await waitFor(() => expect(container.textContent).toContain("Lodging new"));
+
+    // Reach for v1 — and hold its load: the SELECTION has moved, the DRAWING has not.
+    d.hold = 1;
+    fireEvent.click(container.querySelector(".hb-live-history")!);
+    await waitFor(() => expect(container.textContent).toContain("viewing v1"));
+    expect(container.textContent).toContain("Lodging new");             // the old drawing IS the screen
+
+    await askMarkdown(container);
+    await waitFor(() => expect(files.length).toBe(1));
+    expect(markdownAsks(d)).toEqual([`/blocks/${id}/markdown?version=2`]);
+    expect(await files[0].blob.text()).toContain("MD v2");
+
+    // The load lands: the drawing commits v1, and only now does the file follow the selection.
+    d.release!();
+    await waitFor(() => expect(container.textContent).toContain("Lodging old"));
+    await askMarkdown(container);
+    await waitFor(() => expect(files.length).toBe(2));
+    expect(markdownAsks(d)).toEqual([
+      `/blocks/${id}/markdown?version=2`, `/blocks/${id}/markdown?version=1`,
+    ]);
+    expect(await files[1].blob.text()).toContain("MD v1");
+  });
+
+  it("controls: the live board asks its own committed version; a landed reach-back asks the archived one",
+    async () => {
+      // Control 1 — the live v2 drawing with no race anywhere near it: pinned to the version the answer
+      // said it IS, not to a bare "whatever the address is on".
+      const id = "c0ffee42";
+      const d = door();
+      const files = downloads();
+      d.boards.set(`${id}.versions`, [{ version: 1, saved_at: null, board: [HEADING, TABLE("old")] }]);
+      d.boards.set(id, { blocks: [HEADING, TABLE("new")], version: 2, updated_at: "2026-11-20T09:00:00+00:00" });
+      const { container } = mountTag(id, d);
+      await waitFor(() => expect(container.textContent).toContain("Lodging new"));
+      await askMarkdown(container);
+      await waitFor(() => expect(files.length).toBe(1));
+      expect(markdownAsks(d)).toEqual([`/blocks/${id}/markdown?version=2`]);
+      expect(await files[0].blob.text()).toContain("MD v2");
+
+      // Control 2 — the reach-back LANDED (the ordinary path the accepted tests draw): the v1 drawing,
+      // the v1 words. The pin says the same thing the accepted CSV/PNG reach-back tests already prove.
+      fireEvent.click(container.querySelector(".hb-live-history")!);
+      await waitFor(() => expect(container.textContent).toContain("Lodging old"));
+      await askMarkdown(container);
+      await waitFor(() => expect(files.length).toBe(2));
+      expect(markdownAsks(d)).toEqual([
+        `/blocks/${id}/markdown?version=2`, `/blocks/${id}/markdown?version=1`,
+      ]);
+      expect(await files[1].blob.text()).toContain("MD v1");
+    });
+});
+
 describe("board-held transient answers", () => {
   it("a moved slider survives an addressed update on the same element", async () => {
     const id = "c0ffee0c";
@@ -231,5 +487,162 @@ describe("board-held transient answers", () => {
     await waitFor(() => expect(container.textContent).toContain("v2"));
     expect(container.querySelector(".hb-calc")).toBe(calcNode);  // the same element, never a remount
     expect((container.querySelector("input[type=range]") as HTMLInputElement).value).toBe(movedValue);
+  });
+});
+
+
+describe("reopened board state", () => {
+  it("restores checklist changes made while the board was closed", async () => {
+    const id = "e4c5f688";
+    const d = door();
+
+    d.boards.set(id, [CHECKLIST]);
+    d.state.set(id, { "0": [0] });
+
+    const first = mountTag(id, d);
+
+    await waitFor(() => expect(
+      screen.getByRole("checkbox", { name: /Passport/ })
+        .getAttribute("aria-checked")
+    ).toBe("true"));
+
+    first.unmount();
+
+    // Another device changes the saved checklist.
+    d.state.set(id, { "0": [1] });
+
+    mountTag(id, d);
+
+    await waitFor(() => expect(
+      screen.getByRole("checkbox", { name: /Tickets/ })
+        .getAttribute("aria-checked")
+    ).toBe("true"));
+
+    expect(
+      screen.getByRole("checkbox", { name: /Passport/ })
+        .getAttribute("aria-checked")
+    ).toBe("false");
+
+    expect(d.puts).toHaveLength(0);
+  });
+
+  it("refreshes both the calculator and its local state mirror", async () => {
+    const id = "e4c5f689";
+    const d = door();
+
+    const calc = {
+      type: "calculator",
+      title: "Trip",
+      inputs: [
+        { id: "n", label: "Nights", value: 2, min: 1, max: 10, step: 1 },
+      ],
+      outputs: [],
+    };
+
+    d.boards.set(id, [calc]);
+
+    const first = mountTag(id, d);
+
+    await waitFor(() => expect(
+      first.container.querySelector("input[type=range]")
+    ).toBeTruthy());
+
+    const slider = first.container.querySelector(
+      "input[type=range]"
+    ) as HTMLInputElement;
+
+    fireEvent.change(slider, { target: { value: "6" } });
+
+    await waitFor(() => expect(
+      Object.keys(d.state.get(id) ?? {}).some(k => k.startsWith("k:"))
+    ).toBe(true));
+
+    const key = Object.keys(d.state.get(id)!)
+      .find(k => k.startsWith("k:"))!;
+
+    expect(d.state.get(id)?.[key]).toEqual({ n: 6 });
+
+    first.unmount();
+
+    // Another device moves the slider.
+    d.state.set(id, { [key]: { n: 9 } });
+
+    const writes = d.puts.length;
+    const second = mountTag(id, d);
+
+    await waitFor(() => expect(
+      second.container.querySelector<HTMLInputElement>(
+        "input[type=range]"
+      )?.value
+    ).toBe("9"));
+
+    // The page mirror must agree with the accepted server answer.
+    expect(peekStored(id, key.slice(2))?.value).toEqual({ n: 9 });
+
+    // Restoring state must not write it back to the server.
+    expect(d.puts).toHaveLength(writes);
+  });
+});
+
+
+describe("failed checklist save recovery", () => {
+  it("preserves a failed checklist edit on reopening", async () => {
+    const id = "e4c5f697";
+    const d = door();
+
+    d.boards.set(id, [CHECKLIST]);
+    d.state.set(id, { "0": [0] });
+
+    const normalRest = restFor(d);
+    let attempts = 0;
+    let reads = 0;
+
+    const rest: Rest = async (path, init) => {
+      if (init?.method === "PUT") {
+        attempts++;
+        throw new Error("Save failed");
+      }
+      if (path.endsWith("/state")) reads++;
+      return normalRest(path, init);
+    };
+
+    const checked = (name: string) =>
+      screen.getByRole("checkbox", { name })
+        .getAttribute("aria-checked");
+
+    const first = mountTag(id, d, "s1", rest);
+
+    await waitFor(() => expect(checked("Passport")).toBe("true"));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tickets" }));
+
+    await waitFor(() => expect(attempts).toBe(1));
+    expect(checked("Tickets")).toBe("true");
+
+    first.unmount();
+
+    const second = mountTag(id, d, "s1", rest);
+
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => {});
+
+    expect(checked("Passport")).toBe("true");
+    expect(checked("Tickets")).toBe("true");
+    expect(d.state.get(id)).toEqual({ "0": [0] });
+    expect(attempts).toBe(1);
+
+    second.unmount();
+
+    // A genuine same-field remote change takes precedence.
+    d.state.set(id, { "0": [1] });
+
+    mountTag(id, d, "s1", rest);
+
+    await waitFor(() => {
+      expect(reads).toBe(3);
+      expect(checked("Passport")).toBe("false");
+      expect(checked("Tickets")).toBe("true");
+    });
+    expect(attempts).toBe(1);
   });
 });

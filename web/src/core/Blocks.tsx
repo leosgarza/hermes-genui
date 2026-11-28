@@ -27,7 +27,8 @@ import type { FollowUp } from "./readBlocks";
 import { FollowUps } from "./FollowUps";
 import { BlockSlot } from "./blockState";
 import { carriedKey, identityOf, mintKey, noteMounted } from "./living-identity";
-import type { Align, Density, Motion, Palette } from "./fields";
+import { slotList } from "./drawSlot";
+import type { Align } from "./fields";
 import { alignOf, textAlignOf } from "./readBlocks";
 
 /** The two board-wide voices, carried down so every block — top level or nested — resolves both the same way:
@@ -102,30 +103,26 @@ function drawAll(blocks: Block[]): ReactNode[] {
   });
 }
 
-/** One block wherever it sits: its root is ALWAYS the one .hb-place element, asked for or not. Where the model
- *  asked for a place (away from left) or a text voice, the wrapper carries the variant class and box; where it
- *  asked for nothing the wrapper carries .hb-bare and generates no box (display: contents), so an unsaid board
- *  lays out and measures exactly as it always drew. Placement is a class on the stable root — never a re-wrap —
- *  so a living flip to or from left keeps the mounted block's live subtree (a half-dragged slider, an unsent
- *  form) instead of remounting it (review round 3, defect 1). */
+/** One block wherever it sits: wrapped in its place when it sits away from left, and marked with its text voice
+ *  when it carries words and they are asked to read other than left. Either ask grows the one wrapper; nothing
+ *  asked for, nothing added — the board draws exactly the DOM it always drew. */
 function Placed({ block }: { block: Block }) {
   const { board, text } = useContext(AlignScope);
   const at = alignOf(block) ?? board ?? "left";
   const ta = TEXT_BEARING.has(block.type) ? textAlignOf(block) ?? text ?? "left" : "left";
+  const view = <BlockView block={block} />;
+  if (at === "left" && ta === "left") return view;
   const cls = ["hb-place"];
   if (at !== "left") cls.push(`hb-place-${at}`);
   if (ta !== "left") cls.push(`hb-ta-${ta}`);
-  if (at === "left" && ta === "left") cls.push("hb-bare");
   return (
     <div className={cls.join(" ")} {...(at !== "left" ? { "data-align": at } : {})}
-      {...(ta !== "left" ? { "data-text-align": ta } : {})}><BlockView block={block} /></div>
+      {...(ta !== "left" ? { "data-text-align": ta } : {})}>{view}</div>
   );
 }
 
-export function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUps, boardAsOf, boardDensity,
-  boardPalette, boardMotion }: {
+export function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUps }: {
   blocks: Block[]; boardAlign?: Align; boardTextAlign?: Align; live?: boolean; boardFollowUps?: FollowUp[];
-  boardAsOf?: string; boardDensity?: Density; boardPalette?: Palette; boardMotion?: Motion;
 }) {
   // A board that SHOWS a source block has already said where its data came from — that block draws in the
   // flow, right above this quiet line, so repeating its words under it was a duplicate, not provenance
@@ -137,14 +134,11 @@ export function Blocks({ blocks, boardAlign, boardTextAlign, live, boardFollowUp
   // source-less board says nothing here because there is nothing unseen to say. What survives this line
   // answers to the host, not to sources (maintainer note 2026-11-25 #2): a kept, refreshing view
   // grows it with the Live badge alone — Today's shape — while a chat tag or a panel claims nothing.
-  const said = showsSourceBlock(blocks) ? [] : provenanceParts(blocks);
-  const parts = boardAsOf ? [...said, `as of ${boardAsOf}`] : said;
+  const parts = showsSourceBlock(blocks) ? [] : provenanceParts(blocks);
   return (
     <AlignScope.Provider value={{ board: boardAlign, text: boardTextAlign }}>
-      <div className="hb-blocks" data-density={boardDensity === "compact" ? "compact" : undefined}
-        data-palette={boardPalette && boardPalette !== "default" ? boardPalette : undefined}
-        data-motion={boardMotion === "reduced" ? "reduced" : undefined}>
-        <FlowLightBoard>{drawAll(blocks)}</FlowLightBoard>
+      <div className="hb-blocks">
+        <FlowLightBoard>{slotList(drawAll(blocks))}</FlowLightBoard>
         {!!boardFollowUps?.length && <FollowUps items={boardFollowUps} />}
         {(parts.length > 0 || live === true) && <ProvenanceFooter parts={parts} live={live} />}
       </div>
